@@ -803,6 +803,7 @@ Optional Packages:
   --with-oss (default=yes)
   --with-host_os (no default)
   --with-winapi ((wmme/directx/asio) default=wmme)
+  --with-macapi (asio) default=asio)
   --with-asiodir (default=/usr/local/asiosdk2)
   --with-calliasiodir (default=./calliasio)
   --with-nasm (checks path for nasm or nasmw
@@ -2736,6 +2737,15 @@ else
 fi;
 
 
+# Check whether --with-macapi or --without-macapi was given.
+if test "${with_macapi+set}" = set; then
+  withval="$with_macapi"
+  with_macapi=$withval
+else
+  with_macapi="asio"
+fi;
+
+
 # Check whether --with-asiodir or --without-asiodir was given.
 if test "${with_asiodir+set}" = set; then
   withval="$with_asiodir"
@@ -2787,6 +2797,78 @@ case "${host_os}" in
 	PADLL="libportaudio.dylib";
 	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
 	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
+        if [ $with_macapi = "asio" ] ; then
+            if [ $with_nasm ] ; then
+                NASM=$with_nasm;
+            else
+                # Extract the first word of "nasm", so it can be a program name with args.
+set dummy nasm; ac_word=$2
+echo "$as_me:$LINENO: checking for $ac_word" >&5
+echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6
+if test "${ac_cv_path_NASM+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  case $NASM in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_NASM="$NASM" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+  for ac_exec_ext in '' $ac_executable_extensions; do
+  if $as_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path_NASM="$as_dir/$ac_word$ac_exec_ext"
+    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+done
+
+  test -z "$ac_cv_path_NASM" && ac_cv_path_NASM="no"
+  ;;
+esac
+fi
+NASM=$ac_cv_path_NASM
+
+if test -n "$NASM"; then
+  echo "$as_me:$LINENO: result: $NASM" >&5
+echo "${ECHO_T}$NASM" >&6
+else
+  echo "$as_me:$LINENO: result: no" >&5
+echo "${ECHO_T}no" >&6
+fi
+
+                if [ $NASM = "no" ] ; then
+                    { { echo "$as_me:$LINENO: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&5
+echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
+   { (exit 1); exit 1; }; }
+                fi
+                NASMOPT=  ;
+            fi
+            NASMOPT=  ;
+
+            if [ $with_asiodir ] ; then
+              ASIODIR="$with_asiodir";
+            else
+              ASIODIR="/usr/local/asiosdk2";
+            fi
+            echo "ASIODIR: $ASIODIR";
+
+            if [ $with_calliasiodir ] ; then
+              CALLIASIODIR="$with_calliasiodir";
+            else
+              CALLIASIODIR="./calliasio";
+            fi
+            echo "CALLIASIODIR: $CALLIASIODIR";
+
+            OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o";
+            #OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
+            CFLAGS="$CFLAGS -Ipa_asio -I$ASIDIR/host/mac -I$ASIODIR/common";
+            CXXFLAGS="$CFLAGS";
+        fi
 	;;
 
   mingw* )
@@ -2914,7 +2996,7 @@ echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
             else
               CALLIASIODIR="./calliasio";
             fi
-            echo "CALLIASIODIR: $CALLIASIODIR"
+            echo "CALLIASIODIR: $CALLIASIODIR";
 
             #OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/common/asio.o $ASIODIR/common/asiodrvr.o $ASIODIR/common/combase.o $ASIODIR/common/debugmessage.o $ASIODIR/common/dllentry.o $ASIODIR/common/register.o $ASIODIR/host/ASIOConvertSamples.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
             OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
