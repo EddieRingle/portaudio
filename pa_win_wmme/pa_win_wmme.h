@@ -66,7 +66,9 @@ typedef struct PaWinMmeDeviceAndNumChannels{
 
 
 typedef struct PaWinMmeStreamInfo{
-    PaHostApiSpecificStreamInfo header;
+    unsigned long size;             /* sizeof(PaWinMmeStreamInfo) */
+    PaHostApiTypeId hostApiType;    /* paMME */
+    unsigned long version;          /* 1 */
 
     unsigned long flags;
 

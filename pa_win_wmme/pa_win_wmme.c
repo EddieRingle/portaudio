@@ -144,16 +144,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** stream,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -646,10 +638,10 @@ static PaError CalculateBufferSettings(
         unsigned long *framesPerHostInputBuffer, unsigned long *numHostInputBuffers,
         unsigned long *framesPerHostOutputBuffer, unsigned long *numHostOutputBuffers,
         int numInputChannels, PaSampleFormat hostInputSampleFormat,
-        unsigned long inputLatency, PaWinMmeStreamInfo *inputStreamInfo,
+        PaTime suggestedInputLatency, PaWinMmeStreamInfo *inputStreamInfo,
         int numOutputChannels, PaSampleFormat hostOutputSampleFormat,
-        unsigned long outputLatency, PaWinMmeStreamInfo *outputStreamInfo,
-        unsigned long framesPerBuffer )
+        PaTime suggestedOutputLatency, PaWinMmeStreamInfo *outputStreamInfo,
+        double sampleRate, unsigned long framesPerBuffer )
 {
     PaError result = paNoError;
 
@@ -892,16 +884,8 @@ PaWinMmeStream;
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -912,6 +896,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaWinMmeHostApiRepresentation *winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
     PaWinMmeStream *stream = 0;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    double suggestedInputLatency, suggestedOutputLatency;
+    PaWinMmeStreamInfo *inputStreamInfo, *outputStreamInfo;
     unsigned long bytesPerInputFrame, bytesPerOutputFrame;
     unsigned long framesPerHostInputBuffer;
     unsigned long numHostInputBuffers;
@@ -926,23 +914,176 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned int i;
     int numChannels;
     PaWinMmeDeviceAndNumChannels *inputDevices = 0;
-    unsigned long numInputDevices = (inputDevice != paNoDevice) ? 1 : 0;
+    unsigned long numInputDevices = (inputParameters) ? 1 : 0;
     PaWinMmeDeviceAndNumChannels *outputDevices = 0;
-    unsigned long numOutputDevices = (outputDevice != paNoDevice) ? 1 : 0;
+    unsigned long numOutputDevices = (outputParameters) ? 1 : 0;
     char noHighPriorityProcessClass = 0;
     char useTimeCriticalProcessingThreadPriority = 0;
     char throttleProcessingThreadOnOverload = 1;
 
-    /* check that input device can support numInputChannels */
-    if( (inputDevice != paNoDevice) && (inputDevice != paUseHostApiSpecificDeviceSpecification) &&
-            (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )
-        return paInvalidChannelCount;
+
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+        suggestedInputLatency = inputParameters->suggestedLatency;
+        
+        /* check that input device can support numInputChannels */
+        if( (inputParameters->device != paUseHostApiSpecificDeviceSpecification) &&
+                (numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels) )
+            return paInvalidChannelCount;
 
 
-    /* check that output device can support numInputChannels */
-    if( (outputDevice != paNoDevice) && (outputDevice != paUseHostApiSpecificDeviceSpecification) &&
-            (numOutputChannels > hostApi->deviceInfos[ outputDevice ]->maxOutputChannels) )
-        return paInvalidChannelCount;
+        /* validate input hostApiSpecificStreamInfo */
+        inputStreamInfo = (PaWinMmeStreamInfo*)inputParameters->hostApiSpecificStreamInfo;
+        if( inputStreamInfo )
+        {
+            if( inputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
+                    || inputStreamInfo->version != 1 )
+            {
+                return paIncompatibleStreamInfo;
+            }
+
+            if( inputStreamInfo->flags & PaWinMmeNoHighPriorityProcessClass )
+                noHighPriorityProcessClass = 1;
+            if( inputStreamInfo->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
+                throttleProcessingThreadOnOverload = 0;
+            if( inputStreamInfo->flags & PaWinMmeUseTimeCriticalThreadPriority )
+                useTimeCriticalProcessingThreadPriority = 1;
+            
+            /* validate multidevice fields */
+
+            if( inputStreamInfo->flags & PaWinMmeUseMultipleDevices )
+            {
+                int totalChannels = 0;
+                for( i=0; i< inputStreamInfo->numDevices; ++i )
+                {
+                    /* validate that the device number is within range, and that
+                        the number of channels is legal */
+                    PaDeviceIndex hostApiDevice;
+
+                    if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
+                        return paInvalidDevice;
+
+                    numChannels = inputStreamInfo->devices[i].numChannels;
+
+                    result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice,
+                                    inputStreamInfo->devices[i].device, hostApi );
+                    if( result != paNoError )
+                        return result;
+
+                    if( numChannels < 1 || numChannels > hostApi->deviceInfos[ hostApiDevice ]->maxInputChannels )
+                        return paInvalidChannelCount;
+
+                    /* FIXME this validation might be easier and better if there was a pautil
+                        function which performed the validation in pa_front:ValidateOpenStreamParameters() */
+
+                    totalChannels += numChannels;
+                }
+
+                if( totalChannels != numInputChannels )
+                {
+                    /* numInputChannels must match total channels specified by multiple devices */
+                    return paInvalidChannelCount; /* REVIEW use of this error code */
+                }
+
+                inputDevices = inputStreamInfo->devices;
+                numInputDevices = inputStreamInfo->numDevices;
+            }
+        }
+
+        /* FIXME: establish which host formats are available */
+        hostInputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+
+    }
+    else
+    {
+        numInputChannels = 0;
+        inputStreamInfo = 0;
+    }
+
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        suggestedOutputLatency = outputParameters->suggestedLatency;
+        
+        /* check that input device can support numInputChannels */
+        if( (outputParameters->device != paUseHostApiSpecificDeviceSpecification) &&
+                (numInputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels) )
+            return paInvalidChannelCount;
+
+
+        /* validate input hostApiSpecificStreamInfo */
+        outputStreamInfo = (PaWinMmeStreamInfo*)outputParameters->hostApiSpecificStreamInfo;
+        if( outputStreamInfo )
+        {
+            if( outputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
+                    || outputStreamInfo->version != 1 )
+            {
+                return paIncompatibleStreamInfo;
+            }
+
+            if( outputStreamInfo->flags & PaWinMmeNoHighPriorityProcessClass )
+                noHighPriorityProcessClass = 1;
+            if( outputStreamInfo->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
+                throttleProcessingThreadOnOverload = 0;
+            if( outputStreamInfo->flags & PaWinMmeUseTimeCriticalThreadPriority )
+                useTimeCriticalProcessingThreadPriority = 1;
+            
+            /* validate multidevice fields */
+        
+            if( outputStreamInfo->flags & PaWinMmeUseMultipleDevices )
+            {
+                int totalChannels = 0;
+                for( i=0; i< outputStreamInfo->numDevices; ++i )
+                {
+                    /* validate that the device number is within range, and that
+                        the number of channels is legal */
+                    PaDeviceIndex hostApiDevice;
+
+                    if( outputParameters->device != paUseHostApiSpecificDeviceSpecification )
+                        return paInvalidDevice;
+
+                    numChannels = outputStreamInfo->devices[i].numChannels;
+                
+                    result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice,
+                                    outputStreamInfo->devices[i].device,
+                            hostApi );
+                    if( result != paNoError )
+                        return result;
+
+                    if( numChannels < 1 || numChannels > hostApi->deviceInfos[ hostApiDevice ]->maxOutputChannels )
+                        return paInvalidChannelCount;
+
+                    /* FIXME this validation might be easier and better if there was a pautil
+                        function which performed the validation in pa_front:ValidateOpenStreamParameters() */
+                    
+                    totalChannels += numChannels;
+                }
+
+                if( totalChannels != numOutputChannels )
+                {
+                    /* numOutputChannels must match total channels specified by multiple devices */
+                    return paInvalidChannelCount; /* REVIEW use of this error code */
+                }
+
+                outputDevices = outputStreamInfo->devices;
+                numOutputDevices = outputStreamInfo->numDevices;
+            }
+        }
+
+        /* FIXME: establish which host formats are available */
+        hostOutputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+    }
+    else
+    {
+        numOutputChannels = 0;
+        outputStreamInfo = 0;
+    }
 
 
     /*
@@ -951,141 +1092,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     */
 
 
-    /* validate inputStreamInfo */
-    if( inputStreamInfo )
-    {
-        if( inputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
-                || inputStreamInfo->version != 1 )
-        {
-            return paIncompatibleStreamInfo;
-        }
-
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeNoHighPriorityProcessClass )
-            noHighPriorityProcessClass = 1;
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
-            throttleProcessingThreadOnOverload = 0;
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseTimeCriticalThreadPriority )
-            useTimeCriticalProcessingThreadPriority = 1;
-            
-        /* validate multidevice fields */
-
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseMultipleDevices )
-        {
-            int totalChannels = 0;
-            for( i=0; i< ((PaWinMmeStreamInfo*)inputStreamInfo)->numDevices; ++i )
-            {
-                /* validate that the device number is within range, and that
-                    the number of channels is legal */
-                PaDeviceIndex hostApiDevice;
-
-                if( inputDevice != paUseHostApiSpecificDeviceSpecification )
-                    return paInvalidDevice;
-
-                numChannels = ((PaWinMmeStreamInfo*)inputStreamInfo)->devices[i].numChannels;
-
-                result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice,
-                        ((PaWinMmeStreamInfo*)inputStreamInfo)->devices[i].device,
-                        hostApi );
-                if( result != paNoError )
-                    return result;
-
-                if( numChannels < 1 || numChannels > hostApi->deviceInfos[ hostApiDevice ]->maxInputChannels )
-                    return paInvalidChannelCount;
-
-                /* FIXME this validation might be easier and better if there was a pautil
-                    function which performed the validation in pa_front:ValidateOpenStreamParameters() */
-
-                totalChannels += numChannels;
-            }
-
-            if( totalChannels != numInputChannels )
-            {
-                /* numInputChannels must match total channels specified by multiple devices */
-                return paInvalidChannelCount; /* REVIEW use of this error code */
-            }
-
-            inputDevices = ((PaWinMmeStreamInfo*)inputStreamInfo)->devices;
-            numInputDevices = ((PaWinMmeStreamInfo*)inputStreamInfo)->numDevices;
-        }
-    }
-
-    /* validate outputStreamInfo */
-    if( outputStreamInfo )
-    {
-        if( outputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
-                || outputStreamInfo->version != 1 )
-        {
-            return paIncompatibleStreamInfo;
-        }
-
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeNoHighPriorityProcessClass )
-            noHighPriorityProcessClass = 1;
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
-            throttleProcessingThreadOnOverload = 0;
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseTimeCriticalThreadPriority )
-            useTimeCriticalProcessingThreadPriority = 1;
-            
-        /* validate multidevice fields */
-        
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseMultipleDevices )
-        {
-            int totalChannels = 0;
-            for( i=0; i< ((PaWinMmeStreamInfo*)outputStreamInfo)->numDevices; ++i )
-            {
-                /* validate that the device number is within range, and that
-                    the number of channels is legal */
-                PaDeviceIndex hostApiDevice;
-
-                if( outputDevice != paUseHostApiSpecificDeviceSpecification )
-                    return paInvalidDevice;
-
-                numChannels = ((PaWinMmeStreamInfo*)outputStreamInfo)->devices[i].numChannels;
-                
-                result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice,
-                        ((PaWinMmeStreamInfo*)outputStreamInfo)->devices[i].device,
-                        hostApi );
-                if( result != paNoError )
-                    return result;
-
-                if( numChannels < 1 || numChannels > hostApi->deviceInfos[ hostApiDevice ]->maxOutputChannels )
-                    return paInvalidChannelCount;
-
-                /* FIXME this validation might be easier and better if there was a pautil
-                    function which performed the validation in pa_front:ValidateOpenStreamParameters() */
-                    
-                totalChannels += numChannels;
-            }
-
-            if( totalChannels != numOutputChannels )
-            {
-                /* numOutputChannels must match total channels specified by multiple devices */
-                return paInvalidChannelCount; /* REVIEW use of this error code */
-            }
-
-            outputDevices = ((PaWinMmeStreamInfo*)outputStreamInfo)->devices;
-            numOutputDevices = ((PaWinMmeStreamInfo*)outputStreamInfo)->numDevices;
-        }            
-    }
-
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
         return paInvalidFlag; /* unexpected platform specific flag */
 
 
-    /* FIXME: establish which host formats are available */
-    hostInputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
-
-    /* FIXME: establish which host formats are available */
-    hostOutputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-
-
     result = CalculateBufferSettings( &framesPerHostInputBuffer, &numHostInputBuffers,
-            &framesPerHostOutputBuffer, &numHostOutputBuffers,
-            numInputChannels, hostInputSampleFormat, inputLatency, (PaWinMmeStreamInfo*)inputStreamInfo,
-            numOutputChannels, hostOutputSampleFormat, outputLatency, (PaWinMmeStreamInfo*)outputStreamInfo,
-            framesPerBuffer );
+                &framesPerHostOutputBuffer, &numHostOutputBuffers,
+                numInputChannels, hostInputSampleFormat, suggestedInputLatency, inputStreamInfo,
+                numOutputChannels, hostOutputSampleFormat, suggestedOutputLatency, outputStreamInfo,
+                sampleRate, framesPerBuffer );
     if( result != paNoError )
         goto error;
 
@@ -1115,7 +1131,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
-    if( inputDevice != paNoDevice && outputDevice != paNoDevice )
+    if( inputParameters && outputParameters ) /* full duplex */
     {
         /*
             either host input and output buffers must be the same size, or the
@@ -1137,11 +1153,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             framesPerBufferProcessorCall = framesPerHostOutputBuffer;
         }
     }
-    else if( inputDevice != paNoDevice )
+    else if( inputParameters )
     {
         framesPerBufferProcessorCall = framesPerHostInputBuffer;
     }
-    else if( outputDevice != paNoDevice )
+    else if( outputParameters )
     {
         framesPerBufferProcessorCall = framesPerHostOutputBuffer;
     }
@@ -1150,11 +1166,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->framesPerOutputBuffer = framesPerHostOutputBuffer;
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              numInputChannels, inputSampleFormat, hostInputSampleFormat,
-              numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer,
-              framesPerBufferProcessorCall, paUtilFixedHostBufferSize,
-              streamCallback, userData );
+                    numInputChannels, inputSampleFormat, hostInputSampleFormat,
+                    numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+                    sampleRate, streamFlags, framesPerBuffer,
+                    framesPerBufferProcessorCall, paUtilFixedHostBufferSize,
+                    streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -1173,7 +1189,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     bufferEventInited = 1;
 
-    if( inputDevice != paNoDevice )
+    if( inputParameters )
     {
         wfx.wFormatTag = WAVE_FORMAT_PCM;
         wfx.nSamplesPerSec = (DWORD) sampleRate;
@@ -1208,7 +1224,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             else
             {
-                inputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputDevice );
+                inputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputParameters->device );
                 wfx.nChannels = (WORD) numInputChannels;
             }
 
@@ -1250,7 +1266,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
     }
 
-    if( outputDevice != paNoDevice )
+    if( outputParameters )
     {
         wfx.wFormatTag = WAVE_FORMAT_PCM;
         wfx.nSamplesPerSec = (DWORD) sampleRate;
@@ -1285,7 +1301,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             else
             {
-                outputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputDevice );
+                outputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputParameters->device );
                 wfx.nChannels = (WORD) numOutputChannels;
             }
 
@@ -2389,6 +2405,7 @@ static PaTime GetStreamTime( PaStream *s )
     else
         return 0;
 */
+    (void) s; /* unused parameter */
     return PaUtil_GetTime();
 }
 
