@@ -74,9 +74,14 @@ static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
-static unsigned long GetStreamReadAvailable( PaStream* stream );
-static unsigned long GetStreamWriteAvailable( PaStream* stream );
+static signed long GetStreamReadAvailable( PaStream* stream );
+static signed long GetStreamWriteAvailable( PaStream* stream );
 
+
+/* IMPLEMENT ME: a macro like the following one should be used for reporting
+ host errors */
+#define PA_SKELETON_SET_LAST_HOST_ERROR( errorCode, errorText ) \
+    PaUtil_SetLastHostError( paInDevelopment, errorCode, errorText )
 
 /* PaSkeletonHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -160,11 +165,13 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
                 deviceInfo->name = deviceName;
             */
 
-            /*
-                IMPLEMENT ME:
-                    - populate other device info fields
-            */
-            
+            deviceInfo->maxInputChannels = 0;  /* IMPLEMENT ME */
+            deviceInfo->maxOutputChannels = 0;  /* IMPLEMENT ME */
+            deviceInfo->defaultLowInputLatency = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultLowOutputLatency = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultHighInputLatency = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultHighOutputLatency = 0.;  /* IMPLEMENT ME */  
+
             (*hostApi)->deviceInfos[i] = deviceInfo;
             ++(*hostApi)->deviceCount;
         }
@@ -615,7 +622,7 @@ static PaError WriteStream( PaStream* s,
 }
 
 
-static unsigned long GetStreamReadAvailable( PaStream* s )
+static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
@@ -625,7 +632,7 @@ static unsigned long GetStreamReadAvailable( PaStream* s )
 }
 
 
-static unsigned long GetStreamWriteAvailable( PaStream* s )
+static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
