@@ -574,16 +574,9 @@ PaError Pa_OpenStream( PaStream** stream,
  @param sampleRate The desired sampleRate. For full-duplex streams it is the
  sample rate for both input and output
      
- @param framesPerCallback The number of frams passed to the callback function.
+ @param framesPerCallback The number of frames passed to the callback function.
  When this parameter is 0 it indicates that the callback will recieve an
  optimal number of frames for the requested latency settings.
-
- @param numberOfBuffers The number of buffers used for multibuffered communication
- with the platform specific audio routines. If you pass zero, then an optimum
- value will be chosen for you internally. This parameter is provided only
- as a guide - and does not imply that an implementation must use multibuffered
- i/o when reliable double buffering is available (such as SndPlayDoubleBuffer()
- on the Macintosh.)
      
  @param streamFlags Flags which modify the behaviour of the streaming process.
  This parameter may contain a combination of flags ORed together. Some flags may
