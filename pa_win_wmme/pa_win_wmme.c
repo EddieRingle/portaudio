@@ -3357,7 +3357,7 @@ static PaError ReadStream( PaStream* s,
                     channel += channelCount;
                 }
                 
-                framesProcessed = PaUtil_CopyInput( &stream->bufferProcessor, &buffer, frames - framesRead );
+                framesProcessed = PaUtil_CopyInput( &stream->bufferProcessor, &userBuffer, frames - framesRead );
 
                 stream->input.framesUsedInCurrentBuffer += framesProcessed;
                 if( stream->input.framesUsedInCurrentBuffer == stream->input.framesPerBuffer )
