@@ -86,6 +86,12 @@ else
    CFLAGS="$CFLAGS -DPA_LITTLE_ENDIAN"
 fi
 
+dnl sizeof checks: we will need a 16-bit and a 32-bit type
+
+AC_CHECK_SIZEOF(short)
+AC_CHECK_SIZEOF(int)
+AC_CHECK_SIZEOF(long)
+
 case "${host_os}" in
   darwin* )
 	dnl Mac OS X configuration
