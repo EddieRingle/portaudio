@@ -82,7 +82,10 @@
         - miscellaneous other FIXMEs
 */
 
+/** @file
 
+    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+*/
 
 
 
@@ -151,7 +154,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
@@ -1223,7 +1226,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData )
 {
     PaError result = paNoError;
@@ -1338,15 +1341,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->asioChannelInfos = 0; /* for deallocation in error */
     stream->bufferPtrs = 0; /* for deallocation in error */
     
-    if( callback )
+    if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &asioHostApi->callbackStreamInterface, callback, userData );
+                                               &asioHostApi->callbackStreamInterface, streamCallback, userData );
     }
     else
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &asioHostApi->blockingStreamInterface, callback, userData );
+                                               &asioHostApi->blockingStreamInterface, streamCallback, userData );
     }
 
 
@@ -1501,7 +1504,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerBuffer,
               framesPerHostBuffer, paUtilFixedHostBufferSize,
-              callback, userData );
+              streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -1673,10 +1676,14 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         
         PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 
+        PaStreamCallbackTimeInfo paTimeInfo;
+
         // asio systemTime is supposed to be measured according to the same
         // clock as timeGetTime
-        PaTime outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
-                theAsioStream->outputLatencySeconds;
+        paTimeInfo->currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
+        paTimeInfo->inputBufferAdcTime = paTimeInfo->currentTime - theAsioStream->inputLatencySeconds;
+        paTimeInfo->outputBufferDacTime = paTimeInfo->currentTime + theAsioStream->outputLatencySeconds;
+
 
         if( theAsioStream->inputBufferConverter )
         {
@@ -1687,7 +1694,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             }
         }
 
-        PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, outTime );
+        PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo );
 
         PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
         for( i=0; i<theAsioStream->numInputChannels; ++i )
@@ -1697,7 +1704,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         for( i=0; i<theAsioStream->numOutputChannels; ++i )
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
-        int callbackResult;
+        PaStreamCallbackResult callbackResult;
         unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
         
         if( theAsioStream->outputBufferConverter )

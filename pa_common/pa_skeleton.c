@@ -68,7 +68,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
@@ -259,7 +259,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData )
 {
     PaError result = paNoError;
@@ -331,15 +331,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
     }
 
-    if( callback )
+    if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &skeletonHostApi->callbackStreamInterface, callback, userData );
+                                               &skeletonHostApi->callbackStreamInterface, streamCallback, userData );
     }
     else
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &skeletonHostApi->blockingStreamInterface, callback, userData );
+                                               &skeletonHostApi->blockingStreamInterface, streamCallback, userData );
     }
 
 
@@ -365,7 +365,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerBuffer,
               framesPerHostBuffer, paUtilFixedHostBufferSize,
-              callback, userData );
+              streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -395,8 +395,8 @@ error:
 static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, void *userData )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)userData;
-    PaTime outTime = 0; /* IMPLEMENT ME */
-    int callbackResult;
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
+    PaStreamCallbackResult callbackResult;
     unsigned long framesProcessed;
     
     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
@@ -414,7 +414,7 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
 
 
 
-    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
     /*
         depending on whether the host buffers are interleaved, non-interleaved

@@ -83,7 +83,7 @@ typedef struct {
     void **tempOutputBufferPtrs;    /* storage for non-interleaved buffer pointers, NULL for interleaved user output */
     unsigned long framesInTempOutputBuffer; /* frames remaining in input buffer from previous adaption iteration */
 
-    PaTime hostOutTime;
+    PaStreamCallbackTimeInfo *timeInfo;
     
     unsigned long hostInputFrameCount[2];
     PaUtilChannelDescriptor *hostInputChannels[2];
@@ -94,7 +94,7 @@ typedef struct {
 
     double samplePeriod;
 
-    PortAudioCallback *userCallback;
+    PaStreamCallback *streamCallback;
     void *userData;
 } PaUtilBufferProcessor;
 
@@ -109,7 +109,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
             unsigned long framesPerUserBuffer, /* 0 indicates don't care */
             unsigned long framesPerHostBuffer,
             PaUtilHostBufferSizeMode hostBufferSizeMode,
-            PortAudioCallback *userCallback, void *userData );
+            PaStreamCallback *streamCallback, void *userData );
 /**<
 
     @param framesPerHostBuffer Specifies the number of frames per host buffer
@@ -124,9 +124,15 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
 void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 
 
-void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaTime outTime );
+/**
+ @param timeInfo Timing information for the first sample of the buffer(s)
+ passed to the buffer processor. The buffer processor may adjust this
+ information as necessary.
+*/
+void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor,
+        PaStreamCallbackTimeInfo* timeInfo );
 
-unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, int *callbackResult );
+unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaStreamCallbackResult *callbackResult );
 /*<< returns the number of frames processed */
 
 void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bufferProcessor,

@@ -97,7 +97,6 @@ int main(void)
         if( deviceInfo->nativeSampleFormats & paInt32 )       printf("paInt32, ");
         if( deviceInfo->nativeSampleFormats & paFloat32 )     printf("paFloat32, ");
         if( deviceInfo->nativeSampleFormats & paInt24 )       printf("paInt24, ");
-        if( deviceInfo->nativeSampleFormats & paPackedInt24 ) printf("paPackedInt24, ");
         printf("\n");
     }
     Pa_Terminate();

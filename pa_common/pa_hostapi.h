@@ -171,7 +171,7 @@ typedef struct PaUtilHostApiRepresentation {
                        double sampleRate,
                        unsigned long framesPerCallback,
                        PaStreamFlags streamFlags,
-                       PortAudioCallback *callback,
+                       PaStreamCallback *streamCallback,
                        void *userData );
 } PaUtilHostApiRepresentation;
 

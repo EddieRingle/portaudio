@@ -102,14 +102,14 @@ typedef struct PaUtilStreamRepresentation {
     unsigned long magic;    /* set to PA_STREAM_MAGIC */
     struct PaUtilStreamRepresentation *nextOpenStream; /* field used by multi-api code */
     PaUtilStreamInterface *streamInterface;
-    PortAudioCallback *callback;
+    PaStreamCallback *streamCallback;
     void *userData;
 } PaUtilStreamRepresentation;
 
 
 void PaUtil_InitializeStreamRepresentation( PaUtilStreamRepresentation *streamRepresentation,
     PaUtilStreamInterface *streamInterface,
-    PortAudioCallback callback,
+    PaStreamCallback *streamCallback,
     void *userData );
 
 void PaUtil_TerminateStreamRepresentation( PaUtilStreamRepresentation *streamRepresentation );

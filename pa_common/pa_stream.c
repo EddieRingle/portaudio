@@ -67,13 +67,13 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
 
 void PaUtil_InitializeStreamRepresentation( PaUtilStreamRepresentation *streamRepresentation,
         PaUtilStreamInterface *streamInterface,
-        PortAudioCallback callback,
+        PaStreamCallback *streamCallback,
         void *userData )
 {
     streamRepresentation->magic = PA_STREAM_MAGIC;
     streamRepresentation->nextOpenStream = 0;
     streamRepresentation->streamInterface = streamInterface;
-    streamRepresentation->callback = callback;
+    streamRepresentation->streamCallback = streamCallback;
     streamRepresentation->userData = userData;
 }
 

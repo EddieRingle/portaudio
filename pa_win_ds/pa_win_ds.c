@@ -29,6 +29,11 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+
+    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+*/
+
 #include <stdio.h>
 #include <string.h> /* strlen() */
 
@@ -84,7 +89,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
@@ -629,7 +634,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData )
 {
     PaError result = paNoError;
@@ -699,15 +704,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
     }
 
-    if( callback )
+    if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &winDsHostApi->callbackStreamInterface, callback, userData );
+                                               &winDsHostApi->callbackStreamInterface, streamCallback, userData );
     }
     else
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &winDsHostApi->blockingStreamInterface, callback, userData );
+                                               &winDsHostApi->blockingStreamInterface, streamCallback, userData );
     }
 
 
@@ -729,7 +734,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               framesPerBuffer, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
         /* This next mode is required because DS can split the host buffer when it wraps around. */
               paUtilVariableHostBufferSizePartialUsageAllowed,
-              callback, userData );
+              streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -876,7 +881,7 @@ error:
 /***********************************************************************************/
 static PaError Pa_TimeSlice( PaWinDsStream *stream )
 {
-    PaError           result = 0;
+    PaError           result = 0;   /* FIXME: this should be declared PaStreamCallbackResult and this function should also return that type */
     DSoundWrapper    *dsw;
     long              numFrames = 0;
     long              bytesEmpty = 0;
@@ -888,7 +893,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     long              bytesProcessed;
     HRESULT           hresult;
     double            outputLatency = 0;
-    double            outTime;
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement inputBufferAdcTime */
 /* Input */
     LPBYTE            lpInBuf1 = NULL;
     LPBYTE            lpInBuf2 = NULL;
@@ -927,12 +932,13 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
 
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-    /* The outTime parameter should indicates the time at which
+    /* The outputBufferDacTime parameter should indicates the time at which
         the first sample of the output buffer is heard at the DACs. */
-        outTime = PaUtil_GetTime() + outputLatency;
+        timeInfo.currentTime = PaUtil_GetTime();
+        timeInfo.outputBufferDacTime = timeInfo.currentTime + outputLatency;
 
 
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
     /* Input */
         if( stream->bufferProcessor.numInputChannels > 0 )
@@ -1102,7 +1108,7 @@ static PaError StartStream( PaStream *s )
 
     if( stream->bufferProcessor.numOutputChannels > 0 )
     {
-        /* Give user callback a chance to pre-fill buffer. */
+        /* Give user callback a chance to pre-fill buffer. REVIEW - i thought we weren't pre-filling, rb. */
         result = Pa_TimeSlice( stream );
         if( result != paNoError ) return result; // FIXME - what if finished?
 

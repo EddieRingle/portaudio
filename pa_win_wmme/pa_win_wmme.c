@@ -72,6 +72,8 @@
 	@todo Implement buffer size and number of buffers code, 
 		this code should generate defaults the way the old code did
 
+    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+
 	@todo Fix fixmes
 */
 
@@ -155,7 +157,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
@@ -903,7 +905,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *streamCallback,
                            void *userData )
 {
     PaError result = paNoError;
@@ -1108,7 +1110,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->throttleProcessingThreadOnOverload = throttleProcessingThreadOnOverload;
     
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                           &winMmeHostApi->callbackStreamInterface, callback, userData );
+                                           &winMmeHostApi->callbackStreamInterface, streamCallback, userData );
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
@@ -1152,7 +1154,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerBuffer,
               framesPerBufferProcessorCall, paUtilFixedHostBufferSize,
-              callback, userData );
+              streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -1573,7 +1575,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     DWORD numTimeouts = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
-    int callbackResult;
+    PaStreamCallbackResult callbackResult;
     int done = 0;
     unsigned int channel, i, j;
     unsigned long framesProcessed;
@@ -1733,7 +1735,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
                         (!PA_IS_FULL_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
-                    PaTime outTime = 0;
+                    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement inputBufferAdcTime and currentTime */
+
 
                     if( hostOutputBufferIndex != -1 ){
                         MMTIME time;
@@ -1752,16 +1755,19 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         
                         playbackPosition = time.u.sample % totalRingFrames;
 
-                        if( playbackPosition >= ringPosition )
-                            outTime = now + ((double)( ringPosition + (totalRingFrames - playbackPosition) ) * stream->bufferProcessor.samplePeriod );
-                        else
-                            outTime = now + ((double)( ringPosition - playbackPosition ) * stream->bufferProcessor.samplePeriod );
+                        if( playbackPosition >= ringPosition ){
+                            timeInfo.outputBufferDacTime =
+                                    now + ((double)( ringPosition + (totalRingFrames - playbackPosition) ) * stream->bufferProcessor.samplePeriod );
+                        }else{
+                            timeInfo.outputBufferDacTime =
+                                    now + ((double)( ringPosition - playbackPosition ) * stream->bufferProcessor.samplePeriod );
+                        }
                     }
 
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
                     if( hostInputBufferIndex != -1 )
                     {
@@ -1825,7 +1831,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     }
                     else
                     {
-                        /* User callback has asked us to stop with paComplete or other non-zero value */
+                        /* User cllback has asked us to stop with paComplete or other non-zero value */
                         stream->stopProcessing = 1; /* stop once currently queued audio has finished */
                         result = paNoError;
                     }
