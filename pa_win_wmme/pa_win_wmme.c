@@ -57,25 +57,22 @@
  RDB20020531 - converted to V19 framework
 */
 
-/*
-TODO:
-    o- implement buffer size and number of buffers code
-        x- write template function and ask phil to implement it
-        x- template should take: host input and output sample formats,
-            callbackBufferSize, requested input and output latency
-        o- this code should generate defaults the way the old code did
+/** @file
 
-    o- handle case where user suppled full duplex buffer sizes are not compatible
+	@todo Handle case where user supplied full duplex buffer sizes are not compatible
          (must be common multiples)
+	
+	@todo Fix buffer catch up code, can sometimes get stuck
 
-    - fix buffer catch up code, can sometimes get stuck
-
-    - implement "close sample rate matching" if needed - is this really needed
+	@todo Implement "close sample rate matching" if needed - is this really needed
         in mme?
-        
-    - investigate supporting host buffer formats > 16 bits
 
-    - see other  fixmes
+	@todo Investigate supporting host buffer formats > 16 bits
+
+	@todo Implement buffer size and number of buffers code, 
+		this code should generate defaults the way the old code did
+
+	@todo Fix fixmes
 */
 
 #include <stdio.h>
