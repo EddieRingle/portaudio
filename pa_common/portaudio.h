@@ -389,13 +389,12 @@ PaDeviceIndex Pa_GetDefaultOutputDevice( void );
 typedef double PaTime;
 
 
-/** A type used to specify one or more sample formats. They indicate
- the formats used to pass sound data between the stream callback and the
- stream. Each device has one or more "native" formats which may be used when
- optimum efficiency or control over conversion is required.
+/** A type used to specify one or more sample formats. Each value indicates
+ a possible format for sound data passed to and from the stream callback,
+ Pa_ReadStream and Pa_WriteStream.
 
- Formats marked "always available" are supported (emulated) by all
- PortAudio implementations.
+ The standard formats paFloat32, paInt16, paInt32, paInt24, paInt8
+ and aUInt8 are usually implemented by all implementations.
 
  The floating point representation (paFloat32) uses +1.0 and -1.0 as the
  maximum and minimum respectively.
