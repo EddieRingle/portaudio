@@ -203,7 +203,7 @@ static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm
 {
     th->callbackTime = 0;
     th->watchdogRunning = 0;
-    th->rtSched = 1;
+    th->rtSched = 0;
     th->useWatchdog = 1;
     th->cpuLoadMeasurer = clm;
 
