@@ -39,10 +39,9 @@
  we should do the same.
 
  @todo implement the converters marked IMPLEMENT ME: Float32_To_UInt8_Dither,
- Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24,
- Int32_To_Int24_Dither, Int32_To_UInt8, Int32_To_UInt8_Dither, Int24_To_Int32,
- Int24_To_Int16, Int24_To_Int16_Dither, Int24_To_Int8, Int24_To_Int8_Dither,
- Int24_To_UInt8, Int24_To_UInt8_Dither, Int16_To_Int32, Int16_To_Int24,
+ Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24_Dither,
+ Int32_To_UInt8, Int32_To_UInt8_Dither, Int24_To_Int16_Dither, Int24_To_Int8, 
+ Int24_To_Int8_Dither, Int24_To_UInt8, Int24_To_UInt8_Dither, Int16_To_Int32,  
  Int16_To_Int8, Int16_To_Int8_Dither, Int16_To_UInt8, Int16_To_UInt8_Dither,
  Int8_To_Int32, Int8_To_Int24, Int8_To_Int16, Int8_To_UInt8, UInt8_To_Int32,
  UInt8_To_Int24, UInt8_To_Int16, UInt8_To_Int8
@@ -892,13 +891,25 @@ static void Int32_To_Int24(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    signed long *src    = (signed long*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    (void) ditherGenerator; /* unused parameter */
+    
+	while( count-- )
+    {
+		/* REVIEW */
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = (unsigned char)(*src >> 8);
+        dest[1] = (unsigned char)(*src >> 16);
+        dest[2] = (unsigned char)(*src >> 24);
+#elif defined(PA_BIG_ENDIAN)
+        dest[0] = (unsigned char)(*src >> 24);
+        dest[1] = (unsigned char)(*src >> 16);
+        dest[2] = (unsigned char)(*src >> 8);
+#endif
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1083,13 +1094,30 @@ static void Int24_To_Int32(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    unsigned char *src  = (unsigned char*)sourceBuffer;
+    signed long   *dest = (signed long*)  destinationBuffer;
+    signed long temp;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+
+#if defined(PA_LITTLE_ENDIAN)
+        temp = (((long)src[0]) << 8);  
+        temp = temp | (((long)src[1]) << 16);
+        temp = temp | (((long)src[2]) << 24);
+#elif defined(PA_BIG_ENDIAN)
+        temp = (((long)src[0]) << 24);
+        temp = temp | (((long)src[1]) << 16);
+        temp = temp | (((long)src[2]) << 8);
+#endif
+
+        *dest = temp;
+
+        src += sourceStride * 3;
+        dest += destinationStride;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1099,13 +1127,31 @@ static void Int24_To_Int16(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    signed short *dest = (signed short*)destinationBuffer;
+    
+	signed short temp;
+
+    (void) ditherGenerator; /* unused parameter */
+        
+    while( count-- )
+    {
+		
+#if defined(PA_LITTLE_ENDIAN)
+		/* src[0] is discarded */
+        temp = (((signed short)src[1]));
+        temp = temp | (signed short)(((signed short)src[2]) << 8);
+#elif defined(PA_BIG_ENDIAN)
+		/* src[2] is discarded */
+        temp = (signed short)(((signed short)src[0]) << 8);
+        temp = temp | (((signed short)src[1]));
+#endif
+
+        *dest = temp;
+
+        src += sourceStride * 3;
+        dest += destinationStride;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1238,13 +1284,29 @@ static void Int16_To_Int24(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    signed short *src   = (signed short*) sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    signed short temp;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        temp = *src;
+        
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = 0;
+        dest[1] = (unsigned char)(temp);
+        dest[2] = (unsigned char)(temp >> 8);
+#elif defined(PA_BIG_ENDIAN)
+        dest[0] = (unsigned char)(temp >> 8);
+        dest[1] = (unsigned char)(temp);
+        dest[2] = 0;
+#endif
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
