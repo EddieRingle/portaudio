@@ -1,13 +1,15 @@
+/** @file patest_wire.c
+	@brief Pass input directly to output.
+
+	Note that some HW devices, for example many ISA audio cards
+	on PCs, do NOT support full duplex! For a PC, you normally need
+	a PCI based audio card such as the SBLive.
+
+	@author Phil Burk  http://www.softsynth.com
+	@todo needs to be updated to use the V19 API
+*/
 /*
  * $Id$
- * patest_wire.c
- *
- * Pass input directly to output.
- * Note that some HW devices, for example many ISA audio cards
- * on PCs, do NOT support full duplex! For a PC, you normally need
- * a PCI based audio card such as the SBLive.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

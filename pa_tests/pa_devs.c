@@ -1,9 +1,9 @@
+/** @file pa_devs.c
+    @brief List available devices, including device information.
+	@author Phil Burk http://www.softsynth.com
+*/
 /*
  * $Id$
- * pa_devs.c
- * List available devices.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

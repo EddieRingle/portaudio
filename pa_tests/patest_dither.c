@@ -1,10 +1,13 @@
+/** @file patest_dither.c
+	@brief Attempt to hear difference between dithered and non-dithered signal.
+
+	This only has an effect if the native format is 16 bit.
+
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_dither.c
- * Attempt to hear difference between dithered and non-dithered signal.
- * This only has an effect if the native format is 16 bit.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

@@ -1,10 +1,10 @@
+/** @file patest_sine_formats.c
+	@brief Play a sine wave for several seconds. Test various data formats.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk
+*/
 /*
  * $Id$
- * patest_sine_formats.c
- * Play a sine wave using the Portable Audio api for several seconds.
- * Test various data formats.
- *
- * Author: Phil Burk
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

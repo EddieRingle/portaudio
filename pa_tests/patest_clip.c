@@ -1,10 +1,11 @@
+/** @file patest_clip.c
+	@brief Play a sine wave for several seconds at an amplitude 
+	that would require clipping.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_clip.c
- * Play a sine wave using the Portable Audio api for several seconds
- * at an amplitude that would require clipping.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

@@ -1,9 +1,10 @@
+/** @file patest_many.c
+	@brief Start and stop the PortAudio Driver multiple times.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_many.c
- * Start and stop the PortAudio Driver multiple times.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

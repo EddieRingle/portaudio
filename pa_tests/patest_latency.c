@@ -1,9 +1,11 @@
+/** @file
+	@brief Hear the latency caused by big buffers.
+	Play a sine wave and change frequency based on letter input.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk <philburk@softsynth.com>, and Darren Gibbs
+*/
 /*
  * $Id$
- * Hear the latency caused by big buffers.
- * Play a sine wave and change frequency based on letter input.
- *
- * Author: Phil Burk <philburk@softsynth.com>, and Darren Gibbs
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

@@ -1,11 +1,10 @@
+/** @file patest_sine.c
+	@brief Play a sine wave for several seconds.
+	@author Ross Bencina <rossb@audiomulch.com>
+    @author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_sine.c
- * Play a sine wave using the Portable Audio api for several seconds.
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com/

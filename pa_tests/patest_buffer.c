@@ -1,9 +1,10 @@
+/** @file patest_buffer.c
+	@brief Test opening streams with different buffer sizes.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_buffer.c
- * Test opening streams with different buffer sizes.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

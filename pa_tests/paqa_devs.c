@@ -1,11 +1,12 @@
+/** @file paqa_devs.c
+    @brief Self Testing Quality Assurance app for PortAudio
+ 	Try to open each device and run through all the
+ 	possible configurations.	
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * paqa_devs.c
- * Self Testing Quality Assurance app for PortAudio
- * Try to open each device and run through all the
- * possible configurations.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

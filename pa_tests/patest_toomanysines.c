@@ -1,10 +1,11 @@
+/** @file patest_toomanysines.c
+	@brief Play more sine waves than we can handle in real time as a stress test.
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * Play more sine waves than we can handle in real time as a stress test,
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

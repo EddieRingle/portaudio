@@ -1,12 +1,12 @@
+/** @file patest_underflow.c
+	@brief Simulate an output buffer underflow condition.
+	Tests whether the stream can be stopped when underflowing buffers.
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_underflow.c
- * Simulate an output buffer underflow condition.
- * Tests whether the stream can be stopped when underflowing buffers.
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

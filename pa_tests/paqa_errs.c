@@ -1,10 +1,11 @@
+/** @file paqa_errs.c
+	@brief Self Testing Quality Assurance app for PortAudio
+	Do lots of bad things to test error reporting.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * paqa_devs.c
- * Self Testing Quality Assurance app for PortAudio
- * Do lots of bad things to test error reporting.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

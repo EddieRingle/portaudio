@@ -1,19 +1,21 @@
+/** @file patest_sync.c
+	@brief Test time stamping and synchronization of audio and video.
+
+	A high latency is used so we can hear the difference in time.
+	Random durations are used so we know we are hearing the right beep
+	and not the one before or after.
+
+	Sequence of events:
+		-# Foreground requests a beep.
+		-# Background randomly schedules a beep.
+		-# Foreground waits for the beep to be heard based on PaUtil_GetTime().
+		-# Foreground outputs video (printf) in sync with audio.
+		-# Repeat.
+	
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_sync.c
- * Test time stamping and synchronization of audio and video.
- * A high latency is used so we can hear the difference in time.
- * Random durations are used so we know we are hearing the right beep
- * and not the one before or after.
- *
- * Sequence of events:
- *    Foreground requests a beep.
- *    Background randomly schedules a beep.
- *    Foreground waits for the beep to be heard based on PaUtil_GetTime().
- *    Foreground outputs video (printf) in sync with audio.
- *    Repeat.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

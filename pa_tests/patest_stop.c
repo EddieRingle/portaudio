@@ -1,17 +1,20 @@
+/** @file patest_stop.c
+	@brief Test different ways of stopping audio.
+
+	Test the three ways of stopping audio:
+		- calling Pa_StopStream(),
+		- calling Pa_AbortStream(),
+		- and returning a 1 from the callback function.
+
+	A long latency is set up so that you can hear the difference.
+	Then a simple 8 note sequence is repeated twice.
+	The program will print what you should hear.
+
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_stop.c
- *
- * Test the three ways of stopping audio:
- *    calling Pa_StopStream(),
- *    calling Pa_AbortStream(),
- *    and returning a 1 from the callback function.
- *
- * A long latency is set up so that you can hear the difference.
- * Then a simple 8 note sequence is repeated twice.
- * The program will print what you should hear.
- *
- * Author: Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

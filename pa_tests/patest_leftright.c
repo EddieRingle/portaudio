@@ -1,12 +1,15 @@
+/** @file patest_leftright.c
+	@brief Play different tone sine waves that 
+		alternate between left and right channel.
+
+	The low tone should be on the left channel.
+
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_leftright.c
- * Play different tone sine waves that alternate between left and right channel.
- * The low tone should be on the left channel.
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

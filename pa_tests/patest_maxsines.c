@@ -1,11 +1,11 @@
+/** @file patest_maxsines.c
+	@brief How many sine waves can we calculate and play in less than 80% CPU Load.
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_maxsines.c
- * How many sine waves can we calculate and play in less than 80% CPU Load.
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

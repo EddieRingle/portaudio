@@ -1,9 +1,10 @@
+/** @file patest_saw.c
+	@brief Play a simple (aliasing) sawtooth wave.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_saw.c
- * Play a simple sawtooth wave.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

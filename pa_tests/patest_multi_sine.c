@@ -1,10 +1,10 @@
+/** @file patest_multi_sine.c
+	@brief Play a different sine wave on each channel.
+	@todo needs to be updated to use the V19 API
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_multi_out.c
- * Play a different sine wave on each channels,
- * using the Portable Audio api.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

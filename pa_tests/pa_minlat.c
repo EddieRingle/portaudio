@@ -1,10 +1,11 @@
+/** @file pa_minlat.c
+    @brief Experiment with different numbers of buffers to determine the
+	minimum latency for a computer.
+	@author Phil Burk  http://www.softsynth.com
+	@todo needs to be updated to use the V19 API
+*/
 /*
  * $Id$
- * paminlat.c
- * Experiment with different numbers of buffers to determine the
- * minimum latency for a computer.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

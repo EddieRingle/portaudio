@@ -1,11 +1,9 @@
+/** @file patest_record.c
+	@brief Record input into an array; Save array to a file; Playback recorded data.
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_record.c
- * Record input into an array.
- * Save array to a file.
- * Playback recorded data.
- *
- * Author: Phil Burk  http://www.softsynth.com
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com

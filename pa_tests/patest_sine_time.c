@@ -1,13 +1,12 @@
+/** @file patest_sine_time.c
+	@brief Play a sine wave for several seconds, pausing in the middle.
+	Uses the Pa_GetStreamTime() and Pa_IsStreamActive() calls.
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_sine_time.c
- * Play a sine wave using the Portable Audio api for several seconds.
- * Pausing in the middle.
- * use the Pa_GetStreamTime() and Pa_IsStreamActive() calls.
- *
- * Authors:
- *    Ross Bencina <rossb@audiomulch.com>
- *    Phil Burk <philburk@softsynth.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/

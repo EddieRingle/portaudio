@@ -1,10 +1,10 @@
+/** @file patest_sine8.c
+	@brief Test 8 bit data: play a sine wave for several seconds.
+	@todo needs to be updated to use the V19 API
+	@author Ross Bencina <rossb@audiomulch.com>
+*/
 /*
  * $Id$
- * patest_sine8.c
- * Play a sine wave using the Portable Audio api for several seconds.
- * Test 8 bit data.
- *
- * Author: Ross Bencina <rossb@audiomulch.com>
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/
