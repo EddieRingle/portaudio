@@ -519,6 +519,14 @@ void PaUtil_SetOutputFrameCount( PaUtilBufferProcessor* bufferProcessor,
         unsigned long frameCount );
 
 
+/** Indicate that the output will be discarded. This function should be used
+ when implementing the paNeverDropInput mode for full duplex streams.
+
+ @param bufferProcessor The buffer processor.
+*/
+void PaUtil_SetNoOutput( PaUtilBufferProcessor* bufferProcessor );
+
+
 /** Provide the buffer processor with a pointer to a host output channel.
 
  @param bufferProcessor The buffer processor.
