@@ -130,10 +130,12 @@ typedef struct
     int fd;
     const char *devName;
     int userChannelCount, hostChannelCount;
+    int userInterleaved;
     void *buffer;
     PaSampleFormat userFormat, hostFormat;
     double latency;
     unsigned long hostFrames, numBufs;
+    void **userBuffers; /* For non-interleaved blocking */
 } PaOssStreamComponent;
 
 /** Implementation specific representation of a PaStream.
@@ -309,9 +311,13 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
         if( errno == EBUSY || errno == EAGAIN )
         {
             PA_DEBUG(( "%s: Device %s busy\n", __FUNCTION__, deviceName ));
-            return paDeviceUnavailable;
         }
-        ENSURE_( devHandle, paUnanticipatedHostError );
+        else
+        {
+            PA_DEBUG(( "%s: Can't access device: %s\n", __FUNCTION__, strerror( errno ) ));
+        }
+
+        return paDeviceUnavailable;
     }
 
     /* Negotiate for the maximum number of channels for this device. PLB20010927
@@ -682,18 +688,30 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
     return paNoError;
 }
 
-static PaError PaOssStreamComponent_Initialize( PaOssStreamComponent *component, const PaStreamParameters *parameters, int fd,
-        const char *deviceName )
+static PaError PaOssStreamComponent_Initialize( PaOssStreamComponent *component, const PaStreamParameters *parameters,
+        int callbackMode, int fd, const char *deviceName )
 {
+    PaError result = paNoError;
     assert( component );
+
+    memset( component, 0, sizeof (PaOssStreamComponent) );
 
     component->fd = fd;
     component->devName = deviceName;
     component->userChannelCount = parameters->channelCount;
     component->userFormat = parameters->sampleFormat;
     component->latency = parameters->suggestedLatency;
+    component->userInterleaved = !(parameters->sampleFormat & paNonInterleaved);
 
-    return paNoError;
+    if( !callbackMode && !component->userInterleaved )
+    {
+        /* Pre-allocate non-interleaved user provided buffers */
+        PA_UNLESS( component->userBuffers = PaUtil_AllocateMemory( sizeof (void *) * component->userChannelCount ),
+                paInsufficientMemory );
+    }
+
+error:
+    return result;
 }
 
 static void PaOssStreamComponent_Terminate( PaOssStreamComponent *component )
@@ -704,6 +722,9 @@ static void PaOssStreamComponent_Terminate( PaOssStreamComponent *component )
         close( component->fd );
     if( component->buffer )
         PaUtil_FreeMemory( component->buffer );
+
+    if( component->userBuffers )
+        PaUtil_FreeMemory( component->userBuffers );
 
     PaUtil_FreeMemory( component );
 }
@@ -806,12 +827,12 @@ static PaError PaOssStream_Initialize( PaOssStream *stream, const PaStreamParame
     if( inputParameters )
     {
         PA_UNLESS( stream->capture = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
-        PA_ENSURE( PaOssStreamComponent_Initialize( stream->capture, inputParameters, idev, idevName ) );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->capture, inputParameters, callback != NULL, idev, idevName ) );
     }
     if( outputParameters )
     {
         PA_UNLESS( stream->playback = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
-        PA_ENSURE( PaOssStreamComponent_Initialize( stream->playback, outputParameters, odev, odevName ) );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->playback, outputParameters, callback != NULL, odev, odevName ) );
     }
 
     if( callback != NULL )
@@ -902,6 +923,9 @@ static unsigned int PaOssStreamComponent_FrameSize( PaOssStreamComponent *compon
     return Pa_GetSampleSize( component->hostFormat ) * component->hostChannelCount;
 }
 
+/** Buffer size in bytes.
+ *
+ */
 static unsigned long PaOssStreamComponent_BufferSize( PaOssStreamComponent *component )
 {
     return PaOssStreamComponent_FrameSize( component ) * component->hostFrames * component->numBufs;
@@ -978,6 +1002,10 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
             PA_ENSURE( paInvalidSampleRate );
         }
 
+        ENSURE_( ioctl( component->fd, streamMode == StreamMode_In ? SNDCTL_DSP_GETISPACE : SNDCTL_DSP_GETOSPACE, &bufInfo ),
+                paUnanticipatedHostError );
+        component->numBufs = bufInfo.fragstotal;
+
         /* This needs to be the last ioctl call before the first read/write, according to the OSS programmer's guide */
         ENSURE_( ioctl( component->fd, SNDCTL_DSP_GETBLKSIZE, &bytesPerBuf ), paUnanticipatedHostError );
 
@@ -990,11 +1018,8 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
         component->hostFormat = master->hostFormat;
         component->hostFrames = master->hostFrames;
         component->hostChannelCount = master->hostChannelCount;
+        component->numBufs = master->numBufs;
     }
-
-    ENSURE_( ioctl( component->fd, streamMode == StreamMode_In ? SNDCTL_DSP_GETISPACE : SNDCTL_DSP_GETOSPACE, &bufInfo ),
-            paUnanticipatedHostError );
-    component->numBufs = bufInfo.fragstotal;
 
     PA_UNLESS( component->buffer = PaUtil_AllocateMemory( PaOssStreamComponent_BufferSize( component ) ),
             paInsufficientMemory );
@@ -1477,6 +1502,14 @@ static void *PaOSS_AudioThreadProc( void *userData )
     int callbackResult = paContinue;
     int triggered = stream->triggered;  /* See if SNDCTL_DSP_TRIGGER has been issued already */
     int initiateProcessing = triggered;    /* Already triggered? */
+    PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
+    
+    /*
+#if ( SOUND_VERSION > 0x030904 )
+        audio_errinfo errinfo;
+#endif
+*/
+    
     assert( stream );
 
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
@@ -1539,8 +1572,27 @@ static void *PaOSS_AudioThreadProc( void *userData )
                 assert( frames == framesAvail );
             }
 
+#if ( SOUND_VERSION >= 0x030904 )
+            /*
+               Check with OSS to see if there have been any under/overruns
+               since last time we checked.
+               */
+            /*
+            if( ioctl( stream->deviceHandle, SNDCTL_DSP_GETERROR, &errinfo ) >= 0 )
+            {
+                if( errinfo.play_underruns )
+                    cbFlags |= paOutputUnderflow ;
+                if( errinfo.record_underruns )
+                    cbFlags |= paInputUnderflow ;
+            }
+            else
+                PA_DEBUG(( "SNDCTL_DSP_GETERROR command failed: %s\n", strerror( errno ) ));
+                */
+#endif
+
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
-                    0 /* @todo pass underflow/overflow flags when necessary */ );
+                    cbFlags );
+            cbFlags = 0;
             PA_ENSURE( SetUpBuffers( stream, framesAvail ) );
 
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
@@ -1630,6 +1682,8 @@ static PaError StartStream( PaStream *s )
         PA_ENSURE( PaUtil_StartThreading( &stream->threading, &PaOSS_AudioThreadProc, stream ) );
         sem_wait( &stream->semaphore );
     }
+    else
+        PA_ENSURE( PaOssStream_Prepare( stream ) );
 
 error:
     return result;
@@ -1755,7 +1809,7 @@ static PaError ReadStream( PaStream* s,
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->capture->hostChannelCount;
+        int numBytes = sizeof (void *) * stream->capture->userChannelCount;
         if( (userBuffer = alloca( numBytes )) == NULL )
             return paInsufficientMemory;
         memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->capture->hostChannelCount );
@@ -1794,10 +1848,8 @@ static PaError WriteStream( PaStream* s,
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->playback->hostChannelCount;
-        if( (userBuffer = alloca( numBytes )) == NULL )
-            return paInsufficientMemory;
-        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playback->hostChannelCount );
+        userBuffer = stream->playback->userBuffers;
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playback->userChannelCount );
     }
 
     while( frames )
@@ -1823,26 +1875,21 @@ static signed long GetStreamReadAvailable( PaStream* s )
     PaOssStream *stream = (PaOssStream*)s;
     audio_buf_info info;
 
-    if( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &info ) == 0 )
-    {
-        return info.fragments * stream->capture->hostFrames;
-    }
-    else
-        return 0; /* TODO: is this right for "don't know"? */
+    if( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &info ) < 0 )
+        return paUnanticipatedHostError;
+    return info.fragments * stream->capture->hostFrames;
 }
 
 
+/* TODO: Compute number of allocated bytes somewhere else, can we use ODELAY with capture */
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaOssStream *stream = (PaOssStream*)s;
+    int delay;
 
-    audio_buf_info info;
-
-    if( ioctl( stream->playback->fd, SNDCTL_DSP_GETOSPACE, &info ) == 0 )
-    {
-        return info.fragments * stream->playback->hostFrames;
-    }
-    else
-        return 0; /* TODO: is this right for "don't know"? */
+    if( ioctl( stream->playback->fd, SNDCTL_DSP_GETODELAY, &delay ) < 0 )
+        return paUnanticipatedHostError;
+    
+    return (PaOssStreamComponent_BufferSize( stream->playback ) - delay) / PaOssStreamComponent_FrameSize( stream->playback );
 }
 
