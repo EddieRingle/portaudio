@@ -3,7 +3,7 @@
  * patest_sine_time.c
  * Play a sine wave using the Portable Audio api for several seconds.
  * Pausing in the middle.
- * use the Pa_StreamTime() and Pa_StreamActive() calls.
+ * use the Pa_GetStreamTime() and Pa_IsStreamActive() calls.
  *
  * Authors:
  *    Ross Bencina <rossb@audiomulch.com>
@@ -53,7 +53,7 @@ typedef struct
     float         sine[TABLE_SIZE];
     int           left_phase;
     int           right_phase;
-    int           framesToGo;
+    unsigned long framesToGo;
     volatile PaTimestamp   outTime;
 }
 paTestData;
@@ -105,12 +105,12 @@ static int patestCallback(   void *inputBuffer, void *outputBuffer,
     return finished;
 }
 /*******************************************************************/
-static void ReportStreamTime( PortAudioStream *stream, paTestData *data );
-static void ReportStreamTime( PortAudioStream *stream, paTestData *data )
+static void ReportStreamTime( PaStream *stream, paTestData *data );
+static void ReportStreamTime( PaStream *stream, paTestData *data )
 {
     PaTimestamp  streamTime, latency, outTime;
     
-    streamTime = Pa_StreamTime( stream );
+    streamTime = Pa_GetStreamTime( stream );
     outTime = data->outTime;
     if( outTime < 0.0 )
     {
@@ -129,7 +129,7 @@ static void ReportStreamTime( PortAudioStream *stream, paTestData *data )
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     paTestData DATA;
     int i;
@@ -149,30 +149,31 @@ int main(void)
               paNoDevice,/* default input device */
               0,              /* no input */
               paFloat32,  /* 32 bit floating point input */
+              0, /* default latency */
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,          /* stereo output */
               paFloat32,      /* 32 bit floating point output */
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
-              NUM_BUFFERS,              /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &DATA );
     if( err != paNoError ) goto error;
-    
+          
+    /* Watch until sound is halfway finished. */
+    printf("Play for %d seconds.\n", NUM_SECONDS/2 ); fflush(stdout);
+
     DATA.outTime = -1.0; // mark time for callback as undefined
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
-    
-    /* Watch until sound is halfway finished. */
-    printf("Play for %d seconds.\n", NUM_SECONDS/2 ); fflush(stdout);
     do
     {
         ReportStreamTime( stream, &DATA );
         Pa_Sleep(100);
-    } while( Pa_StreamTime( stream ) < (totalSamps/2) );
+    } while( Pa_GetStreamTime( stream ) < (totalSamps/2) );
     
     /* Stop sound until ENTER hit. */
     err = Pa_StopStream( stream );
@@ -189,7 +190,7 @@ int main(void)
     {
         ReportStreamTime( stream, &DATA );
         Pa_Sleep(100);
-    } while( Pa_StreamActive( stream ) );
+    } while( Pa_IsStreamActive( stream ) );
     
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
