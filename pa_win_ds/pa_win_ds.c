@@ -714,7 +714,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
+              sampleRate, streamFlags, framesPerCallback,
+              framesPerHostBuffer, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )
         goto error;
@@ -908,8 +909,16 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer );
 
-            result = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor,
-                nativeBufPtr, nativeBufPtr, outTime );
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+
+            PaUtil_SetInputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, nativeBufPtr, 0 );
+
+            PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, nativeBufPtr, 0 );
+            
+            PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
+
             stream->frameCount += stream->bufferProcessor.framesPerHostBuffer;
 
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );

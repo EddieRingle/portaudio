@@ -41,9 +41,26 @@ extern "C"
 #endif /* __cplusplus */
 
 
+typedef enum {
+    paUtilFixedHostBufferSize,
+    paUtilBoundedHostBufferSize,
+    paUtilUnknownHostBufferSize
+}PaUtilHostBufferSizeMode;
+
+
+typedef struct PaUtilChannelDescriptor{
+    void *data;
+    unsigned int stride;
+}PaUtilChannelDescriptor;
+
+
 typedef struct {
     unsigned long framesPerUserBuffer;
     unsigned long framesPerHostBuffer;
+
+    PaUtilHostBufferSizeMode hostBufferSizeMode;
+    int useNonAdaptingProcess;
+    unsigned long framesPerTempBuffer;
 
     unsigned int numInputChannels;
     unsigned int bytesPerHostInputSample;
@@ -62,6 +79,17 @@ typedef struct {
     void *tempOutputBuffer;         /* used for slips, block adaption, and conversion. */
     void **tempOutputBufferPtrs;    /* storage for non-interleaved buffer pointers, NULL for interleaved user output */
 
+    PaTimestamp hostOutTime;
+    
+    unsigned long hostInputFrameCount;
+    PaUtilChannelDescriptor hostInputChannels[20];  // FIXME: should be dynamically allocated
+    unsigned long hostInputFrameCount2;
+    PaUtilChannelDescriptor hostInputChannels2[20];  // FIXME: should be dynamically allocated
+    unsigned long hostOutputFrameCount;
+    PaUtilChannelDescriptor hostOutputChannels[20];  // FIXME: should be dynamically allocated
+    unsigned long hostOutputFrameCount2;
+    PaUtilChannelDescriptor hostOutputChannels2[20];  // FIXME: should be dynamically allocated
+    
     PaUtilTriangularDitherGenerator ditherGenerator;
 
     double samplePeriod;
@@ -78,59 +106,78 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
             PaSampleFormat hostOutputSampleFormat,
             double sampleRate,
             PaStreamFlags streamFlags,
-            unsigned long framesPerUserBuffer, unsigned long framesPerHostBuffer,
+            unsigned long framesPerUserBuffer, /* 0 indicates don't care */
+            unsigned long framesPerHostBuffer,
+            PaUtilHostBufferSizeMode hostBufferSizeMode,
             PortAudioCallback *userCallback, void *userData );
-/**< interleave flag is ignored for host buffer formats.. choose between the Process()
-functions below instead.
-
-
+/**< interleave flag is ignored for host buffer formats. Host interleave
+is configured below.
 */
 
 void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 
 
-int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bufferProcessor,
-        void *input, void *output, PaTimestamp outTime );
+void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaTimestamp outTime );
+
+unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, int *callbackResult );
+/*<< returns the number of frames processed */
+
+void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bufferProcessor,
+        unsigned long frameCount );
+/*<< a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
+
+void PaUtil_SetInputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data, unsigned int stride );
+
+void PaUtil_SetInterleavedInputChannels( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int firstChannel, void *data, unsigned int channelCount );
+/**< if channel count is zero use all channels as specified to initialize buffer processor */
+
+void PaUtil_SetNonInterleavedInputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data );
 
 
-int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bufferProcessor,
-        void **input, void **output, PaTimestamp outTime );
-        
+void PaUtil_Set2ndInputFrameCount( PaUtilBufferProcessor* bufferProcessor,
+        unsigned long frameCount );
 
-typedef struct PaUtilChannelDescriptor{
-    unsigned char *data;
-    unsigned int stride;
-}PaUtilChannelDescriptor;
+void PaUtil_Set2ndInputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data, unsigned int stride );
 
-int PaUtil_ProcessBuffers( PaUtilBufferProcessor* bufferProcessor,
-        PaUtilChannelDescriptor *input, PaUtilChannelDescriptor *output,
-        PaTimestamp outTime );
-/**< 
-    @param bufferProcessor Pointer to a buffer processor state data struct
-        previously initialized with PaUtil_InitializeBufferProcessor()
-        
-    @param input A pointer to the first element in an array of
-        PaUtilChannelDescriptors. Each of these elements points to the
-        first sample of the channel, and provides a stride parameter for
-        handling interleaved, non-interleaved and partially interleaved streams.
-        NULL may be passed if no input buffer is available such as a half
-        duplex stream, or during a buffer slip.
+void PaUtil_Set2ndInterleavedInputChannels( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int firstChannel, void *data, unsigned int channelCount );
+/**< if channel count is zero use all channels as specified to initialize buffer processor */
 
-    @param output A pointer to the first element in an array of
-        PaUtilChannelDescriptors. Each of these elements points to the
-        first sample of the channel, and provides a stride parameter for
-        handling interleaved, non-interleaved and partially interleaved streams.
-        NULL may be passed if no input buffer is available such as a half
-        duplex stream, or during a buffer slip.
+void PaUtil_Set2ndNonInterleavedInputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data );
 
-    @param outTime The time at which the first sample of output will reach
-        the dacs.
 
-    @return The value returned by the user callback.
+void PaUtil_SetOutputFrameCount( PaUtilBufferProcessor* bufferProcessor,
+        unsigned long frameCount );
+/*<< a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
 
-    @see PaUtil_ProcessInterleavedBuffers, PaUtil_ProcessNonInterleavedBuffers
-*/
+void PaUtil_SetOutputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data, unsigned int stride );
 
+void PaUtil_SetInterleavedOutputChannels( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int firstChannel, void *data, unsigned int channelCount );
+/**< if channel count is zero use all channels as specified to initialize buffer processor */
+
+void PaUtil_SetNonInterleavedOutputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data );
+
+
+void PaUtil_Set2ndOutputFrameCount( PaUtilBufferProcessor* bufferProcessor,
+        unsigned long frameCount );
+
+void PaUtil_Set2ndOutputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data, unsigned int stride );
+
+void PaUtil_Set2ndInterleavedOutputChannels( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int firstChannel, void *data, unsigned int channelCount );
+/**< if channel count is zero use all channels as specified to initialize buffer processor */
+
+void PaUtil_Set2ndNonInterleavedOutputChannel( PaUtilBufferProcessor* bufferProcessor,
+        unsigned int channel, void *data );
 
 #ifdef __cplusplus
 }

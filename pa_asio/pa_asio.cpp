@@ -1548,7 +1548,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
+              sampleRate, streamFlags, framesPerCallback,
+              framesPerHostBuffer, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )
         goto error;
@@ -1729,9 +1730,18 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             }
         }
 
+        PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, outTime );
 
-        int callbackResult = PaUtil_ProcessNonInterleavedBuffers( &theAsioStream->bufferProcessor,
-            theAsioStream->inputBufferPtrs[index], theAsioStream->outputBufferPtrs[index], outTime );
+        PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
+        for( int i=0; i<theAsioStream->numInputChannels; i++ )
+            PaUtil_SetNonInterleavedInputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->inputBufferPtrs[index][i] );
+
+        PaUtil_SetOutputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
+        for( int i=0; i<theAsioStream->numOutputChannels; i++ )
+            PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
+
+        int callbackResult;
+        PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
 
 
         if( theAsioStream->outputBufferConverter )

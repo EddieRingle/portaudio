@@ -68,12 +68,9 @@ TODO:
     - implement "close sample rate matching" if needed - is this really needed
         in mme?
 
-    - implement timecode param to callback
-
     - add bufferslip management
     - add multidevice multichannel support
     - add thread throttling on overload
-    - buffer time stamps
 */
 
 #include <stdio.h>
@@ -1011,7 +1008,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerBufferProcessorCall,
+              sampleRate, streamFlags, framesPerCallback,
+              framesPerBufferProcessorCall, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )
         goto error;
@@ -1390,7 +1388,21 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer /*FIXME: this is a bit of a hack*/ );
 
-                    callbackResult = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor, hostInputBuffer, hostOutputBuffer, outTime );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+
+                    if( hostInputBuffer )
+                    {
+                        PaUtil_SetInputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+                        PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, hostInputBuffer, 0 );
+                    }
+
+                    if( hostOutputBuffer )
+                    {
+                        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+                        PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, hostOutputBuffer, 0 );
+                    }
+                    
+                    PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
                     PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 

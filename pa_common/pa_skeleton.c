@@ -342,12 +342,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* IMPLEMENT ME - establish which  host formats are available */
     hostOutputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-        
 
+
+    /* we assume a fixed host buffer size in this example, but the buffer processor
+        can also support bounded and unknown host buffer sized by passing 
+        paUtilBoundedHostBufferSize or paUtilUnknownHostBufferSize instead of
+        paUtilFixedHostBufferSize below. */
+        
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
+              sampleRate, streamFlags, framesPerCallback,
+              framesPerHostBuffer, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )
         goto error;
@@ -394,13 +400,31 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
         routines in pa_byteswappers.h
     */
 
+
+
+    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+
     /*
         depending on whether the host buffers are interleaved, non-interleaved
-        or a mixture, you will want to call PaUtil_ProcessInterleavedBuffers(),
-        PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
+        or a mixture, you will want to call PaUtil_SetInterleaved*Channels(),
+        PaUtil_SetNonInterleaved*Channel() or PaUtil_Set*Channel() here.
     */
-    callbackResult = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor, inputBuffer, outputBuffer, outTime );
+    
+    PaUtil_SetInputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+    PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
+            0, /* first channel of inputBuffer is channel 0 */
+            inputBuffer,
+            0 ); /* 0 - use numInputChannels passed to init buffer processor */
 
+    PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+    PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
+            0, /* first channel of outputBuffer is channel 0 */
+            outputBuffer,
+            0 ); /* 0 - use numOutputChannels passed to init buffer processor */
+
+    PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
+
+    
     /*
         If you need to byte swap outputBuffer, you can do it here using
         routines in pa_byteswappers.h
