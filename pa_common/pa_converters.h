@@ -38,6 +38,8 @@ extern "C"
 {
 #endif /* __cplusplus */
 
+struct PaUtilTriangularDitherGenerator;
+
 
 /**
 Choose a format from availableFormats which can best be used to represent
