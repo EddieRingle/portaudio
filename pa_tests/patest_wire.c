@@ -47,7 +47,9 @@
 */
 #define SAMPLE_RATE            (44100)
 #define FRAMES_PER_BUFFER      (64)
+#define INPUT_DEVICE            (Pa_GetDefaultInputDevice())
 #define NUM_INPUT_CHANNELS     (2)
+#define OUTPUT_DEVICE           (Pa_GetDefaultOutputDevice())
 #define NUM_OUTPUT_CHANNELS    (2)
 
 #if 0
@@ -186,12 +188,12 @@ int main(void)
 
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDevice(), /* default output device */
+              INPUT_DEVICE,
               NUM_INPUT_CHANNELS,
               INPUT_FORMAT | FLAG_INTERLEAVED,
               0,               /* input latency */
               NULL,
-              Pa_GetDefaultOutputDevice(), /* default output device */
+              OUTPUT_DEVICE,
               NUM_OUTPUT_CHANNELS,
               OUTPUT_FORMAT | FLAG_INTERLEAVED,
               0,               /* output latency */
