@@ -20,6 +20,9 @@ if [[ $AR = "no" ]] ; then
     AC_MSG_ERROR("Could not find ar - needed to create a library");
 fi
 
+dnl This must be one of the first tests we do or it will fail...
+AC_C_BIGENDIAN
+
 dnl extra variables
 AC_SUBST(OTHER_OBJS)
 AC_SUBST(PADLL)
@@ -46,6 +49,12 @@ AC_ARG_WITH(oss,
             with_oss=$withval, with_oss="yes")
 
 CFLAGS="-g -O2 -Wall"
+
+if [[ $ac_cv_c_bigendian = "yes" ]] ; then
+   CFLAGS="$CFLAGS -DPA_BIG_ENDIAN"
+else
+   CFLAGS="$CFLAGS -DPA_LITTLE_ENDIAN"
+fi
 
 case "${host_os}" in
   darwin* )

@@ -1831,7 +1831,139 @@ echo "$as_me: error: \"Could not find ar - needed to create a library\"" >&2;}
    { (exit 1); exit 1; }; };
 fi
 
-echo "$as_me:1834: checking for snd_pcm_open in -lasound" >&5
+echo "$as_me:1834: checking whether byte ordering is bigendian" >&5
+echo $ECHO_N "checking whether byte ordering is bigendian... $ECHO_C" >&6
+if test "${ac_cv_c_bigendian+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_cv_c_bigendian=unknown
+# See if sys/param.h defines the BYTE_ORDER macro.
+cat >conftest.$ac_ext <<_ACEOF
+#line 1842 "configure"
+#include "confdefs.h"
+#include <sys/types.h>
+#include <sys/param.h>
+
+int
+main ()
+{
+#if !BYTE_ORDER || !BIG_ENDIAN || !LITTLE_ENDIAN
+ bogus endian macros
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:1859: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>&5
+  ac_status=$?
+  echo "$as_me:1862: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+         { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:1865: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:1868: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  # It does; now see whether it defined to BIG_ENDIAN or not.
+cat >conftest.$ac_ext <<_ACEOF
+#line 1872 "configure"
+#include "confdefs.h"
+#include <sys/types.h>
+#include <sys/param.h>
+
+int
+main ()
+{
+#if BYTE_ORDER != BIG_ENDIAN
+ not big endian
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext
+if { (eval echo "$as_me:1889: \"$ac_compile\"") >&5
+  (eval $ac_compile) 2>&5
+  ac_status=$?
+  echo "$as_me:1892: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+         { ac_try='test -s conftest.$ac_objext'
+  { (eval echo "$as_me:1895: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:1898: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_c_bigendian=yes
+else
+  echo "$as_me: failed program was:" >&5
+cat conftest.$ac_ext >&5
+ac_cv_c_bigendian=no
+fi
+rm -f conftest.$ac_objext conftest.$ac_ext
+else
+  echo "$as_me: failed program was:" >&5
+cat conftest.$ac_ext >&5
+fi
+rm -f conftest.$ac_objext conftest.$ac_ext
+if test $ac_cv_c_bigendian = unknown; then
+if test "$cross_compiling" = yes; then
+  { { echo "$as_me:1914: error: cannot run test program while cross compiling" >&5
+echo "$as_me: error: cannot run test program while cross compiling" >&2;}
+   { (exit 1); exit 1; }; }
+else
+  cat >conftest.$ac_ext <<_ACEOF
+#line 1919 "configure"
+#include "confdefs.h"
+int
+main ()
+{
+  /* Are we little or big endian?  From Harbison&Steele.  */
+  union
+  {
+    long l;
+    char c[sizeof (long)];
+  } u;
+  u.l = 1;
+  exit (u.c[sizeof (long) - 1] == 1);
+}
+_ACEOF
+rm -f conftest$ac_exeext
+if { (eval echo "$as_me:1935: \"$ac_link\"") >&5
+  (eval $ac_link) 2>&5
+  ac_status=$?
+  echo "$as_me:1938: \$? = $ac_status" >&5
+  (exit $ac_status); } && { ac_try='./conftest$ac_exeext'
+  { (eval echo "$as_me:1940: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:1943: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_c_bigendian=no
+else
+  echo "$as_me: program exited with status $ac_status" >&5
+echo "$as_me: failed program was:" >&5
+cat conftest.$ac_ext >&5
+ac_cv_c_bigendian=yes
+fi
+rm -f core core.* *.core conftest$ac_exeext conftest.$ac_objext conftest.$ac_ext
+fi
+fi
+fi
+echo "$as_me:1956: result: $ac_cv_c_bigendian" >&5
+echo "${ECHO_T}$ac_cv_c_bigendian" >&6
+if test $ac_cv_c_bigendian = yes; then
+
+cat >>confdefs.h <<\EOF
+#define WORDS_BIGENDIAN 1
+EOF
+
+fi
+
+echo "$as_me:1966: checking for snd_pcm_open in -lasound" >&5
 echo $ECHO_N "checking for snd_pcm_open in -lasound... $ECHO_C" >&6
 if test "${ac_cv_lib_asound_snd_pcm_open+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
@@ -1839,7 +1971,7 @@ else
   ac_check_lib_save_LIBS=$LIBS
 LIBS="-lasound  $LIBS"
 cat >conftest.$ac_ext <<_ACEOF
-#line 1842 "configure"
+#line 1974 "configure"
 #include "confdefs.h"
 
 /* Override any gcc2 internal prototype to avoid an error.  */
@@ -1858,16 +1990,16 @@ snd_pcm_open ();
 }
 _ACEOF
 rm -f conftest.$ac_objext conftest$ac_exeext
-if { (eval echo "$as_me:1861: \"$ac_link\"") >&5
+if { (eval echo "$as_me:1993: \"$ac_link\"") >&5
   (eval $ac_link) 2>&5
   ac_status=$?
-  echo "$as_me:1864: \$? = $ac_status" >&5
+  echo "$as_me:1996: \$? = $ac_status" >&5
   (exit $ac_status); } &&
          { ac_try='test -s conftest$ac_exeext'
-  { (eval echo "$as_me:1867: \"$ac_try\"") >&5
+  { (eval echo "$as_me:1999: \"$ac_try\"") >&5
   (eval $ac_try) 2>&5
   ac_status=$?
-  echo "$as_me:1870: \$? = $ac_status" >&5
+  echo "$as_me:2002: \$? = $ac_status" >&5
   (exit $ac_status); }; }; then
   ac_cv_lib_asound_snd_pcm_open=yes
 else
@@ -1878,7 +2010,7 @@ fi
 rm -f conftest.$ac_objext conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
-echo "$as_me:1881: result: $ac_cv_lib_asound_snd_pcm_open" >&5
+echo "$as_me:2013: result: $ac_cv_lib_asound_snd_pcm_open" >&5
 echo "${ECHO_T}$ac_cv_lib_asound_snd_pcm_open" >&6
 if test $ac_cv_lib_asound_snd_pcm_open = yes; then
   have_alsa=yes
@@ -1891,7 +2023,7 @@ fi
   if test -z "$PKG_CONFIG"; then
     # Extract the first word of "pkg-config", so it can be a program name with args.
 set dummy pkg-config; ac_word=$2
-echo "$as_me:1894: checking for $ac_word" >&5
+echo "$as_me:2026: checking for $ac_word" >&5
 echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6
 if test "${ac_cv_path_PKG_CONFIG+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
@@ -1908,7 +2040,7 @@ for ac_dir in $ac_dummy; do
   test -z "$ac_dir" && ac_dir=.
   if $as_executable_p "$ac_dir/$ac_word"; then
    ac_cv_path_PKG_CONFIG="$ac_dir/$ac_word"
-   echo "$as_me:1911: found $ac_dir/$ac_word" >&5
+   echo "$as_me:2043: found $ac_dir/$ac_word" >&5
    break
 fi
 done
@@ -1920,10 +2052,10 @@ fi
 PKG_CONFIG=$ac_cv_path_PKG_CONFIG
 
 if test -n "$PKG_CONFIG"; then
-  echo "$as_me:1923: result: $PKG_CONFIG" >&5
+  echo "$as_me:2055: result: $PKG_CONFIG" >&5
 echo "${ECHO_T}$PKG_CONFIG" >&6
 else
-  echo "$as_me:1926: result: no" >&5
+  echo "$as_me:2058: result: no" >&5
 echo "${ECHO_T}no" >&6
 fi
 
@@ -1937,24 +2069,24 @@ fi
   else
      PKG_CONFIG_MIN_VERSION=0.9.0
      if $PKG_CONFIG --atleast-pkgconfig-version $PKG_CONFIG_MIN_VERSION; then
-        echo "$as_me:1940: checking for jack" >&5
+        echo "$as_me:2072: checking for jack" >&5
 echo $ECHO_N "checking for jack... $ECHO_C" >&6
 
         if $PKG_CONFIG --exists "jack" ; then
-            echo "$as_me:1944: result: yes" >&5
+            echo "$as_me:2076: result: yes" >&5
 echo "${ECHO_T}yes" >&6
             succeeded=yes
 
-            echo "$as_me:1948: checking JACK_CFLAGS" >&5
+            echo "$as_me:2080: checking JACK_CFLAGS" >&5
 echo $ECHO_N "checking JACK_CFLAGS... $ECHO_C" >&6
             JACK_CFLAGS=`$PKG_CONFIG --cflags "jack"`
-            echo "$as_me:1951: result: $JACK_CFLAGS" >&5
+            echo "$as_me:2083: result: $JACK_CFLAGS" >&5
 echo "${ECHO_T}$JACK_CFLAGS" >&6
 
-            echo "$as_me:1954: checking JACK_LIBS" >&5
+            echo "$as_me:2086: checking JACK_LIBS" >&5
 echo $ECHO_N "checking JACK_LIBS... $ECHO_C" >&6
             JACK_LIBS=`$PKG_CONFIG --libs "jack"`
-            echo "$as_me:1957: result: $JACK_LIBS" >&5
+            echo "$as_me:2089: result: $JACK_LIBS" >&5
 echo "${ECHO_T}$JACK_LIBS" >&6
         else
             JACK_CFLAGS=""
@@ -2003,6 +2135,12 @@ fi;
 
 CFLAGS="-g -O2 -Wall"
 
+if [ $ac_cv_c_bigendian = "yes" ] ; then
+   CFLAGS="$CFLAGS -DPA_BIG_ENDIAN"
+else
+   CFLAGS="$CFLAGS -DPA_LITTLE_ENDIAN"
+fi
+
 case "${host_os}" in
   darwin* )
 
@@ -2033,7 +2171,7 @@ case "${host_os}" in
 
   *)
 
-echo "$as_me:2036: checking for pthread_create in -lpthread" >&5
+echo "$as_me:2174: checking for pthread_create in -lpthread" >&5
 echo $ECHO_N "checking for pthread_create in -lpthread... $ECHO_C" >&6
 if test "${ac_cv_lib_pthread_pthread_create+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
@@ -2041,7 +2179,7 @@ else
   ac_check_lib_save_LIBS=$LIBS
 LIBS="-lpthread  $LIBS"
 cat >conftest.$ac_ext <<_ACEOF
-#line 2044 "configure"
+#line 2182 "configure"
 #include "confdefs.h"
 
 /* Override any gcc2 internal prototype to avoid an error.  */
@@ -2060,16 +2198,16 @@ pthread_create ();
 }
 _ACEOF
 rm -f conftest.$ac_objext conftest$ac_exeext
-if { (eval echo "$as_me:2063: \"$ac_link\"") >&5
+if { (eval echo "$as_me:2201: \"$ac_link\"") >&5
   (eval $ac_link) 2>&5
   ac_status=$?
-  echo "$as_me:2066: \$? = $ac_status" >&5
+  echo "$as_me:2204: \$? = $ac_status" >&5
   (exit $ac_status); } &&
          { ac_try='test -s conftest$ac_exeext'
-  { (eval echo "$as_me:2069: \"$ac_try\"") >&5
+  { (eval echo "$as_me:2207: \"$ac_try\"") >&5
   (eval $ac_try) 2>&5
   ac_status=$?
-  echo "$as_me:2072: \$? = $ac_status" >&5
+  echo "$as_me:2210: \$? = $ac_status" >&5
   (exit $ac_status); }; }; then
   ac_cv_lib_pthread_pthread_create=yes
 else
@@ -2080,7 +2218,7 @@ fi
 rm -f conftest.$ac_objext conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
-echo "$as_me:2083: result: $ac_cv_lib_pthread_pthread_create" >&5
+echo "$as_me:2221: result: $ac_cv_lib_pthread_pthread_create" >&5
 echo "${ECHO_T}$ac_cv_lib_pthread_pthread_create" >&6
 if test $ac_cv_lib_pthread_pthread_create = yes; then
   cat >>confdefs.h <<EOF
@@ -2090,7 +2228,7 @@ EOF
   LIBS="-lpthread $LIBS"
 
 else
-  { { echo "$as_me:2093: error: libpthread not found!" >&5
+  { { echo "$as_me:2231: error: libpthread not found!" >&5
 echo "$as_me: error: libpthread not found!" >&2;}
    { (exit 1); exit 1; }; }
 fi
@@ -2240,7 +2378,7 @@ rm -f confdef2opt.sed
 : ${CONFIG_STATUS=./config.status}
 ac_clean_files_save=$ac_clean_files
 ac_clean_files="$ac_clean_files $CONFIG_STATUS"
-{ echo "$as_me:2243: creating $CONFIG_STATUS" >&5
+{ echo "$as_me:2381: creating $CONFIG_STATUS" >&5
 echo "$as_me: creating $CONFIG_STATUS" >&6;}
 cat >$CONFIG_STATUS <<_ACEOF
 #! $SHELL
@@ -2408,7 +2546,7 @@ cat >>$CONFIG_STATUS <<\EOF
     echo "$ac_cs_version"; exit 0 ;;
   --he | --h)
     # Conflict between --help and --header
-    { { echo "$as_me:2411: error: ambiguous option: $1
+    { { echo "$as_me:2549: error: ambiguous option: $1
 Try \`$0 --help' for more information." >&5
 echo "$as_me: error: ambiguous option: $1
 Try \`$0 --help' for more information." >&2;}
@@ -2427,7 +2565,7 @@ Try \`$0 --help' for more information." >&2;}
     ac_need_defaults=false;;
 
   # This is an error.
-  -*) { { echo "$as_me:2430: error: unrecognized option: $1
+  -*) { { echo "$as_me:2568: error: unrecognized option: $1
 Try \`$0 --help' for more information." >&5
 echo "$as_me: error: unrecognized option: $1
 Try \`$0 --help' for more information." >&2;}
@@ -2463,7 +2601,7 @@ do
   case "$ac_config_target" in
   # Handling of arguments.
   "Makefile" ) CONFIG_FILES="$CONFIG_FILES Makefile" ;;
-  *) { { echo "$as_me:2466: error: invalid argument: $ac_config_target" >&5
+  *) { { echo "$as_me:2604: error: invalid argument: $ac_config_target" >&5
 echo "$as_me: error: invalid argument: $ac_config_target" >&2;}
    { (exit 1); exit 1; }; };;
   esac
@@ -2677,7 +2815,7 @@ done; }
   esac
 
   if test x"$ac_file" != x-; then
-    { echo "$as_me:2680: creating $ac_file" >&5
+    { echo "$as_me:2818: creating $ac_file" >&5
 echo "$as_me: creating $ac_file" >&6;}
     rm -f "$ac_file"
   fi
@@ -2695,7 +2833,7 @@ echo "$as_me: creating $ac_file" >&6;}
       -) echo $tmp/stdin ;;
       [\\/$]*)
          # Absolute (can't be DOS-style, as IFS=:)
-         test -f "$f" || { { echo "$as_me:2698: error: cannot find input file: $f" >&5
+         test -f "$f" || { { echo "$as_me:2836: error: cannot find input file: $f" >&5
 echo "$as_me: error: cannot find input file: $f" >&2;}
    { (exit 1); exit 1; }; }
          echo $f;;
@@ -2708,7 +2846,7 @@ echo "$as_me: error: cannot find input file: $f" >&2;}
            echo $srcdir/$f
          else
            # /dev/null tree
-           { { echo "$as_me:2711: error: cannot find input file: $f" >&5
+           { { echo "$as_me:2849: error: cannot find input file: $f" >&5
 echo "$as_me: error: cannot find input file: $f" >&2;}
    { (exit 1); exit 1; }; }
          fi;;
