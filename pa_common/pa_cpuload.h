@@ -39,8 +39,8 @@ extern "C"
 
 
 typedef struct {
-    double samplingPeriodMicroseconds;
-    double microsecondsFor100Percent;
+    double samplingPeriod;
+    double secondsFor100Percent;
     double measurementStartTime;
     double averageLoad;
 } PaUtilCpuLoadMeasurer; /* FIXME: need better name than measurer */

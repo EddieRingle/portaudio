@@ -275,7 +275,7 @@ PaError Pa_Initialize( void )
     }
     else
     {
-        PaUtil_InitializeMicrosecondClock();
+        PaUtil_InitializeClock();
         PaUtil_ResetTraceMessages();
 
         result = InitializeHostApis();

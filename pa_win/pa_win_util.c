@@ -86,17 +86,16 @@ void Pa_Sleep( long msec )
 }
 
 static int usePerformanceCounter_;
-static double microsecondsPerTick_;
+static double secondsPerTick_;
 
-void PaUtil_InitializeMicrosecondClock( void )
+void PaUtil_InitializeClock( void )
 {
     LARGE_INTEGER ticksPerSecond;
 
     if( QueryPerformanceFrequency( &ticksPerSecond ) != 0 )
     {
         usePerformanceCounter_ = 1;
-        /* usec/tick = (usec/second) / (ticks/second) */
-        microsecondsPerTick_ = 1000000.0 / (double)ticksPerSecond.QuadPart;
+        secondsPerTick_ = 1.0 / (double)ticksPerSecond.QuadPart;
     }
     else
     {
@@ -105,17 +104,17 @@ void PaUtil_InitializeMicrosecondClock( void )
 }
 
 
-double PaUtil_MicrosecondTime( void )
+double PaUtil_GetTime( void )
 {
     LARGE_INTEGER time;
 
     if( usePerformanceCounter_ )
     {
         QueryPerformanceCounter( &time );
-        return time.QuadPart * microsecondsPerTick_;
+        return time.QuadPart * secondsPerTick_;
     }
     else
     {
-        return timeGetTime() * 1000.;
+        return timeGetTime() * .001;
     }
 }

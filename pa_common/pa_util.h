@@ -117,8 +117,8 @@ int PaUtil_CountCurrentlyAllocatedBlocks( void );
 */
 
 
-void PaUtil_InitializeMicrosecondClock( void );
-double PaUtil_MicrosecondTime( void ); /* used to implement CPU load functions */
+void PaUtil_InitializeClock( void );
+double PaUtil_GetTime( void ); /* system time in seconds, used to implement CPU load functions */
 
 /* void Pa_Sleep( long msec );  must also be implemented in per-platform .c file */
 
