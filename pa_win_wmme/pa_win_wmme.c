@@ -68,8 +68,6 @@
     @todo implement paInputUnderflow, paOutputOverflow streamCallback statusFlags, paNeverDropInput.
 
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
-
-    @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification
 */
 
 /*
@@ -928,6 +926,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     unsigned int i;
     PaError paerror;
 
+    /* The calls to QueryFormatSupported below are intended to detect invalid
+        sample rates. If we assume that the channel count and format are OK,
+        then the only thing that could fail is the sample rate. This isn't
+        strictly true, but I can't think of a better way to test that the
+        sample rate is valid.
+    */  
     
     if( inputParameters )
     {
@@ -939,13 +943,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
              this implementation doesn't support any custom sample formats */
         if( inputSampleFormat & paCustomFormat )
             return paSampleFormatNotSupported;
-
-
-        /* In all the calls to QueryFormatSupported below we assume that the
-            channel count and format are OK and that therefore the only thing t
-            hat could fail is the sample rate. This isn't strictly true, but i
-            can't think of a better way to test that the sample rate is valid.
-        */          
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification
                 && inputStreamInfo && (inputStreamInfo->flags & paWinMmeUseMultipleDevices) )
@@ -962,19 +959,20 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                         || inputStreamInfo->devices[i].channelCount > inputDeviceInfo->maxInputChannels )
                     return paInvalidChannelCount;
 
+                /* test for valid sample rate, see comment above */
                 winMmeInputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputStreamInfo->devices[i].device );
                 paerror = QueryFormatSupported( inputDeviceInfo, QueryInputWaveFormatEx, winMmeInputDeviceId, inputStreamInfo->devices[i].channelCount, sampleRate );
                 if( paerror != paNoError )
-                    return paerror;   
+                    return paInvalidSampleRate;
             }
                 
-            if( inputMultipleDeviceChannelCount == inputChannelCount )
+            if( inputMultipleDeviceChannelCount != inputChannelCount )
                 return paIncompatibleHostApiSpecificStreamInfo;                  
         }
         else
         {
             if( inputStreamInfo && (inputStreamInfo->flags & paWinMmeUseMultipleDevices) )
-                return paIncompatibleHostApiSpecificStreamInfo;
+                return paIncompatibleHostApiSpecificStreamInfo; /* paUseHostApiSpecificDeviceSpecification was not supplied as the input device */
 
             inputDeviceInfo = hostApi->deviceInfos[ inputParameters->device ];
 
@@ -982,50 +980,67 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             if( inputChannelCount > inputDeviceInfo->maxInputChannels )
                 return paInvalidChannelCount;
 
+            /* test for valid sample rate, see comment above */
             winMmeInputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputParameters->device );
             paerror = QueryFormatSupported( inputDeviceInfo, QueryInputWaveFormatEx, winMmeInputDeviceId, inputChannelCount, sampleRate );
             if( paerror != paNoError )
-                return paerror;
+                return paInvalidSampleRate;
         }
-    }
-    else
-    {
-        inputChannelCount = 0;
     }
 
     if( outputParameters )
     {
-        outputDeviceInfo = hostApi->deviceInfos[ outputParameters->device ];
-        
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
+        outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
 
         /* all standard sample formats are supported by the buffer adapter,
             this implementation doesn't support any custom sample formats */
         if( outputSampleFormat & paCustomFormat )
             return paSampleFormatNotSupported;
 
-        /** @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification */
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification
+                && outputStreamInfo && (outputStreamInfo->flags & paWinMmeUseMultipleDevices) )
+        {
+            outputMultipleDeviceChannelCount = 0;
+            for( i=0; i< outputStreamInfo->deviceCount; ++i )
+            {
+                outputMultipleDeviceChannelCount += outputStreamInfo->devices[i].channelCount;
+                    
+                outputDeviceInfo = hostApi->deviceInfos[ outputStreamInfo->devices[i].device ];
 
-        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
-            return paInternalError;
+                /* check that output device can support outputChannelCount */
+                if( outputStreamInfo->devices[i].channelCount <= 0
+                        || outputStreamInfo->devices[i].channelCount > outputDeviceInfo->maxOutputChannels )
+                    return paInvalidChannelCount;
 
-        /* check that output device can support outputChannelCount */
-        if( outputChannelCount > outputDeviceInfo->maxOutputChannels )
-            return paInvalidChannelCount;
+                /* test for valid sample rate, see comment above */
+                winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputStreamInfo->devices[i].device );
+                paerror = QueryFormatSupported( outputDeviceInfo, QueryOutputWaveFormatEx, winMmeOutputDeviceId, outputStreamInfo->devices[i].channelCount, sampleRate );
+                if( paerror != paNoError )
+                    return paInvalidSampleRate;
+            }
+                
+            if( outputMultipleDeviceChannelCount != outputChannelCount )
+                return paIncompatibleHostApiSpecificStreamInfo;            
+        }
+        else
+        {
+            if( outputStreamInfo && (outputStreamInfo->flags & paWinMmeUseMultipleDevices) )
+                return paIncompatibleHostApiSpecificStreamInfo; /* paUseHostApiSpecificDeviceSpecification was not supplied as the output device */
 
-        /* validate outputStreamInfo */
-        if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+            outputDeviceInfo = hostApi->deviceInfos[ outputParameters->device ];
 
-        winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputParameters->device );
-        paerror = QueryFormatSupported( outputDeviceInfo, QueryOutputWaveFormatEx, winMmeOutputDeviceId, outputChannelCount, sampleRate );
-        if( paerror != paNoError )
-            return paInvalidSampleRate;
-    }
-    else
-    {
-        outputChannelCount = 0;
+            /* check that output device can support outputChannelCount */
+            if( outputChannelCount > outputDeviceInfo->maxOutputChannels )
+                return paInvalidChannelCount;
+
+            /* test for valid sample rate, see comment above */
+            winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputParameters->device );
+            paerror = QueryFormatSupported( outputDeviceInfo, QueryOutputWaveFormatEx, winMmeOutputDeviceId, outputChannelCount, sampleRate );
+            if( paerror != paNoError )
+                return paInvalidSampleRate;
+        }
     }
     
     /*
@@ -1036,7 +1051,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
             for mme all we can do is test that the input and output devices
             support the requested sample rate and number of channels. we
-            cannot test for full duplex capability.
+            cannot test for full duplex compatibility.
     */                                             
 
     return paFormatIsSupported;
