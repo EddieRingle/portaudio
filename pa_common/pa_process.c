@@ -848,7 +848,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                 userOutput = bp->tempOutputBufferPtrs;
             }
         }
-
+        
         *callbackResult = bp->userCallback( userInput, userOutput,
                                             frameCount, bp->hostOutTime, bp->userData );
 
@@ -1415,9 +1415,9 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
             }
 
             /* call callback */
-
+            
             *callbackResult = bp->userCallback( userInput, userOutput,
-                                                frameCount, bp->hostOutTime, bp->userData );
+                    bp->framesPerUserBuffer, bp->hostOutTime, bp->userData );
 
             bp->hostOutTime += frameCount * bp->samplePeriod;
 
