@@ -183,14 +183,20 @@ typedef struct PaUtilHostApiRepresentation {
                 must be valid.
     */
     PaError (*OpenStream)( struct PaUtilHostApiRepresentation *hostApi,
-                       PaStream** stream,
-                       const PaStreamParameters *inputParameters,
-                       const PaStreamParameters *outputParameters,
-                       double sampleRate,
-                       unsigned long framesPerCallback,
-                       PaStreamFlags streamFlags,
-                       PaStreamCallback *streamCallback,
-                       void *userData );
+                           PaStream** stream,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
+                           double sampleRate,
+                           unsigned long framesPerCallback,
+                           PaStreamFlags streamFlags,
+                           PaStreamCallback *streamCallback,
+                           void *userData );
+
+
+    PaError (*IsFormatSupported)( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
 } PaUtilHostApiRepresentation;
 
 
