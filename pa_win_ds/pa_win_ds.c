@@ -46,8 +46,6 @@
 
     @todo implement IsFormatSupported
 
-    @todo implement PaDeviceInfo.defaultSampleRate;
-
     @todo check that CoInitialize() CoUninitialize() are always correctly
         paired, even in error cases.
 
@@ -210,8 +208,8 @@ static char *DuplicateDeviceNameString( PaUtilAllocationGroup *allocations, cons
     
     if( src != NULL )
     {
-        int len = strlen(src);
-        result = (char*)PaUtil_GroupAllocateMemory( allocations, len + 1 );
+        size_t len = strlen(src);
+        result = (char*)PaUtil_GroupAllocateMemory( allocations, (long)(len + 1) );
         if( result )
             memcpy( (void *) result, src, len+1 );
     }
@@ -366,7 +364,14 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
     
     return TRUE;
 }
-              
+
+
+#define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_  (13) /* must match array length below */
+static double defaultSampleRateSearchOrder_[] =
+    { 44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0, 192000.0,
+        16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
+
+
 /************************************************************************************
 ** Extract capabilities from an output device, and add it to the device info list
 ** if successful. This function assumes that there is enough room in the
@@ -385,6 +390,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     DSCAPS                        caps;
     int                           deviceOK = TRUE;
     PaError                       result = paNoError;
+    int                           i;
     
     /* Copy GUID to the device info structure. Set pointer. */
     if( lpGUID == NULL )
@@ -456,7 +462,52 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                 deviceInfo->defaultLowOutputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
-                deviceInfo->defaultSampleRate = 0;          /** @todo IMPLEMENT ME */
+                
+                /* initialize defaultSampleRate */
+                
+                if( caps.dwFlags & DSCAPS_CONTINUOUSRATE )
+                {
+                    /* initialize to caps.dwMaxSecondarySampleRate incase none of the standard rates match */
+                    deviceInfo->defaultSampleRate = caps.dwMaxSecondarySampleRate;
+
+                    for( i = 0; i < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++i )
+                    {
+                        if( defaultSampleRateSearchOrder_[i] >= caps.dwMinSecondarySampleRate
+                                && defaultSampleRateSearchOrder_[i] <= caps.dwMaxSecondarySampleRate ){
+
+                            deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[i];
+                            break;
+                        }
+                    }
+                }
+                else if( caps.dwMinSecondarySampleRate == caps.dwMaxSecondarySampleRate )
+                {
+                    if( caps.dwMinSecondarySampleRate == 0 )
+                    {
+                        /*
+                        ** On my Thinkpad 380Z, DirectSoundV6 returns min-max=0 !!
+                        ** But it supports continuous sampling.
+                        ** So fake range of rates, and hope it really supports it.
+                        */
+                        deviceInfo->defaultSampleRate = 44100.0f;
+
+                        DBUG(("PA - Reported rates both zero. Setting to fake values for device #%d\n", sDeviceIndex ));
+                    }
+                    else
+                    {
+	                    deviceInfo->defaultSampleRate = caps.dwMaxSecondarySampleRate;
+                    }
+                }
+                else if( (caps.dwMinSecondarySampleRate < 1000.0) && (caps.dwMaxSecondarySampleRate > 50000.0) )
+                {
+                    /* The EWS88MT drivers lie, lie, lie. The say they only support two rates, 100 & 100000.
+                    ** But we know that they really support a range of rates!
+                    ** So when we see a ridiculous set of rates, assume it is a range.
+                    */
+                  deviceInfo->defaultSampleRate = 44100.0f;
+                  DBUG(("PA - Sample rate range used instead of two odd values for device #%d\n", sDeviceIndex ));
+                }
+                else deviceInfo->defaultSampleRate = caps.dwMaxSecondarySampleRate;
 
 
                 //printf( "min %d max %d\n", caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate );
@@ -559,7 +610,54 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
                 deviceInfo->defaultLowOutputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
-                deviceInfo->defaultSampleRate = 0;          /** @todo IMPLEMENT ME */
+
+/* constants from a (LGPLed) wine patch by Francois Gouget, see:
+   http://www.winehq.com/hypermail/wine-patches/2003/01/0290.html
+   permission to use under BSD license requested 11-may-2004
+*/
+#ifndef WAVE_FORMAT_48M08
+#define WAVE_FORMAT_48M08      0x00001000    /* 48     kHz, Mono,   8-bit  */
+#define WAVE_FORMAT_48S08      0x00002000    /* 48     kHz, Stereo, 8-bit  */
+#define WAVE_FORMAT_48M16      0x00004000    /* 48     kHz, Mono,   16-bit */
+#define WAVE_FORMAT_48S16      0x00008000    /* 48     kHz, Stereo, 16-bit */
+#define WAVE_FORMAT_96M08      0x00010000    /* 96     kHz, Mono,   8-bit  */
+#define WAVE_FORMAT_96S08      0x00020000    /* 96     kHz, Stereo, 8-bit  */
+#define WAVE_FORMAT_96M16      0x00040000    /* 96     kHz, Mono,   16-bit */
+#define WAVE_FORMAT_96S16      0x00080000    /* 96     kHz, Stereo, 16-bit */
+#endif
+
+                /* defaultSampleRate */
+                if( caps.dwChannels == 2 )
+                {
+                    if( caps.dwFormats & WAVE_FORMAT_4S16 )
+                        deviceInfo->defaultSampleRate = 44100.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_48S16 )
+                        deviceInfo->defaultSampleRate = 48000.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_2S16 )
+                        deviceInfo->defaultSampleRate = 22050.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_1S16 )
+                        deviceInfo->defaultSampleRate = 11025.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_96S16 )
+                        deviceInfo->defaultSampleRate = 96000.0;
+                    else
+                        deviceInfo->defaultSampleRate = 0.;
+                }
+                else if( caps.dwChannels == 1 )
+                {
+                    if( caps.dwFormats & WAVE_FORMAT_4M16 )
+                        deviceInfo->defaultSampleRate = 44100.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_48M16 )
+                        deviceInfo->defaultSampleRate = 48000.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_2M16 )
+                        deviceInfo->defaultSampleRate = 22050.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_1M16 )
+                        deviceInfo->defaultSampleRate = 11025.0;
+                    else if( caps.dwFormats & WAVE_FORMAT_96M16 )
+                        deviceInfo->defaultSampleRate = 96000.0;
+                    else
+                        deviceInfo->defaultSampleRate = 0.;
+                }
+                else deviceInfo->defaultSampleRate = 0.;
             }
         }
         
