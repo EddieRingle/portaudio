@@ -45,6 +45,10 @@
     where possible, rather than copying to the temp buffer(s).
 
     Cache tilings for intereave<->deinterleave also need to be considered.
+
+    TODO:
+
+        - dynamically allocate hostInputChannels and hostOutputChannels;
 */
 
 
