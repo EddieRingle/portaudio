@@ -5,6 +5,19 @@ ASIO support. If you find any omissions or errors in this document
 please notify Ross Bencina <rossb@audiomulch.com>.
 
 
+Building PortAudio with ASIO support
+------------------------------------
+
+To build PortAudio with ASIO support you need to compile and link with
+pa_asio.c, and files from the ASIO SDK (see below), along with the common 
+files from pa_common/ and platform specific files from pa_win/ (for Win32) 
+or pa_mac/ (for Macintosh).
+
+If you are compiling with a non-Microsoft compiler on windows, also 
+compile and link with iasiothiscallresolver.cpp (see below for 
+an explanation).
+
+
 
 Obtaining the ASIO SDK
 ----------------------
@@ -14,13 +27,25 @@ the ASIO SDK (version 2.0) from Steinberg. Steinberg makes the ASIO
 SDK available to anyone free of charge, however they do not permit its 
 source code to be distributed.
 
-NOTE: In some cases the ASIO SDK requires patching to work with your 
-compiler, see below for further details.
+NOTE: In some cases the ASIO SDK may require patching, see below 
+for further details.
 
 http://www.steinberg.net/en/ps/support/3rdparty/asio_sdk/
 
 If the above link is broken search Google for:
 "download steinberg ASIO SDK"
+
+
+
+Building the ASIO SDK on Macintosh
+----------------------------------
+
+To build the ASIO SDK on Macintosh you need to compile and link with the 
+following files from the ASIO SDK:
+
+host/asiodrivers.cpp 
+host/mac/asioshlib.cpp 
+host/mac/codefragements.cpp
 
 
 
@@ -30,15 +55,17 @@ Building the ASIO SDK on Windows
 To build the ASIO SDK on Windows you need to compile and link with the 
 following files from the ASIO SDK:
 
-asio_sdk\common\asio.cpp *
+asio_sdk\common\asio.cpp
 asio_sdk\host\asiodrivers.cpp
 asio_sdk\host\pc\asiolist.cpp
 
 You may also need to adjust your include paths to support inclusion of 
 header files from the above directories.
 
-* - if you're not using a Microsoft compiler you may need to use a 
-patched version of asio.cpp, see below.
+The ASIO SDK depends on the following COM API functions: 
+CoInitialize, CoUninitialize, CoCreateInstance, CLSIDFromString
+For compilation with MinGW you will need to link with -lole32, for
+Borland link with Import32.lib.
 
 
 
@@ -52,9 +79,14 @@ as compilers from Borland (BCC and C++Builder) and GNU (gcc).
 Steinberg's ASIO SDK will compile but crash on initialization if 
 compiled with a non-Microsoft compiler on Windows.
 
-You can get more information about the problem, and download a patch 
-to compile the ASIO SDK with non-Microsoft compilers from the 
-following page:
+PortAudio solves this problem using the iasiothiscallresolver library 
+which is included in the distribution. When building ASIO support for
+non-Microsoft compilers, be sure to compile and link with
+iasiothiscallresolver.cpp. Note that iasiothiscallresolver includes
+conditional directives which cause it to have no effect if it is
+compiled with a Microsoft compiler, or on the Macintosh.
+
+For further information about the IASIO thiscall problem see this page:
 http://www.audiomulch.com/~rossb/code/calliasio
 
 
