@@ -3,12 +3,8 @@ STATUS:
 MME, DirectSound and ASIO versions are more-or-less working. See FIXMEs @todos
 and the proposals matrix at portaudio.com for further status.
 
-    The following tests might run if you're lucky:
-    tests/pa_devs.c
-    tests/patest_sine.c
-    tests/pa_fuzz.c
-
-    tests/patest1.c 
+The pa_tests directory contains tests. pa_tests/README.txt notes which tests
+currently build.  
 
 The PaUtil support code is finished enough for other implementations to be
 ported. No changes are expected to be made to the definition of the PaUtil
@@ -25,7 +21,6 @@ pa_common\pa_process.c
 pa_common\pa_skeleton.c
 pa_common\pa_stream.c
 pa_common\pa_trace.c
-pa_common\pa_byteswappers.c
 pa_common\pa_converters.c
 pa_common\pa_cpuload.c
 pa_common\pa_dither.c
@@ -65,9 +60,6 @@ pa_cpuload.c/h
 
 pa_trace.c/h
     source and header for debug trace log facility
-
-pa_byteswappers.c/h
-    byte swapping facility
 
 pa_converters.c/h
     sample buffer conversion facility
