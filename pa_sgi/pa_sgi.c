@@ -58,9 +58,12 @@
         + patest_buffer          ok.
         + patest_callbackstop    ok now (no coredumps any longer).
         - patest_clip            ok, but hear no difference between dithering turned OFF and ON.
+        + patest_hang            ok.
         + patest_latency         ok.
         + patest_leftright       ok.
+        + patest_maxsines        ok.
         + patest_many            ok.
+        + patest_multi_sine      ok.
         + patest_pink            ok.
         - patest_prime           ok, but we should work on 'playback with priming'!
         - patest_read_record     ok, but playback stops a little earlier than 5 seconds it seems(?).
@@ -77,14 +80,18 @@
         + patest_toomanysines    ok, CPU load measurement works fine!
         - patest_underflow       ok? (stopping after SleepTime = 91: err=Stream is stopped)
         - patest_wire            ok.
-        - patest_write_sine      ok.
+        + patest_write_sine      ok.
         + pa_devs                ok.
         + pa_fuzz                ok.
-        - pa_minlat              ok.
+        + pa_minlat              ok.
         
  Todo: - Prefilling with silence, only when requested (it now always prefills).
        - Underrun and overflow flags.
        - Make a complete new version to support 'sproc'-applications.
+    
+ Note: Even when mono-output is requested, with ALv7, the audio library opens
+       a outputs stereo. One can observe this in SGI's 'Audio Queue Monitor'.
+
 */
 
 #include <string.h>         /* strlen() */
@@ -184,7 +191,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
     static const short          maxDevNameChars = 32;     /* Including the terminating null char.  */
     char                        devName[maxDevNameChars]; /* Too lazy for dynamic alloc.           */
 
-    DBUG(("PaSGI_Initialize() started.\n"));
+    /* DBUG(("PaSGI_Initialize() started.\n")); */
     SGIHostApi = (PaSGIHostApiRepresentation*)PaUtil_AllocateMemory(sizeof(PaSGIHostApiRepresentation));
     if( !SGIHostApi )
         {
@@ -626,7 +633,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
         DBUG(("Could not determine default internal queue size: %s.\n", alGetErrorString(oserror())));
         result = paUnanticipatedHostError; goto cleanup;
         }
-    DBUG(("%s: suggested latency %.3f seconds\n", direction, pa_params->suggestedLatency));
+    /* DBUG(("%s: suggested latency %.3f seconds\n", direction, pa_params->suggestedLatency)); */
 
     *iq_size = (int)(0.5 + (pa_params->suggestedLatency * (*samplerate)));  /* Based on REQUESTED sr! */
     if (*iq_size < (framesPerHostBuffer << 1))
@@ -650,7 +657,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
             *iq_size += framesPerHostBuffer;    /* Try larger multiple framesPerHostBuffer. */
         DBUG(("trying %d frames...\n", *iq_size));
         }
-    DBUG(("%s: alSetQueueSize(%d)\n", direction, *iq_size));
+    /* DBUG(("%s: alSetQueueSize(%d)\n", direction, *iq_size)); */
 
     /*----------------------- ALLOCATE HOST BUFFER: ------------------------------------*/
     hostPortBuff->buffer = PaUtil_AllocateMemory((long)bytesPerFrame * framesPerHostBuffer);
@@ -700,7 +707,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
         DBUG(("Samplerate could not be determined (name='%s').\n", name));
         result = paUnanticipatedHostError; goto cleanup;
         }
-    DBUG(("set_sgi_device() succeeded.\n"));
+    /* DBUG(("set_sgi_device() succeeded.\n")); */
 cleanup:
     if (alc)    /* We no longer need configuration. */
         alFreeConfig(alc);
@@ -747,19 +754,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
        AL_SAMPLE_16(=paInt16) or AL_SAMPLE_24(=paInt24); AL_SAMPFMT_FLOAT(=paFloat32); 
        AL_SAMPFMT_DOUBLE(=paFloat64); IRIX misses unsigned 8 and 32 bit signed ints.
     */
-#if (1)
-    DBUG(("OpenStream() started.\n"));
-    if (inputParameters && ((inputParameters->channelCount == 0) || (inputParameters->device == paNoDevice)))
-        {
-        DBUG(("inputParameters set to NULL.\n"));
-        inputParameters = NULL;
-        }
-    if (outputParameters && ((outputParameters->channelCount == 0) || (outputParameters->device == paNoDevice)))
-        {
-        DBUG(("outputParameters set to NULL.\n"));
-        outputParameters = NULL;
-        }
-#endif
+    /* DBUG(("OpenStream() started.\n")); */
     if (inputParameters)
         {
         inputChannelCount = inputParameters->channelCount;
@@ -786,7 +781,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         }                                                    /* PaUtil_InitializeBufferProcessor is called   */
     if (outputParameters)                                    /* with these as args. Apparently, the latter 2 */
         {                                                    /* are not actually used when ChannelCount = 0. */
-        outputChannelCount = outputParameters->channelCount;
+        outputChannelCount = outputParameters->channelCount;        
         outputSampleFormat = outputParameters->sampleFormat;
         if (outputParameters->device == paUseHostApiSpecificDeviceSpecification) /* Like input (above). */
             return paInvalidDevice;
@@ -854,7 +849,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffIn);   /* Receive ALport and input host buffer. */
     if (result != paNoError)
         goto cleanup;
-    DBUG(("INPUT CONFIGURED.\n"));
+    /* DBUG(("INPUT CONFIGURED.\n")); */
     /*----------------------------------------------------------------------------*/
     result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
                             outputParameters,
@@ -867,7 +862,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffOut);  /* ALWAYS PREFILLS. */
     if (result != paNoError)
         goto cleanup;
-    DBUG(("OUTPUT CONFIGURED.\n"));
+    /* DBUG(("OUTPUT CONFIGURED.\n")); */
     /* Pre-fill with silence (not necessarily 0) to realise the requested output latency.
     if (stream->hostPortBuffOut.port)            // Should never block. Always returns 0.
         alZeroFrames(stream->hostPortBuffOut.port, qf_out - framesPerHostBuffer);
@@ -1046,7 +1041,7 @@ static PaError CloseStream(PaStream* s)
     PaError       result = paNoError;
     PaSGIStream*  stream = (PaSGIStream*)s;
 
-    DBUG(("SGI CloseStream() started.\n"));
+    /* DBUG(("SGI CloseStream() started.\n")); */
     streamCleanupAndClose(stream); /* Releases i/o buffers and closes AL ports. */
     PaUtil_TerminateBufferProcessor(&stream->bufferProcessor);
     PaUtil_TerminateStreamRepresentation(&stream->streamRepresentation);
@@ -1087,7 +1082,7 @@ static PaError StopStream( PaStream *s )
     PaError         result = paNoError;
     PaSGIStream*    stream = (PaSGIStream*)s;
     
-    DBUG(("SGI StopStream() started.\n"));
+    /* DBUG(("SGI StopStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain output buffers. */
@@ -1111,7 +1106,7 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    DBUG(("SGI AbortStream() started.\n"));
+    /* DBUG(("SGI AbortStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_ABORT_;
