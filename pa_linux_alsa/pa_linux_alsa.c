@@ -2385,11 +2385,10 @@ static void CalculateTimeInfo( PaAlsaStream *stream, PaStreamCallbackTimeInfo *t
     /* Allocation should happen here, once per iteration is no good */
     snd_pcm_status_t *capture_status, *playback_status;
     snd_timestamp_t capture_timestamp, playback_timestamp;
+    PaTime capture_time = 0., playback_time = 0.;
 
     snd_pcm_status_alloca( &capture_status );
     snd_pcm_status_alloca( &playback_status );
-
-    PaTime capture_time = 0., playback_time = 0.;
 
     if( stream->pcm_capture )
     {
@@ -2444,6 +2443,8 @@ static void *CallbackThreadFunc( void *userData )
     PaAlsaStream *stream = (PaAlsaStream*) userData;
     snd_pcm_uframes_t framesAvail, framesGot, framesProcessed;
     snd_pcm_sframes_t startThreshold = stream->startThreshold;
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0};
+    PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
 
     assert( userData );
 
@@ -2464,8 +2465,6 @@ static void *CallbackThreadFunc( void *userData )
             ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
     }
 
-    PaStreamCallbackTimeInfo timeInfo = {0,0,0};
-    PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
     while( 1 )
     {
         pthread_testcancel();
@@ -2527,7 +2526,6 @@ static void *CallbackThreadFunc( void *userData )
 
             CalculateTimeInfo( stream, &timeInfo );
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
-            cbFlags = 0;    /* Reset callback flags */
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
@@ -2536,6 +2534,7 @@ static void *CallbackThreadFunc( void *userData )
             /* this calls the callback */
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
+            cbFlags = 0;    /* Reset callback flags now that they should be received by the callback */
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
             assert( framesProcessed == framesGot ); /* These should be the same, since we don't use block adaption */
 
