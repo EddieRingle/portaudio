@@ -220,7 +220,7 @@ int main(void)
 
         /* Wait for scheduled beep time. */
         timeout =  TIMEOUT_MSEC + (10000/SLEEP_MSEC);
-        while( (PaUtil_GetTime() < DATA.beepTime) && (timeout-- > 0 ) )
+        while( (Pa_GetStreamTime( stream ) < DATA.beepTime) && (timeout-- > 0 ) )
         {
             Pa_Sleep(SLEEP_MSEC);
         }
