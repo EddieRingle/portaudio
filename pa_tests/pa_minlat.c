@@ -44,7 +44,7 @@
 #endif
 #define TWOPI (M_PI * 2.0)
 
-#define DEFAULT_BUFFER_SIZE   (64)
+#define DEFAULT_BUFFER_SIZE   (32)
 
 typedef struct
 {
@@ -89,68 +89,72 @@ void main( int argc, char **argv )
     PaError err;
     paTestData data;
     int    go;
-    int    numBuffers = 0;
-    int    minBuffers = 0;
+    int    outLatency = 0;
+    int    minLatency = DEFAULT_BUFFER_SIZE * 2;
     int    framesPerBuffer;
     double sampleRate = 44100.0;
     char   str[256];
-    printf("paminlat - Determine minimum latency for your computer.\n");
-    printf("  usage:         paminlat {framesPerBuffer}\n");
-    printf("  for example:   paminlat 256\n");
+    printf("pa_minlat - Determine minimum latency for your computer.\n");
+    printf("  usage:         pa_minlat {userBufferSize}\n");
+    printf("  for example:   pa_minlat 64\n");
     printf("Adjust your stereo until you hear a smooth tone in each speaker.\n");
-    printf("Then try to find the smallest number of buffers that still sounds smooth.\n");
+    printf("Then try to find the smallest number of frames that still sounds smooth.\n");
     printf("Note that the sound will stop momentarily when you change the number of buffers.\n");
+
     /* Get bufferSize from command line. */
     framesPerBuffer = ( argc > 1 ) ? atol( argv[1] ) : DEFAULT_BUFFER_SIZE;
     printf("Frames per buffer = %d\n", framesPerBuffer );
 
     data.left_phase = data.right_phase = 0.0;
+
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
-    /* Ask PortAudio for the recommended minimum number of buffers. */
-    numBuffers = minBuffers = Pa_GetMinNumBuffers( framesPerBuffer, sampleRate );
-    printf("NumBuffers set to %d based on a call to Pa_GetMinNumBuffers()\n", numBuffers );
+
+    outLatency = sampleRate * 200.0 / 1000.0; // 200 msec
+
     /* Try different numBuffers in a loop. */
     go = 1;
     while( go )
     {
 
-        printf("Latency = framesPerBuffer * numBuffers = %d * %d = %d frames = %d msecs.\n",
-               framesPerBuffer, numBuffers, framesPerBuffer*numBuffers,
-               (int)((1000 * framesPerBuffer * numBuffers) / sampleRate) );
+        printf("Latency = %d frames = %6.1f msec.\n", outLatency,
+            (outLatency * 1000.0 / sampleRate) );
         err = Pa_OpenStream(
                   &stream,
                   paNoDevice,
                   0,              /* no input */
                   paFloat32,  /* 32 bit floating point input */
+                  0,
                   NULL,
                   Pa_GetDefaultOutputDevice(), /* default output device */
                   2,              /* stereo output */
                   paFloat32,      /* 32 bit floating point output */
+                  outLatency,
                   NULL,
                   sampleRate,
                   framesPerBuffer,
-                  numBuffers,     /* number of buffers */
                   paClipOff,      /* we won't output out of range samples so don't bother clipping them */
                   paminlatCallback,
                   &data );
         if( err != paNoError ) goto error;
         if( stream == NULL ) goto error;
+
         /* Start audio. */
         err = Pa_StartStream( stream );
         if( err != paNoError ) goto error;
-        /* Ask user for a new number of buffers. */
+
+        /* Ask user for a new nlatency. */
         printf("\nMove windows around to see if the sound glitches.\n");
-        printf("NumBuffers currently %d, enter new number, or 'q' to quit: ", numBuffers );
+        printf("Latency currently %d, enter new number, or 'q' to quit: ", outLatency );
         gets( str );
         if( str[0] == 'q' ) go = 0;
         else
         {
-            numBuffers = atol( str );
-            if( numBuffers < minBuffers )
+            outLatency = atol( str );
+            if( outLatency < minLatency )
             {
-                printf( "numBuffers below minimum of %d! Set to minimum!!!\n", minBuffers );
-                numBuffers = minBuffers;
+                printf( "Latency below minimum of %d! Set to minimum!!!\n", minLatency );
+                outLatency = minLatency;
             }
         }
         /* Stop sound until ENTER hit. */

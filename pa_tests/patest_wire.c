@@ -45,15 +45,38 @@
 ** full duplex audio (simultaneous record and playback).
 ** And some only support full duplex at lower sample rates.
 */
-#define SAMPLE_RATE  (44100)
-#define FRAMES_PER_BUFFER  (64)
-#if 1
-#define PA_SAMPLE_TYPE  paFloat32
-typedef float SAMPLE;
+#define SAMPLE_RATE            (44100)
+#define FRAMES_PER_BUFFER      (64)
+#define NUM_INPUT_CHANNELS     (2)
+#define NUM_OUTPUT_CHANNELS    (2)
+
+#if 0
+    #define FLAG_INTERLEAVED   (paNonInterleaved)
+    #define CALLBACK_FUNCTION  wireCallbackNonInterleaved
 #else
-#define PA_SAMPLE_TYPE  paInt16
-typedef short SAMPLE;
+    #define FLAG_INTERLEAVED   (0)
+    #define CALLBACK_FUNCTION  wireCallback
 #endif
+
+#if 0
+    #define INPUT_FORMAT  paFloat32
+    typedef float INPUT_SAMPLE;
+#else
+    #define INPUT_FORMAT  paInt16
+    typedef short INPUT_SAMPLE;
+#endif
+
+#if 1
+    #define OUTPUT_FORMAT  paFloat32
+    typedef float OUTPUT_SAMPLE;
+#else
+    #define OUTPUT_FORMAT  paInt16
+    typedef short OUTPUT_SAMPLE;
+#endif
+
+double gInOutScaler = 1.0;
+#define CONVERT_IN_TO_OUT(in)  ((OUTPUT_SAMPLE) ((in) * gInOutScaler))
+
 static int wireCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          PaTimestamp outTime, void *userData );
@@ -66,31 +89,67 @@ static int wireCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          PaTimestamp outTime, void *userData )
 {
-    SAMPLE *out = (SAMPLE*)outputBuffer;
-    SAMPLE *in = (SAMPLE*)inputBuffer;
+    OUTPUT_SAMPLE *out = (OUTPUT_SAMPLE*)outputBuffer;
+    INPUT_SAMPLE *in = (INPUT_SAMPLE*)inputBuffer;
+
     unsigned int i;
     (void) outTime;
-
     /* This may get called with NULL inputBuffer during initial setup. */
-    if( inputBuffer == NULL )
+    if( inputBuffer == NULL) return 0;
+
+    for( i=0; i<framesPerBuffer; i++ )
     {
-        for( i=0; i<framesPerBuffer; i++ )
-        {
-            *out++ = 0;  /* left */
-            *out++ = 0;  /* right */
-        }
-    }
-    else
-    {
-        for( i=0; i<framesPerBuffer; i++ )
-        {
-            *out++ = *in++;  /* left */
-            *out++ = *in++;  /* right */
-        }
+        OUTPUT_SAMPLE left = CONVERT_IN_TO_OUT( *in++ );  /* left */
+        *out++ = left;
+#if ( NUM_OUTPUT_CHANNELS == 2 )
+    #if ( NUM_OUTPUT_CHANNELS == 2 )
+            *out++ = CONVERT_IN_TO_OUT( *in++ );  /* right */
+    #else
+            *out++ = left;  /* right output */
+    #endif
+#endif
     }
 
     return 0;
 }
+
+static int wireCallbackNonInterleaved( void *inputBuffer, void *outputBuffer,
+                         unsigned long framesPerBuffer,
+                         PaTimestamp outTime, void *userData )
+{
+    OUTPUT_SAMPLE **outBuffers = (OUTPUT_SAMPLE**)outputBuffer;
+    INPUT_SAMPLE **inBuffers = (INPUT_SAMPLE**)inputBuffer;
+    int inDone = 0;
+    int outDone = 0;
+
+    unsigned int i, inChannel, outChannel;
+    (void) outTime;
+
+    /* This may get called with NULL inputBuffer during initial setup. */
+    if( inputBuffer == NULL) return 0;
+
+    inChannel=0, outChannel=0;
+    while( !(inDone && outDone) )
+    {
+        INPUT_SAMPLE *in = inBuffers[inChannel];
+        OUTPUT_SAMPLE *out = outBuffers[outChannel];
+
+        if( INPUT_FORMAT == OUTPUT_FORMAT )
+        {
+                for( i=0; i<framesPerBuffer; i++ )
+                {
+                    *out++ = CONVERT_IN_TO_OUT( *in++ );
+                }
+        }
+
+        if(inChannel < (NUM_INPUT_CHANNELS - 1)) inChannel++;
+        else inDone = 1;
+        if(outChannel < (NUM_OUTPUT_CHANNELS - 1)) outChannel++;
+        else outDone = 1;
+    }
+    return 0;
+}
+
 /*******************************************************************/
 int main(void);
 int main(void)
@@ -101,24 +160,46 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
+    if( FLAG_INTERLEAVED == paNonInterleaved )
+    {
+        printf("PortAudio Test: NON interleaved!\n" );
+    }
+    printf("PortAudio Test: input channels = %d\n", NUM_INPUT_CHANNELS );
+    printf("PortAudio Test: output channels = %d\n", NUM_OUTPUT_CHANNELS );
+    printf("PortAudio Test: input format = %d\n", INPUT_FORMAT );
+    printf("PortAudio Test: output format = %d\n", OUTPUT_FORMAT );
     printf("PortAudio Test: input device ID  = %d\n", Pa_GetDefaultInputDevice() );
     printf("PortAudio Test: output device ID = %d\n", Pa_GetDefaultOutputDevice() );
+
+    if( INPUT_FORMAT == OUTPUT_FORMAT )
+    {
+        gInOutScaler = 1.0;
+    }
+    else if( (INPUT_FORMAT == paInt16) && (OUTPUT_FORMAT == paFloat32) )
+    {
+        gInOutScaler = 1.0/32768.0;
+    }
+    else if( (INPUT_FORMAT == paFloat32) && (OUTPUT_FORMAT == paInt16) )
+    {
+        gInOutScaler = 32768.0;
+    }
+
     err = Pa_OpenStream(
               &stream,
               Pa_GetDefaultInputDevice(), /* default output device */
-              2,               /* stereo input */
-              PA_SAMPLE_TYPE,
+              NUM_INPUT_CHANNELS,
+              INPUT_FORMAT | FLAG_INTERLEAVED,
               0,               /* input latency */
               NULL,
               Pa_GetDefaultOutputDevice(), /* default output device */
-              2,               /* stereo output */
-              PA_SAMPLE_TYPE,
+              NUM_OUTPUT_CHANNELS,
+              OUTPUT_FORMAT | FLAG_INTERLEAVED,
               0,               /* output latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
               paClipOff,       /* we won't output out of range samples so don't bother clipping them */
-              wireCallback,
+              CALLBACK_FUNCTION,
               NULL );          /* no data */
     if( err != paNoError ) goto error;
     
