@@ -1,3 +1,4 @@
+
 #ifndef PORTAUDIO_H
 #define PORTAUDIO_H
 /*
@@ -488,11 +489,6 @@ typedef struct PaStreamParameters
     /** The sample format of the buffer provided to the stream callback,
      a_ReadStream() or Pa_WriteStream(). It may be any of the formats described
      by the PaSampleFormat enumeration.
-     FIXME: wrt below, what are we guaranteeing these days, if anything?
-     PortAudio guarantees support for
-     the device's native formats (nativeSampleFormats in the device info record)
-     and additionally 16 and 32 bit integer and 32 bit floating point formats.
-     Support for other formats is implementation defined.
     */
     PaSampleFormat sampleFormat;
 
@@ -826,11 +822,8 @@ PaError Pa_OpenStream( PaStream** stream,
 
  @param sampleFormat The sample format of both the input and output buffers
  provided to the callback or passed to and from Pa_ReadStream and Pa_WriteStream.
- sampleFormat may be any of the formats described by the PaSampleFormat enumeration
- (see above).
- FIXME: the following may need to be rewritten - PortAudio guarantees support for
- the device's native formats (nativeSampleFormats in the device info record)
- and additionally 16 and 32 bit integer and 32 bit float
+ sampleFormat may be any of the formats described by the PaSampleFormat
+ enumeration.
  
  @param sampleRate Same as Pa_OpenStream parameter of the same name.
  @param framesPerBuffer Same as Pa_OpenStream parameter of the same name.
