@@ -127,7 +127,7 @@ case "${host_os}" in
             DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -ldsound -lole32";
             #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
-            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO" -DPA_NO_WDMKS;
         elif [[ $with_winapi = "asio" ]] ; then
             if [[ $with_asiodir ]] ; then
               ASIODIR="$with_asiodir";
@@ -141,15 +141,30 @@ case "${host_os}" in
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
-            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
+            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DPA_NO_WDMKS -DWINDOWS";
             CXXFLAGS="$CFLAGS";
+        elif [[ $with_winapi = "wdmks" ]] ; then
+            if [[ $with_dxdir ]] ; then
+              DXDIR="$with_dxdir";
+            else
+              DXDIR="/usr/local/dx7sdk";
+            fi
+            echo "DXDIR: $DXDIR"
+            OTHER_OBJS="pa_win_wdmks/pa_win_wdmks.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
+            LIBS="-lwinmm -lm -luuid -lsetupapi -lole32";
+            PADLL="portaudio.dll";
+            SHARED_FLAGS="-shared -mthreads";
+            DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -luuid -lsetupapi -lole32";
+            #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
+            #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_DS -DPA_NO_ASIO";
         else   # WMME default
             OTHER_OBJS="pa_win_wmme/pa_win_wmme.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm";
-            CFLAGS="$CFLAGS -Ipa_common -DPA_NO_DS -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -DPA_NO_DS -DPA_NO_ASIO -DPA_NO_WDMKS";
         fi
         ;;
 

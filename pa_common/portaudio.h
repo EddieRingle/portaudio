@@ -222,7 +222,8 @@ typedef enum PaHostApiTypeId
     paOSS=7,
     paALSA=8,
     paAL=9,
-    paBeOS=10
+    paBeOS=10,
+    paWDMKS=11
 } PaHostApiTypeId;
 
 

@@ -48,6 +48,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
 PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 #ifdef __cplusplus
 }
@@ -68,6 +69,12 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #ifndef PA_NO_ASIO
         PaAsio_Initialize,
 #endif
+
+/*
+#ifndef PA_NO_WDMKS
+        PaWinWdm_Initialize,
+#endif
+*/
 
         PaSkeleton_Initialize, /* just for testing */
 
