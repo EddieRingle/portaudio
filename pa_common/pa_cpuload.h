@@ -45,7 +45,7 @@ typedef struct {
     double averageLoad;
 } PaUtilCpuLoadMeasurer; /* FIXME: need better name than measurer */
 
-void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* measurer, double sampleRate );
+void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double sampleRate );
 void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long samplesToProcess );
 void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );
 double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* measurer );

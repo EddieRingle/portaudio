@@ -234,12 +234,13 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 typedef struct PaSkeletonStream
 { /* IMPLEMENT ME: rename this */
     PaUtilStreamRepresentation streamRepresentation;
-    PaUtilCpuLoadMeasurer cpuLoadTracker;
+    PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
 
     /* IMPLEMENT ME:
             - implementation specific data goes here
     */
+    unsigned long framesPerHostCallback; /* just an example */
 }
 PaSkeletonStream;
 
@@ -265,7 +266,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSkeletonHostApiRepresentation *skeletonHostApi = (PaSkeletonHostApiRepresentation*)hostApi;
     PaSkeletonStream *stream = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
-    double microsecondsFor100Percent = (framesPerHostBuffer / sampleRate) * 1000000.;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
     /*
@@ -327,7 +327,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
 
-    PaUtil_InitializeCpuLoadTracker( &stream->cpuLoadTracker, microsecondsFor100Percent );
+    PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
     hostInputSampleFormat = paInt16;    /* IMPLEMENT ME - select closest supported format to user requested format */
@@ -345,6 +345,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         IMPLEMENT ME:
             - additional stream setup + opening
     */
+
+    stream->framesPerHostCallback = framesPerHostBuffer;
 
     *s = (PaStream*)stream;
 
@@ -368,6 +370,8 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     PaTimestamp outTime = 0; /* IMPLEMENT ME */
     int callbackResult;
 
+    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->framesPerHostCallback );
+    
     /*
         IMPLEMENT ME:
             - generate timing information
@@ -391,7 +395,8 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
         routines in pa_byteswappers.h
     */
 
-
+    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+    
     if( callbackResult != 0 )
     {
         /* IMPLEMENT ME - stop the stream */
@@ -478,7 +483,7 @@ static double GetStreamCpuLoad( PaStream* s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
-    return PaUtil_GetCpuLoad( &stream->cpuLoadTracker );
+    return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
 
 
@@ -530,4 +535,6 @@ static unsigned long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
+
 

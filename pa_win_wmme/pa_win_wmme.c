@@ -748,7 +748,7 @@ static void TerminateBufferSet( WAVEHDR * *bufferSet, unsigned int numBuffers, M
 typedef struct PaWinMmeStream
 {
     PaUtilStreamRepresentation streamRepresentation;
-    PaUtilCpuLoadMeasurer cpuLoadTracker;
+    PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
 
     CRITICAL_SECTION lock;
@@ -813,7 +813,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaWinMmeHostApiRepresentation *winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
     PaWinMmeStream *stream = 0;
-    double microsecondsFor100Percent = 0; //(framesPerHostBuffer / sampleRate) * 1000000.; FIXME: change cpu load api to not require this info up-front
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     unsigned long bytesPerInputFrame, bytesPerOutputFrame;
     int numHostInputBuffers = 0;
@@ -823,8 +822,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int lockInited = 0;
     int bufferEventInited = 0;
     int abortEventInited = 0;
-    WAVEFORMATEX     wfx;
-    MMRESULT         mmresult;
+    WAVEFORMATEX wfx;
+    MMRESULT mmresult;
 
 
     /* check that input device can support numInputChannels */
@@ -880,7 +879,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                            &winMmeHostApi->callbackStreamInterface, callback, userData );
 
-    PaUtil_InitializeCpuLoadTracker( &stream->cpuLoadTracker, microsecondsFor100Percent );
+    PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
     hostInputSampleFormat = paInt16;    /* IMPLEMENT ME - select closest supported format to user requested format */
@@ -1203,7 +1202,12 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     */
                     PaTimestamp outTime = 0; /* FIXME */
 
+                    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer /*FIXME: this is a bit of a hack*/ );
+
                     callbackResult = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor, hostInputBuffer, hostOutputBuffer, outTime );
+
+                    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+
                     if( callbackResult != 0 )
                     {
                         /* User callback has asked us to stop. */
@@ -1652,7 +1656,7 @@ static double GetStreamCpuLoad( PaStream* s )
 {
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
-    return PaUtil_GetCpuLoad( &stream->cpuLoadTracker );
+    return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
 
 

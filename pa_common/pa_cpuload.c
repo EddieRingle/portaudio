@@ -37,7 +37,7 @@
 #include "pa_util.h"   /* for PaUtil_MicrosecondTime() */
 
 
-void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* measurer, double sampleRate )
+void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double sampleRate )
 {
     assert( sampleRate > 0 );
 
