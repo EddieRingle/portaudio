@@ -170,8 +170,8 @@ int main(void)
     printf("PortAudio Test: output channels = %d\n", NUM_OUTPUT_CHANNELS );
     printf("PortAudio Test: input format = %d\n", INPUT_FORMAT );
     printf("PortAudio Test: output format = %d\n", OUTPUT_FORMAT );
-    printf("PortAudio Test: input device ID  = %d\n", Pa_GetDefaultInputDevice() );
-    printf("PortAudio Test: output device ID = %d\n", Pa_GetDefaultOutputDevice() );
+    printf("PortAudio Test: input device ID  = %d\n", INPUT_DEVICE );
+    printf("PortAudio Test: output device ID = %d\n", OUTPUT_DEVICE );
 
     if( INPUT_FORMAT == OUTPUT_FORMAT )
     {
