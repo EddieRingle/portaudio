@@ -36,6 +36,11 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
+
+#ifdef WIN32
+#include "pa_asio.h"
+#endif
+
 /*******************************************************************/
 static void PrintSupportedStandardSampleRates(
         const PaStreamParameters *inputParameters,
@@ -148,7 +153,26 @@ int main(void)
         printf( "Default high input latency  = %8.3f\n", deviceInfo->defaultHighInputLatency  );
         printf( "Default high output latency = %8.3f\n", deviceInfo->defaultHighOutputLatency  );
 
-        printf( "Default sample rate         = %8.2f\n", deviceInfo->defaultSampleRate  );
+#ifdef WIN32
+/* ASIO specific latency information */
+        if( Pa_GetHostApiInfo( deviceInfo->hostApi )->type == paASIO ){
+            long minLatency, maxLatency, preferredLatency, granularity;
+
+            err = PaAsio_GetAvailableLatencyValues( i,
+		            &minLatency, &maxLatency, &preferredLatency, &granularity );
+
+            printf( "ASIO minimum buffer size    = %ld\n", minLatency  );
+            printf( "ASIO maximum buffer size    = %ld\n", maxLatency  );
+            printf( "ASIO preferred buffer size  = %ld\n", preferredLatency  );
+
+            if( granularity == -1 )
+                printf( "ASIO buffer granularity     = power of 2\n" );
+            else
+                printf( "ASIO buffer granularity     = %ld\n", granularity  );
+        }
+#endif /* WIN32 */
+
+        printf( "Default sample rate         = %8.2f\n", deviceInfo->defaultSampleRate );
 
     /* poll for standard sample rates */
         inputParameters.device = i;
