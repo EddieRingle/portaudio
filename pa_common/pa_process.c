@@ -1334,7 +1334,7 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
                 srcBytePtr = ((unsigned char*)bp->tempOutputBuffer) +
                         bp->bytesPerUserOutputSample *
                         (bp->framesPerUserBuffer - bp->framesInTempOutputBuffer);
-                            
+
                 srcSampleStrideSamples = 1;
                 srcChannelStrideBytes = bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
             }
@@ -1528,4 +1528,77 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
 int PaUtil_IsBufferProcessorOuputEmpty( PaUtilBufferProcessor* bp )
 {
     return (bp->framesInTempOutputBuffer) ? 0 : 1;
+}
+
+
+
+unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bp, const void ** buffer, unsigned long frames )
+{
+    PaUtilChannelDescriptor *hostOutputChannels;
+    unsigned int frameCount;
+    unsigned char *srcBytePtr;
+    void **nonInterleavedSrcPtrs;
+    unsigned int srcSampleStrideSamples; /* stride from one sample to the next within a channel, in samples */
+    unsigned int srcChannelStrideBytes; /* stride from one channel to the next, in bytes */
+    unsigned int i;
+
+    hostOutputChannels = bp->hostOutputChannels[0];
+    frameCount = (frames < bp->hostOutputFrameCount[0]) ? frames : bp->hostOutputFrameCount[0];
+
+    if( bp->userOutputIsInterleaved )
+    {
+        srcBytePtr = (unsigned char*)*buffer;
+        
+        srcSampleStrideSamples = bp->outputChannelCount;
+        srcChannelStrideBytes = bp->bytesPerUserOutputSample;
+
+        for( i=0; i<bp->outputChannelCount; ++i )
+        {
+            bp->outputConverter(    hostOutputChannels[i].data,
+                                    hostOutputChannels[i].stride,
+                                    srcBytePtr, srcSampleStrideSamples,
+                                    frameCount, &bp->ditherGenerator );
+
+            srcBytePtr += srcChannelStrideBytes;  /* skip to next source channel */
+
+            /* advance dest ptr for next iteration */
+            hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                    frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
+        }
+
+        /* advance callers source point (buffer) */
+        srcBytePtr += frameCount * bp->outputChannelCount * bp->bytesPerUserOutputSample;
+        *buffer = srcBytePtr;
+    }
+    else
+    {
+        /* user output is not interleaved */
+        
+        nonInterleavedSrcPtrs = (void**)*buffer;
+
+        srcSampleStrideSamples = 1;
+        
+        for( i=0; i<bp->outputChannelCount; ++i )
+        {
+            srcBytePtr = (unsigned char*)nonInterleavedSrcPtrs[i];
+            
+            bp->outputConverter(    hostOutputChannels[i].data,
+                                    hostOutputChannels[i].stride,
+                                    srcBytePtr, srcSampleStrideSamples,
+                                    frameCount, &bp->ditherGenerator );
+
+
+            /* advance callers source point (buffer) */
+            srcBytePtr += bp->bytesPerUserOutputSample * frameCount;
+            nonInterleavedSrcPtrs[i] = srcBytePtr;
+            
+            /* advance dest ptr for next iteration */
+            hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                    frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
+        }
+    }
+
+    bp->hostOutputFrameCount[0] += frameCount;
+    
+    return frameCount;
 }

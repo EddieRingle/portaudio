@@ -263,6 +263,22 @@ void PaUtil_Set2ndNonInterleavedOutputChannel( PaUtilBufferProcessor* bufferProc
 int PaUtil_IsBufferProcessorOuputEmpty( PaUtilBufferProcessor* bufferProcessor );
 
 
+
+/* blocking read/write routines - UNDER DEVELOPMENT */
+
+/*
+    Copy samples from the user buffer <buffer> to the host output channels
+    set up by the Set*OutputChannels functions above. Copies the minimum of
+    <frames> and the value set by SetOutputFrameCount().
+
+ @return The number of frames copied. The buffer pointer is advanced to point
+ to the frame following the last one copied.
+*/
+unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bufferProcessor, const void ** buffer, unsigned long frameCount );
+
+
+
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
