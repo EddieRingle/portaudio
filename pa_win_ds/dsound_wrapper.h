@@ -35,6 +35,15 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
+
+/* on Borland compilers, WIN32 doesn't seem to be defined by default, which
+    breaks DSound.h. Adding the define here fixes the problem. - rossb. */
+#ifdef __BORLANDC__
+#if !defined(WIN32)
+#define WIN32
+#endif
+#endif
+
 #include <DSound.h>
 #if !defined(BOOL)
 #define BOOL short
