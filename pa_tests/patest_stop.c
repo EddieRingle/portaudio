@@ -70,7 +70,7 @@
 
 typedef struct
 {
-    float  waveform[TABLE_SIZE + 1]; // add one for guard point for interpolation
+    float  waveform[TABLE_SIZE + 1]; /* Add one for guard point for interpolation. */
     float  phase_increment;
     float  phase;
     float *tune;
@@ -188,7 +188,7 @@ int main(void)
                                (0.1 * sin( ((double)(5*i)/(double)TABLE_SIZE) * M_PI * 2. ))
                            );
     }
-    data.waveform[TABLE_SIZE] = data.waveform[0]; // set guard point
+    data.waveform[TABLE_SIZE] = data.waveform[0]; /* Set guard point. */
     data.tune = &simpleTune[0];
     data.notesPerTune = sizeof(simpleTune) / sizeof(float);
 
