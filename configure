@@ -2966,8 +2966,8 @@ _ACEOF
   LIBS="-lpthread $LIBS"
 
 else
-  { { echo "$as_me:$LINENO: error: libpthread not found!" >&5
-echo "$as_me: error: libpthread not found!" >&2;}
+  { { echo "$as_me:$LINENO: error: IRIX posix thread library not found!" >&5
+echo "$as_me: error: IRIX posix thread library not found!" >&2;}
    { (exit 1); exit 1; }; }
 fi
 
@@ -3040,16 +3040,84 @@ echo "$as_me: error: IRIX audio library not found!" >&2;}
 fi
 
 
-			cat >>confdefs.h <<\_ACEOF
+echo "$as_me:$LINENO: checking for dmGetUST in -ldmedia" >&5
+echo $ECHO_N "checking for dmGetUST in -ldmedia... $ECHO_C" >&6
+if test "${ac_cv_lib_dmedia_dmGetUST+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-ldmedia  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+#line $LINENO "configure"
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+/* Override any gcc2 internal prototype to avoid an error.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+/* We use char because int might match the return type of a gcc2
+   builtin and then its argument prototype would still apply.  */
+char dmGetUST ();
+int
+main ()
+{
+dmGetUST ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+         { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_lib_dmedia_dmGetUST=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ac_cv_lib_dmedia_dmGetUST=no
+fi
+rm -f conftest.$ac_objext conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+echo "$as_me:$LINENO: result: $ac_cv_lib_dmedia_dmGetUST" >&5
+echo "${ECHO_T}$ac_cv_lib_dmedia_dmGetUST" >&6
+if test $ac_cv_lib_dmedia_dmGetUST = yes; then
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBDMEDIA 1
+_ACEOF
+
+  LIBS="-ldmedia $LIBS"
+
+else
+  { { echo "$as_me:$LINENO: error: IRIX digital media library not found!" >&5
+echo "$as_me: error: IRIX digital media library not found!" >&2;}
+   { (exit 1); exit 1; }; }
+fi
+
+
+				cat >>confdefs.h <<\_ACEOF
 #define PA_USE_SGI 1
 _ACEOF
 
 
-		CFLAGS="$CFLAGS -D_REENTRANT"
+			CFLAGS="$CFLAGS -D_REENTRANT"
 
 	OTHER_OBJS="pa_sgi/pa_sgi.o pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o";
 
-		LIBS="-lm -laudio -lpthread";
+			LIBS="-lm -ldmedia -laudio -lpthread";
 	PADLL="libportaudio.so";
 	SHARED_FLAGS="-shared";
 	;;
