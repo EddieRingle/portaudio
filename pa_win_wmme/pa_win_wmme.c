@@ -60,11 +60,16 @@
 /*
 TODO:
 
+
     - implement buffer size and number of buffers code
+        - write template function and ask phil to implement it
+        - template should take: host input and output sample formats,
+            callbackBufferSize, requested input and output latency
+        - this code should generate defaults the way the old code did
+
 
     - implement timecode param to callback
 
-    - add default buffer size/number code from old implementation
     - add bufferslip management
     - add multidevice multichannel support
     - add thread throttling on overload
@@ -622,6 +627,89 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaUtil_FreeMemory( winMmeHostApi );
 }
 
+/* GetBufferSettings() fills the framesPerHostInputBuffer, numHostInputBuffers,
+    framesPerHostOutputBuffer and numHostOutputBuffers parameters based on the values
+    of the other parameters.
+
+
+
+
+*/
+
+static PaError CalculateBufferSettings( unsigned long *framesPerHostInputBuffer, unsigned long *numHostInputBuffers,
+        unsigned long *framesPerHostOutputBuffer, unsigned long *numHostOutputBuffers,
+        int numInputChannels, PaSampleFormat hostInputSampleFormat,
+        unsigned long inputLatency, PaWinMmeStreamInfo *inputStreamInfo,
+        int numOutputChannels, PaSampleFormat hostOutputSampleFormat,
+        unsigned long outputLatency, PaWinMmeStreamInfo *outputStreamInfo,
+        unsigned long framesPerCallback )
+{
+    PaError result = paNoError;
+
+    if( numInputChannels > 0 )
+    {
+        if( inputStreamInfo )
+        {
+            if( inputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters )
+            {
+                if( inputStreamInfo->numBuffers <= 0
+                        || inputStreamInfo->framesPerBuffer <= 0 )
+                {
+                    result = paIncompatibleStreamInfo;
+                    goto error;
+                }
+
+                *framesPerHostInputBuffer = inputStreamInfo->framesPerBuffer;
+                *numHostInputBuffers = inputStreamInfo->numBuffers;
+            }
+        }
+        else
+        {
+            /* hardwire for now, FIXME */
+            *framesPerHostInputBuffer = 4096;
+            *numHostInputBuffers = 4;
+        }
+    }
+    else
+    {
+        *framesPerHostInputBuffer = 0;
+        *numHostInputBuffers = 0;
+    }
+
+    if( numOutputChannels > 0 )
+    {
+        if( outputStreamInfo )
+        {
+            if( outputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters )
+            {
+                if( outputStreamInfo->numBuffers <= 0
+                        || outputStreamInfo->framesPerBuffer <= 0 )
+                {
+                    result = paIncompatibleStreamInfo;
+                    goto error;
+                }
+
+                *framesPerHostOutputBuffer = outputStreamInfo->framesPerBuffer;
+                *numHostOutputBuffers = outputStreamInfo->numBuffers;
+            }
+        }
+        else
+        {
+            /* hardwire for now, FIXME */
+            *framesPerHostOutputBuffer = 4096;
+            *numHostOutputBuffers = 4;
+        }
+    }
+    else
+    {
+        *framesPerHostOutputBuffer = 0;
+        *numHostOutputBuffers = 0;
+    }
+
+error:
+    return result;
+}
+
 
 /*
     NOTE: this is a hack to allow InitializeBufferSet et al to be used on both
@@ -798,11 +886,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaWinMmeStream *stream = 0;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     unsigned long bytesPerInputFrame, bytesPerOutputFrame;
-    int numHostInputBuffers = 0;
-    int numHostOutputBuffers = 0;
-    int framesPerHostInputBuffer = 0;
-    int framesPerHostOutputBuffer = 0;
-    int framesPerBufferProcessorCall;  
+    unsigned long framesPerHostInputBuffer;
+    unsigned long numHostInputBuffers;
+    unsigned long framesPerHostOutputBuffer;
+    unsigned long numHostOutputBuffers;
+    unsigned long framesPerBufferProcessorCall;  
     int lockInited = 0;
     int bufferEventInited = 0;
     int abortEventInited = 0;
@@ -837,18 +925,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paIncompatibleStreamInfo;
         }
 
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseLowLevelLatencyParameters )
-        {
-            if( ((PaWinMmeStreamInfo*)inputStreamInfo)->numBuffers <= 0
-                    || ((PaWinMmeStreamInfo*)inputStreamInfo)->framesPerBuffer <= 0 )
-            {
-                return paIncompatibleStreamInfo;
-            }
-
-            numHostInputBuffers = ((PaWinMmeStreamInfo*)inputStreamInfo)->numBuffers;
-            framesPerHostInputBuffer = ((PaWinMmeStreamInfo*)inputStreamInfo)->framesPerBuffer;
-        }
-
         /* IMPLEMENT ME: validate multidevice fields */
     }
 
@@ -861,24 +937,30 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paIncompatibleStreamInfo;
         }
 
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseLowLevelLatencyParameters )
-        {
-            if( ((PaWinMmeStreamInfo*)outputStreamInfo)->numBuffers <= 0
-                    || ((PaWinMmeStreamInfo*)outputStreamInfo)->framesPerBuffer <= 0 )
-            {
-                return paIncompatibleStreamInfo;
-            }
-
-            numHostOutputBuffers = ((PaWinMmeStreamInfo*)outputStreamInfo)->numBuffers;
-            framesPerHostOutputBuffer = ((PaWinMmeStreamInfo*)outputStreamInfo)->framesPerBuffer;
-        }
-
         /* IMPLEMENT ME: validate multidevice fields */                 
     }
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
         return paInvalidFlag; /* unexpected platform specific flag */
+
+
+    /* FIXME: establish which host formats are available */
+    hostInputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+
+    /* FIXME: establish which host formats are available */
+    hostOutputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+
+
+    result = CalculateBufferSettings( &framesPerHostInputBuffer, &numHostInputBuffers,
+            &framesPerHostOutputBuffer, &numHostOutputBuffers,
+            numInputChannels, hostInputSampleFormat, inputLatency, (PaWinMmeStreamInfo*)inputStreamInfo,
+            numOutputChannels, hostOutputSampleFormat, outputLatency, (PaWinMmeStreamInfo*)outputStreamInfo,
+            framesPerCallback );
+    if( result != paNoError )
+        goto error;
 
 
     stream = (PaWinMmeStream*)PaUtil_AllocateMemory( sizeof(PaWinMmeStream) );
@@ -897,32 +979,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
-
-
-    /* FIXME: establish which host formats are available */
-    hostInputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
-
-    /* FIXME: establish which host formats are available */
-    hostOutputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-
-
-    /* calculate frames per buffer and number of buffers from generic
-        latency parameters if specific values have not been provided */
-    /* FIXME: derive values from latency params */
-
-    if( inputDevice != paNoDevice && numHostInputBuffers == 0 )
-    {
-        framesPerHostInputBuffer = 16384;
-        numHostInputBuffers = 4;
-    }
-
-    if( outputDevice != paNoDevice && numHostOutputBuffers == 0 )
-    {
-        framesPerHostOutputBuffer = 16384;
-        numHostOutputBuffers = 4;
-    }
 
     if( inputDevice != paNoDevice && outputDevice != paNoDevice )
     {
@@ -951,7 +1007,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
     }
 
-                                  
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
