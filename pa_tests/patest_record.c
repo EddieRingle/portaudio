@@ -42,6 +42,7 @@
 
 /* #define SAMPLE_RATE  (17932) /* Test failure to open with this value. */
 #define SAMPLE_RATE  (44100)
+#define FRAMES_PER_BUFFER (1024)
 #define NUM_SECONDS     (5)
 #define NUM_CHANNELS    (2)
 /* #define DITHER_FLAG     (paDitherOff)  /**/
@@ -81,7 +82,9 @@ paTestData;
 */
 static int recordCallback( void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
-                           PaTimestamp outTime, void *userData )
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData )
 {
     paTestData *data = (paTestData*)userData;
     SAMPLE *rptr = (SAMPLE*)inputBuffer;
@@ -92,7 +95,9 @@ static int recordCallback( void *inputBuffer, void *outputBuffer,
     unsigned long framesLeft = data->maxFrameIndex - data->frameIndex;
 
     (void) outputBuffer; /* Prevent unused variable warnings. */
-    (void) outTime;
+    (void) timeInfo;
+    (void) statusFlags;
+    (void) userData;
 
     if( framesLeft < framesPerBuffer )
     {
@@ -131,7 +136,9 @@ static int recordCallback( void *inputBuffer, void *outputBuffer,
 */
 static int playCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
-                         PaTimestamp outTime, void *userData )
+                         const PaStreamCallbackTimeInfo* timeInfo,
+                         PaStreamCallbackFlags statusFlags,
+                         void *userData )
 {
     paTestData *data = (paTestData*)userData;
     SAMPLE *rptr = &data->recordedSamples[data->frameIndex * NUM_CHANNELS];
@@ -139,8 +146,11 @@ static int playCallback( void *inputBuffer, void *outputBuffer,
     unsigned int i;
     int finished;
     unsigned int framesLeft = data->maxFrameIndex - data->frameIndex;
+
     (void) inputBuffer; /* Prevent unused variable warnings. */
-    (void) outTime;
+    (void) timeInfo;
+    (void) statusFlags;
+    (void) userData;
 
     if( framesLeft < framesPerBuffer )
     {
@@ -175,6 +185,7 @@ static int playCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
+    PaStreamParameters inputParameters, outputParameters;
     PaStream *stream;
     PaError    err;
     paTestData data;
@@ -201,22 +212,20 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
+    inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    inputParameters.channelCount = 2;       /* stereo input */
+    inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
+    inputParameters.hostApiSpecificStreamInfo = NULL;
+
     /* Record some audio. -------------------------------------------- */
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDevice(),
-              NUM_CHANNELS,               /* stereo input */
-              PA_SAMPLE_TYPE,
-              0, /* default latency */
-              NULL,
-              paNoDevice,
-              0,
-              PA_SAMPLE_TYPE,
-              0, /* default latency */
-              NULL,
+              &inputParameters,
+              NULL,                  //&outputParameters,
               SAMPLE_RATE,
-              1024,            /* frames per buffer */
-              0, //paDitherOff,    /* flags */
+              FRAMES_PER_BUFFER,
+              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               recordCallback,
               &data );
     if( err != paNoError ) goto error;
@@ -247,7 +256,7 @@ int main(void)
         }
         average += val;
     }
-    
+
     average = average / numSamples;
 
     if( PA_SAMPLE_TYPE == paFloat32 )
@@ -260,7 +269,7 @@ int main(void)
         printf("sample max amplitude = %d\n", max );
         printf("sample average = %d\n", average );
     }
-    
+
     /* Write recorded data to a file. */
 #if 0
     {
@@ -281,22 +290,21 @@ int main(void)
 
     /* Playback recorded data.  -------------------------------------------- */
     data.frameIndex = 0;
+
+    outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    outputParameters.channelCount = 2;       /* stereo output */
+    outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+
     printf("Begin playback.\n"); fflush(stdout);
     err = Pa_OpenStream(
               &stream,
-              paNoDevice,
-              0,               /* NO input */
-              PA_SAMPLE_TYPE,
-              0, /* default latency */
-              NULL,
-              Pa_GetDefaultOutputDevice(),
-              NUM_CHANNELS,               /* stereo output */
-              PA_SAMPLE_TYPE,
-              0, /* default latency */
-              NULL,
+              NULL, /* no input */
+              &outputParameters,
               SAMPLE_RATE,
-              1024,            /* frames per buffer */
-              paClipOff,       /* we won't output out of range samples so don't bother clipping them */
+              FRAMES_PER_BUFFER,
+              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               playCallback,
               &data );
     if( err != paNoError ) goto error;
@@ -325,3 +333,4 @@ error:
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
     return -1;
 }
+
