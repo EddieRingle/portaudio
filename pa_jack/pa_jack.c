@@ -266,11 +266,14 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
         jack_ports = jack_get_ports( jackApi->jack_client, regex_pattern,
                                      NULL, JackPortIsOutput);
         curDevInfo->maxInputChannels = 0;
-        for( i = 0; jack_ports[i] != NULL ; i++)
+        if( jack_ports )
         {
-            /* The number of ports returned is the number of output channels.
-             * We don't care what they are, we just care how many */
-            curDevInfo->maxInputChannels++;
+            for( i = 0; jack_ports[i] != NULL ; i++)
+            {
+                /* The number of ports returned is the number of output channels.
+                 * We don't care what they are, we just care how many */
+                curDevInfo->maxInputChannels++;
+            }
         }
         free(jack_ports);
 
@@ -278,11 +281,14 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
         jack_ports = jack_get_ports( jackApi->jack_client, regex_pattern,
                                      NULL, JackPortIsInput);
         curDevInfo->maxOutputChannels = 0;
-        for( i = 0; jack_ports[i] != NULL ; i++)
+        if( jack_ports )
         {
-            /* The number of ports returned is the number of input channels.
-             * We don't care what they are, we just care how many */
-            curDevInfo->maxOutputChannels++;
+            for( i = 0; jack_ports[i] != NULL ; i++)
+            {
+                /* The number of ports returned is the number of input channels.
+                 * We don't care what they are, we just care how many */
+                curDevInfo->maxOutputChannels++;
+            }
         }
         free(jack_ports);
 
