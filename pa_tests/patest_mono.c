@@ -43,7 +43,7 @@
 #define SAMPLE_RATE   (44100)
 #define AMPLITUDE     (0.8)
 #define FRAMES_PER_BUFFER  (64)
-#define OUTPUT_DEVICE Pa_GetDefaultOutputDeviceID()
+#define OUTPUT_DEVICE Pa_GetDefaultOutputDevice()
 
 #ifndef M_PI
 #define M_PI  (3.14159265)
@@ -61,16 +61,20 @@ paTestData;
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patestCallback(   void *inputBuffer, void *outputBuffer,
-                             unsigned long framesPerBuffer,
-                             PaTimestamp outTime, void *userData )
+static int patestCallback( const void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData )
 {
     paTestData *data = (paTestData*)userData;
     float *out = (float*)outputBuffer;
     unsigned long i;
     int finished = 0;
-    (void) outTime; /* Prevent unused variable warnings. */
+    /* avoid unused variable warnings */
     (void) inputBuffer;
+    (void) timeInfo;
+    (void) statusFlags;
     for( i=0; i<framesPerBuffer; i++ )
     {
         *out++ = data->sine[data->phase];  /* left */
@@ -84,7 +88,8 @@ static int patestCallback(   void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStreamParameters outputParameters;
+    PaStream *stream;
     PaError err;
     paTestData data;
     int i;
@@ -98,32 +103,36 @@ int main(void)
     
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
+
+    outputParameters.device = OUTPUT_DEVICE;
+    outputParameters.channelCount = 1;       /* MONO output */
+    outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+
     err = Pa_OpenStream(
               &stream,
-              paNoDevice,/* default input device */
-              0,              /* no input */
-              paFloat32,  /* 32 bit floating point input */
-              NULL,
-              OUTPUT_DEVICE,
-              1,          /* MONO output */
-              paFloat32,      /* 32 bit floating point output */
-              NULL,
+              NULL, /* no input */
+              &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              0,              /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
     if( err != paNoError ) goto error;
+
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
+    
     printf("Play for %d seconds.\n", NUM_SECONDS ); fflush(stdout);
     Pa_Sleep( NUM_SECONDS * 1000 );
 
     err = Pa_StopStream( stream );
     if( err != paNoError ) goto error;
+    
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
+    
     Pa_Terminate();
     printf("Test finished.\n");
     return err;
