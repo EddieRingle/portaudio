@@ -679,6 +679,22 @@ error:
     goto end;
 }
 
+/* Initialize device info with invalid values (maxInputChannels and maxOutputChannels are set to zero since these indicate
+ * wether input/output is available) */
+static void InitializeDeviceInfo( PaDeviceInfo *deviceInfo )
+{
+    deviceInfo->structVersion = -1;
+    deviceInfo->name = NULL;
+    deviceInfo->hostApi = -1;
+    deviceInfo->maxInputChannels = 0;
+    deviceInfo->maxOutputChannels = 0;
+    deviceInfo->defaultLowInputLatency = -1.;
+    deviceInfo->defaultLowOutputLatency = -1.;
+    deviceInfo->defaultHighInputLatency = -1.;
+    deviceInfo->defaultHighOutputLatency = -1.;
+    deviceInfo->defaultSampleRate = -1.;
+}
+
 /* Helper struct */
 typedef struct
 {
@@ -819,7 +835,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
 
         /* Zero fields */
-        PaUtil_InitializeDeviceInfo( commonDeviceInfo );
+        InitializeDeviceInfo( commonDeviceInfo );
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
