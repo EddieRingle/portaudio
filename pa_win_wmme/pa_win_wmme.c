@@ -60,14 +60,27 @@
 	@todo Fix buffer catch up code, can sometimes get stuck (perhaps fixed now,
             needs to be reviewed and tested.)
 
-	@todo Implement "close sample rate matching" if needed - is this really needed
-        in mme?
-
-	@todo Investigate supporting host buffer formats > 16 bits
-
     @todo implement paInputUnderflow, paOutputOverflow streamCallback statusFlags, paNeverDropInput.
 
+    @todo BUG: PA_MME_SET_LAST_WAVEIN/OUT_ERROR is used in functions which may
+                be called asynchronously from the callback thread. this is bad.
+
+    @todo implement inputBufferAdcTime in callback thread
+
+    @todo review/fix error recovery and cleanup in marked functions
+
+    @todo implement timeInfo for stream priming
+
+    @todo handle the case where the callback returns paAbort or paComplete during stream priming.
+
+    @todo review input overflow and output underflow handling in ReadStream and WriteStream
+
+Non-critical stuff for the future:
+
+    @todo Investigate supporting host buffer formats > 16 bits
+    
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
+
 */
 
 /*
@@ -510,7 +523,7 @@ static double defaultSampleRateSearchOrder_[] =
     { 44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0, 192000.0,
         16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
 
-static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeDeviceId,
+static void DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeDeviceId,
         PaError (*waveFormatExQueryFunction)(int, WAVEFORMATEX*), int maxChannels )
 {
     PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
@@ -528,8 +541,6 @@ static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, in
             break;
         }
     }
-
-    return paNoError;
 }
 
 
@@ -599,7 +610,7 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
 
     winMmeDeviceInfo->dwFormats = wic.dwFormats;
 
-    result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeInputDeviceId,
+    DetectDefaultSampleRate( winMmeDeviceInfo, winMmeInputDeviceId,
             QueryInputWaveFormatEx, deviceInfo->maxInputChannels );
 
     *success = 1;
@@ -675,7 +686,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
 
     winMmeDeviceInfo->dwFormats = woc.dwFormats;
 
-    result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeOutputDeviceId,
+    DetectDefaultSampleRate( winMmeDeviceInfo, winMmeOutputDeviceId,
             QueryOutputWaveFormatEx, deviceInfo->maxOutputChannels );
 
     *success = 1;
@@ -1489,7 +1500,7 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
         double sampleRate, PaWinMmeDeviceAndChannelCount *devices,
         unsigned int deviceCount, int isInput )
 {
-    PaError result = paNoError;
+    PaError result;
     MMRESULT mmresult;
     unsigned long bytesPerFrame;
     WAVEFORMATEX wfx;
@@ -1937,7 +1948,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStreamCallback *streamCallback,
                            void *userData )
 {
-    PaError result = paNoError;
+    PaError result;
     PaWinMmeHostApiRepresentation *winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
     PaWinMmeStream *stream = 0;
     int bufferProcessorIsInitialized = 0;
@@ -2410,7 +2421,6 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     DWORD result = paNoError;
     DWORD waitResult;
     DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
-    int timeoutCount = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
     PaStreamCallbackFlags statusFlags;
@@ -2452,7 +2462,6 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         else if( waitResult == WAIT_TIMEOUT )
         {
             /* if a timeout is encountered, continue */
-            timeoutCount += 1;
         }
 
         if( stream->abortProcessing )
@@ -2793,7 +2802,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 */
 static PaError CloseStream( PaStream* s )
 {
-    PaError result = paNoError;
+    PaError result;
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     result = CloseHandleWithPaError( stream->abortEvent );
@@ -2817,7 +2826,7 @@ error:
 
 static PaError StartStream( PaStream *s )
 {
-    PaError result = paNoError;
+    PaError result;
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
     MMRESULT mmresult;
     unsigned int i, j;
@@ -3298,7 +3307,6 @@ static PaError ReadStream( PaStream* s,
     signed int hostInputBufferIndex;
     DWORD waitResult;
     DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
-    int timeoutCount = 0;
     unsigned int channel, i;
     
     if( PA_IS_INPUT_STREAM_(stream) )
@@ -3374,10 +3382,9 @@ static PaError ReadStream( PaStream* s,
                 }
                 else if( waitResult == WAIT_TIMEOUT )
                 {
-                    /* if a timeout is encountered, continue, perhaps we should
-                        give up eventually
+                    /* if a timeout is encountered, continue,
+                        perhaps we should give up eventually
                     */
-                    timeoutCount += 1;
                 }         
             }
         }while( framesRead < frames );
@@ -3403,7 +3410,6 @@ static PaError WriteStream( PaStream* s,
     signed int hostOutputBufferIndex;
     DWORD waitResult;
     DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
-    int timeoutCount = 0;
     unsigned int channel, i;
 
         
@@ -3482,10 +3488,9 @@ static PaError WriteStream( PaStream* s,
                 }
                 else if( waitResult == WAIT_TIMEOUT )
                 {
-                    /* if a timeout is encountered, continue, perhaps we should
-                        give up eventually
+                    /* if a timeout is encountered, continue,
+                        perhaps we should give up eventually
                     */
-                    timeoutCount += 1;
                 }             
             }        
         }while( framesWritten < frames );
