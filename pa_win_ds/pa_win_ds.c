@@ -41,6 +41,11 @@
 
 #include "dsound_wrapper.h"
 
+/* TODO
+O- Fix timestamps.
+O- Handle buffer underflow, overflow, etc.
+*/
+
 #define PRINT(x) { printf x; fflush(stdout); }
 #define ERR_RPT(x) PRINT(x)
 #define DBUG(x)  /* PRINT(x) */
@@ -116,10 +121,10 @@ typedef struct PaWinDsDeviceInfo
 typedef struct
 {
     PaUtilHostApiRepresentation commonHostApiRep;
-    PaUtilStreamInterface callbackStreamInterface;
-    PaUtilStreamInterface blockingStreamInterface;
+    PaUtilStreamInterface    callbackStreamInterface;
+    PaUtilStreamInterface    blockingStreamInterface;
 
-    PaUtilAllocationGroup *allocations;
+    PaUtilAllocationGroup   *allocations;
 
     /* implementation specific data goes here */
     PaWinDsDeviceInfo       *winDsDeviceInfos;
@@ -183,7 +188,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
     int                           index = hostApi->deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
-
+    int                           deviceOK = TRUE;
 
     /* Copy GUID to static array. Set pointer. */
     if( lpGUID == NULL )
@@ -196,23 +201,8 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
-    /* Allocate room for descriptive name. */
-    if( lpszDesc != NULL )
-    {
-        char *deviceName;
-        int len = strlen(lpszDesc);
-        deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
-        if( !deviceName )
-        {
-            winDsHostApi->enumerationError = paInsufficientMemory;
-            return FALSE;
-        }
-        memcpy( (void *) deviceName, lpszDesc, len+1 );
-        deviceInfo->name = deviceName;
-    }
 
    /********** Output ******************************/
-    if( lpGUID == NULL ) hostApi->defaultOutputDeviceIndex = index;
 
     /* Create interfaces for each object. */
     hr = DirectSoundCreate(  lpGUID, &lpDirectSound,   NULL );
@@ -220,52 +210,91 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
     {
         deviceInfo->maxOutputChannels = 0;
         DBUG(("Cannot create dsound for %s. Result = 0x%x\n", lpszDesc, hr ));
+        deviceOK = FALSE;
     }
     else
     {
         /* Query device characteristics. */
         caps.dwSize = sizeof(caps);
         IDirectSound_GetCaps( lpDirectSound, &caps );
-        deviceInfo->maxOutputChannels = ( caps.dwFlags & DSCAPS_PRIMARYSTEREO ) ? 2 : 1;
-        /* Get sample rates. */
-        winDsDeviceInfo->sampleRates[0] = (double) caps.dwMinSecondarySampleRate;
-        winDsDeviceInfo->sampleRates[1] = (double) caps.dwMaxSecondarySampleRate;
-        if( caps.dwFlags & DSCAPS_CONTINUOUSRATE ) deviceInfo->numSampleRates = -1;
-        else if( caps.dwMinSecondarySampleRate == caps.dwMaxSecondarySampleRate )
-        {
-            if( caps.dwMinSecondarySampleRate == 0 )
-            {
-                /*
-                ** On my Thinkpad 380Z, DirectSoundV6 returns min-max=0 !!
-                ** But it supports continuous sampling.
-                ** So fake range of rates, and hope it really supports it.
-                */
-                winDsDeviceInfo->sampleRates[0] = 11025.0f;
-                winDsDeviceInfo->sampleRates[1] = 48000.0f;
-                deviceInfo->numSampleRates = -1; /* continuous range */
 
-                DBUG(("PA - Reported rates both zero. Setting to fake values for device #%d\n", sDeviceIndex ));
-            }
-            else
-            {
-                deviceInfo->numSampleRates = 1;
-            }
-        }
-        else if( (caps.dwMinSecondarySampleRate < 1000.0) && (caps.dwMaxSecondarySampleRate > 50000.0) )
+#ifndef PA_NO_WMME
+        if( caps.dwFlags & DSCAPS_EMULDRIVER )
         {
-            /* The EWS88MT drivers lie, lie, lie. The say they only support two rates, 100 & 100000.
-            ** But we know that they really support a range of rates!
-            ** So when we see a ridiculous set of rates, assume it is a range.
-            */
-            deviceInfo->numSampleRates = -1;
-            DBUG(("PA - Sample rate range used instead of two odd values for device #%d\n", sDeviceIndex ));
+            /* If WMME supported, then reject Emulated drivers because they are lousy. */
+            deviceOK = FALSE;
         }
-        else deviceInfo->numSampleRates = 2;
+#endif
+
+        if( deviceOK )
+        {
+            /* Mono or stereo device? */
+            deviceInfo->maxOutputChannels = ( caps.dwFlags & DSCAPS_PRIMARYSTEREO ) ? 2 : 1;
+
+            /* Get sample rates. */
+            winDsDeviceInfo->sampleRates[0] = (double) caps.dwMinSecondarySampleRate;
+            winDsDeviceInfo->sampleRates[1] = (double) caps.dwMaxSecondarySampleRate;
+            if( caps.dwFlags & DSCAPS_CONTINUOUSRATE ) deviceInfo->numSampleRates = -1;
+            else if( caps.dwMinSecondarySampleRate == caps.dwMaxSecondarySampleRate )
+            {
+                if( caps.dwMinSecondarySampleRate == 0 )
+                {
+                    /*
+                    ** On my Thinkpad 380Z, DirectSoundV6 returns min-max=0 !!
+                    ** But it supports continuous sampling.
+                    ** So fake range of rates, and hope it really supports it.
+                    */
+                    winDsDeviceInfo->sampleRates[0] = 11025.0f;
+                    winDsDeviceInfo->sampleRates[1] = 48000.0f;
+                    deviceInfo->numSampleRates = -1; /* continuous range */
+
+                    DBUG(("PA - Reported rates both zero. Setting to fake values for device #%d\n", sDeviceIndex ));
+                }
+                else
+                {
+                    deviceInfo->numSampleRates = 1;
+                }
+            }
+            else if( (caps.dwMinSecondarySampleRate < 1000.0) && (caps.dwMaxSecondarySampleRate > 50000.0) )
+            {
+                /* The EWS88MT drivers lie, lie, lie. The say they only support two rates, 100 & 100000.
+                ** But we know that they really support a range of rates!
+                ** So when we see a ridiculous set of rates, assume it is a range.
+                */
+                deviceInfo->numSampleRates = -1;
+                DBUG(("PA - Sample rate range used instead of two odd values for device #%d\n", sDeviceIndex ));
+            }
+            else deviceInfo->numSampleRates = 2;
+        }
+
         IDirectSound_Release( lpDirectSound );
     }
-    deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
-    deviceInfo->nativeSampleFormats = paInt16;
-    hostApi->deviceCount++;
+
+    if( deviceOK )
+    {
+        deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
+        deviceInfo->nativeSampleFormats = paInt16;
+
+        if( lpGUID == NULL ) hostApi->defaultOutputDeviceIndex = index;
+
+        /* Allocate room for descriptive name. */
+        if( lpszDesc != NULL )
+        {
+            char *deviceName;
+            int len = strlen(lpszDesc);
+            deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
+            if( !deviceName )
+            {
+                winDsHostApi->enumerationError = paInsufficientMemory;
+                return FALSE;
+            }
+            memcpy( (void *) deviceName, lpszDesc, len+1 );
+            deviceInfo->name = deviceName;
+        }
+
+        hostApi->deviceCount++;
+    }
+
     return( TRUE );
 }
 
@@ -286,7 +315,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
     int                           index = hostApi->deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
-
+    int                           deviceOK = TRUE;
 
     /* Copy GUID to static array. Set pointer. */
     if( lpGUID == NULL )
@@ -299,35 +328,21 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
-    /* Allocate room for descriptive name. */
-    if( lpszDesc != NULL )
-    {
-        char *deviceName;
-        int len = strlen(lpszDesc);
-        deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
-        if( !deviceName )
-        {
-            winDsHostApi->enumerationError = paInsufficientMemory;
-            return FALSE;
-        }
-        memcpy( (void *) deviceName, lpszDesc, len+1 );
-        deviceInfo->name = deviceName;
-    }
-
     /********** Input ******************************/
-    if( lpGUID == NULL ) hostApi->defaultInputDeviceIndex = index;
 
     hr = DirectSoundCaptureCreate(  lpGUID, &lpDirectSoundCapture,   NULL );
     if( hr != DS_OK )
     {
         deviceInfo->maxInputChannels = 0;
         DBUG(("Cannot create Capture for %s. Result = 0x%x\n", lpszDesc, hr ));
+        deviceOK = FALSE;
     }
     else
     {
         /* Query device characteristics. */
         caps.dwSize = sizeof(caps);
         IDirectSoundCapture_GetCaps( lpDirectSoundCapture, &caps );
+
         /* printf("caps.dwFormats = 0x%x\n", caps.dwFormats ); */
         deviceInfo->maxInputChannels = caps.dwChannels;
         /* Determine sample rates from flags. */
@@ -347,12 +362,40 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
             if( caps.dwFormats & WAVE_FORMAT_4M16) winDsDeviceInfo->sampleRates[index++] = 44100.0;
             deviceInfo->numSampleRates = index;
         }
-        else deviceInfo->numSampleRates = 0;
+        else
+        {
+            deviceInfo->numSampleRates = 0;
+            deviceOK = FALSE;
+        }
         IDirectSoundCapture_Release( lpDirectSoundCapture );
-        }    deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
-    deviceInfo->nativeSampleFormats = paInt16;
-    hostApi->deviceCount++;
-    return( TRUE );
+    }
+
+    if( deviceOK )
+    {
+        deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
+        deviceInfo->nativeSampleFormats = paInt16;
+
+        /* Allocate room for descriptive name. */
+        if( lpszDesc != NULL )
+        {
+            char *deviceName;
+            int len = strlen(lpszDesc);
+            deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
+            if( !deviceName )
+            {
+                winDsHostApi->enumerationError = paInsufficientMemory;
+                return FALSE;
+            }
+            memcpy( (void *) deviceName, lpszDesc, len+1 );
+            deviceInfo->name = deviceName;
+        }
+
+        if( lpGUID == NULL ) hostApi->defaultInputDeviceIndex = index;
+
+        hostApi->deviceCount++;
+    }
+
+    return TRUE;
 }
 
 
@@ -394,6 +437,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     
     if( deviceCount > 0 )
     {
+        /* allocate array for pointers to PaDeviceInfo structs */
         (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaDeviceInfo*) * deviceCount );
         if( !(*hostApi)->deviceInfos )
@@ -402,7 +446,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
             goto error;
         }
 
-        /* allocate all device info structs in a contiguous block */
+        /* allocate all PaDeviceInfo structs in a contiguous block */
         deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaDeviceInfo) * deviceCount );
         if( !deviceInfoArray )
@@ -711,16 +755,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             result = paBufferTooSmall;
             goto error;
         }
-        if( numBytes > DSBSIZE_MAX )
+        else if( numBytes > DSBSIZE_MAX )
         {
             result = paBufferTooBig;
             goto error;
         }
+
         stream->framesPerDSBuffer = framesPerCallback * stream->numUserBuffers;
         {
             int msecLatency = (int) ((stream->framesPerDSBuffer * 1000) / sampleRate);
             PRINT(("PortAudio on DirectSound - Latency = %d frames, %d msec\n", stream->framesPerDSBuffer, msecLatency ));
         }
+
         /* ------------------ OUTPUT */
         if( (outputDevice >= 0) && (numOutputChannels > 0) )
         {
