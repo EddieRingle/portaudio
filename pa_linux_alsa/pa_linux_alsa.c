@@ -292,6 +292,17 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
 
+    if (*defaultSampleRate != 0.)
+    {
+        /* Could be that the device opened in one mode supports samplerates that the other mode wont have,
+         * so try again .. */
+        if( SetApproximateSampleRate( pcm, hwParams, *defaultSampleRate ) < 0 )
+        {
+            *defaultSampleRate = 0.;
+            PA_DEBUG(( "Original default samplerate failed, trying again ..\n" ));
+        }
+    }
+
     if( *defaultSampleRate == 0. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
@@ -376,20 +387,12 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
     /* allocate deviceInfo memory based on the number of devices */
 
-    commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
-            alsaApi->allocations, sizeof(PaDeviceInfo*) * deviceCount );
-    if( !commonApi->deviceInfos )
-    {
-        return paInsufficientMemory;
-    }
+    UNLESS( commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
+            alsaApi->allocations, sizeof(PaDeviceInfo*) * deviceCount ), paInsufficientMemory );
 
     /* allocate all device info structs in a contiguous block */
-    deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
-            alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * deviceCount );
-    if( !deviceInfoArray )
-    {
-        return paInsufficientMemory;
-    }
+    UNLESS( deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
+            alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * deviceCount ), paInsufficientMemory );
 
     /* now loop over the list of devices again, filling in the deviceInfo for each
      * A: If a device is deemed unavailable (can't get name), its not added to list of devices.
@@ -892,6 +895,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer;
     PaAlsaStreamInfo *inputStreamInfo = NULL, *outputStreamInfo = NULL;
+    PaTime inputLatency, outputLatency;
 
     if( inputParameters )
     {
@@ -1189,34 +1193,30 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         int interleaved = !(inputSampleFormat & paNonInterleaved);
         PaSampleFormat plain_format = hostInputSampleFormat & ~paNonInterleaved;
 
-        PaTime latency = inputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
+        inputLatency = inputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
         PA_ENSURE( ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->captureBufferSize,
-                             &latency, 0, stream->callback_mode ) );
+                             &inputLatency, 0, stream->callback_mode ) );
 
         stream->capture_interleaved = interleaved;
-        stream->streamRepresentation.streamInfo.inputLatency = latency + PaUtil_GetBufferProcessorInputLatency(
-                &stream->bufferProcessor );
     }
 
     if( numOutputChannels > 0 )
     {
         int interleaved = !(outputSampleFormat & paNonInterleaved);
         PaSampleFormat plain_format = hostOutputSampleFormat & ~paNonInterleaved;
-
-        PaTime latency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
         int primeBuffers = streamFlags & paPrimeOutputBuffersUsingStreamCallback;
 
-        PA_ENSURE( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
+        outputLatency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
+
+        ( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->playbackBufferSize,
-                             &latency, primeBuffers, stream->callback_mode ) );
+                             &outputLatency, primeBuffers, stream->callback_mode ) );
 
         /* If the user wants to prime the buffer before stream start, the start threshold will equal buffer size */
         if( primeBuffers )
             stream->startThreshold = stream->playbackBufferSize;
         stream->playback_interleaved = interleaved;
-        stream->streamRepresentation.streamInfo.outputLatency = latency + PaUtil_GetBufferProcessorOutputLatency(
-                &stream->bufferProcessor );
     }
     /* Should be exact now */
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
@@ -1226,6 +1226,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
                     paUtilFixedHostBufferSize, callback, userData ) );
+
+    /* Ok, buffer processor is initialized, now we can deduce it's latency */
+    if( numInputChannels > 0 )
+        stream->streamRepresentation.streamInfo.inputLatency = inputLatency + PaUtil_GetBufferProcessorInputLatency(
+                &stream->bufferProcessor );
+    if( numOutputChannels > 0 )
+        stream->streamRepresentation.streamInfo.outputLatency = outputLatency + PaUtil_GetBufferProcessorOutputLatency(
+                &stream->bufferProcessor );
 
     /* this will cause the two streams to automatically start/stop/prepare in sync.
      * We only need to execute these operations on one of the pair.
@@ -1582,8 +1590,8 @@ void CleanUpStream( PaAlsaStream *stream )
     {
         snd_pcm_close( stream->pcm_playback );
     }
-    if ( stream->pfds )
-        PaUtil_FreeMemory( stream->pfds );
+
+    PaUtil_FreeMemory( stream->pfds );
     pthread_mutex_destroy( &stream->stateMtx );
     pthread_mutex_destroy( &stream->startMtx );
     pthread_cond_destroy( &stream->startCond );
@@ -1594,7 +1602,7 @@ void CleanUpStream( PaAlsaStream *stream )
 int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate )
 {
     unsigned long approx = (unsigned long) sampleRate;
-    int dir;
+    int dir = 0;
     double fraction = sampleRate - approx;
 
     assert( pcm && hwParams );
@@ -1609,8 +1617,6 @@ int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, dou
         else
             dir = 1;
     }
-    else
-        dir = 0;
 
     return snd_pcm_hw_params_set_rate( pcm, hwParams, approx, dir );
 }
