@@ -99,14 +99,25 @@
   014     Implementation Style Guidelines (sorry, my braces are not ANSI style).
   015 OK: Callback Timestamps (During priming, though, these are still null!).
   016 OK: Use Structs for Pa_OpenStream() Parameters.
-  020:    Allow Callback to prime output stream (StartStream() should do the priming)
-          Should be tested for full duplex streams. Seems ok (patest_prime).
+  019:    Notify Client When All Buffers Have Played (Ok, covered by the buffer processor?)
+  020 OK: Allow Callback to prime output stream (StartStream() should do the priming)
+          Should be tested more thoroughly for full duplex streams. (patest_prime seems ok).
 
- Todo: - Underrun or overflow flags at some more places.
-       - Make a complete new version to support 'sproc'-applications.
-         Or could we manage that with some clever if-defs?
-         It must be clear which version we use (especially when using pa as lib!):
-         an irix-sproc() version or pthread version.
+
+ @todo Underrun or overflow flags at some more places.
+
+ @todo Callback Timestamps during priming.
+
+ @todo Improve adaption to number of channels, samplerate and such when inventing 
+       some frames per host buffer (when client requests 0).
+
+ @todo Make a complete new version to support 'sproc'-applications.
+       Or could we manage that with some clever if-defs?
+       It must be clear which version we use (especially when using pa as lib!):
+       an irix-sproc() version or pthread version.
+
+ @todo Not in this file, but in Makefile.in or so: 'make clean' does not remove 
+       lib/libportaudio.so.0.0.19.
     
  Note: Even when mono-output is requested, with ALv7, the audio library opens
        a outputs stereo. One can observe this in SGI's 'Audio Queue Monitor'.
@@ -1063,17 +1074,21 @@ static void* PaSGIpthread(void *userData)
         {                                          /* output buffer will (probably) not block.     */
         unsigned long frames_to_prime = (long)(0.5 + 
                                         (stream->streamRepresentation.streamInfo.outputLatency
-                                       * stream->streamRepresentation.streamInfo.sampleRate));
+                                         * stream->streamRepresentation.streamInfo.sampleRate));
         if (stream->streamFlags & paPrimeOutputBuffersUsingStreamCallback)
           {
-          DBUG(("Prime by client's callback: < %ld frames.\n", frames_to_prime));
-          while (frames_to_prime >= stream->framesPerHostCallback)   /* We will not do less (yet). */
-            {
-/* TODO: */ PaUtil_BeginBufferProcessing(&stream->bufferProcessor,
-/* Timestamps during priming?!: */       &timeInfo,            /* Pass underflow + priming flags.  */
-/* Also no CPU load measurement yet. */  paPrimeOutputBuffersUsingStreamCallback | paInputUnderflow);
+          PaStreamCallbackFlags cbflags = paPrimingOutput;
+          if (stream->hostPortBuffIn.port) /* Only set this flag in case of full duplex. */
+            cbflags |= paInputUnderflow;
+          DBUG(("Prime with client's callback: < %ld frames.\n", frames_to_prime));
+          while (frames_to_prime >= stream->framesPerHostCallback)  /* We will not do less (yet).  */
+            {                                                     /* TODO: Timestamps and CPU load */
+            PaUtil_BeginBufferProcessing(&stream->bufferProcessor,  /* measurement during priming. */
+                                         &timeInfo,
+                                         cbflags);             /* Pass underflow + priming flags.  */
             if (stream->hostPortBuffIn.port)                   /* Does that provide client's call- */
                 PaUtil_SetNoInput(&stream->bufferProcessor);   /* back with silent inputbuffers?   */
+            
             PaUtil_SetOutputFrameCount(&stream->bufferProcessor, 0);   /* 0=take host buffer size. */
             PaUtil_SetInterleavedOutputChannels(&stream->bufferProcessor, 0,
                                                  stream->hostPortBuffOut.buffer, 0);
