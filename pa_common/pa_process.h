@@ -95,7 +95,7 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bufferProcessor,
 
 
 int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bufferProcessor,
-        void *input, void *output, PaTimestamp outTime );
+        void **input, void **output, PaTimestamp outTime );
         
 
 typedef struct PaUtilChannelDescriptor{

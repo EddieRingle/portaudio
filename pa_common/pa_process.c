@@ -58,7 +58,8 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
     bp->framesPerHostBuffer = framesPerHostBuffer;
 
     bp->numInputChannels = numInputChannels;
-
+    bp->numOutputChannels = numOutputChannels;
+    
     if( numInputChannels > 0 )
     {
         bytesPerSample = Pa_GetSampleSize( hostInputSampleFormat );
@@ -85,9 +86,31 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
 
         bp->inputConverter =
             PaUtil_SelectConverter( hostInputSampleFormat, userInputSampleFormat, streamFlags );
-    }
 
-    bp->numOutputChannels = numOutputChannels;
+            
+        bp->userInputIsInterleaved = (userInputSampleFormat & paNonInterleaved)?0:1;
+
+
+        tempInputBufferSize =
+            bp->bytesPerUserInputSample * numInputChannels * framesPerUserBuffer;
+        bp->tempInputBuffer = PaUtil_AllocateMemory( tempInputBufferSize );
+        if( bp->tempInputBuffer == 0 )
+        {
+            result = paInsufficientMemory;
+            goto error;
+        }
+
+        if( userInputSampleFormat & paNonInterleaved )
+        {
+            bp->tempInputBufferPtrs =
+                PaUtil_AllocateMemory( sizeof(void*)*numInputChannels );
+            if( bp->tempInputBufferPtrs == 0 )
+            {
+                result = paInsufficientMemory;
+                goto error;
+            }
+        }
+    }
 
     if( numOutputChannels > 0 )
     {
@@ -115,56 +138,37 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
 
         bp->outputConverter =
             PaUtil_SelectConverter( userOutputSampleFormat, hostOutputSampleFormat, streamFlags );
+
+
+        bp->userOutputIsInterleaved = (userOutputSampleFormat & paNonInterleaved)?0:1;
+
+        tempOutputBufferSize =
+            bp->bytesPerUserOutputSample * numOutputChannels * framesPerUserBuffer;
+
+        bp->tempOutputBuffer = PaUtil_AllocateMemory( tempOutputBufferSize );
+        if( bp->tempOutputBuffer == 0 )
+        {
+            result = paInsufficientMemory;
+            goto error;
+        }
+
+
+        if( userOutputSampleFormat & paNonInterleaved )
+        {
+            bp->tempOutputBufferPtrs =
+                PaUtil_AllocateMemory( sizeof(void*)*numOutputChannels );
+            if( bp->tempOutputBufferPtrs == 0 )
+            {
+                result = paInsufficientMemory;
+                goto error;
+            }
+        }
     }
 
     PaUtil_InitializeTriangularDitherState( &bp->ditherGenerator );
 
     bp->userCallback = userCallback;
     bp->userData = userData;
-
-    bp->userInputIsInterleaved = (userInputSampleFormat & paNonInterleaved)?0:1;
-    bp->userOutputIsInterleaved = (userOutputSampleFormat & paNonInterleaved)?0:1;
-
-    tempInputBufferSize =
-        bp->bytesPerUserInputSample * numInputChannels * framesPerUserBuffer;
-    bp->tempInputBuffer = PaUtil_AllocateMemory( tempInputBufferSize );
-    if( bp->tempInputBuffer == 0 )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
-
-    if( userInputSampleFormat & paNonInterleaved )
-    {
-        bp->tempInputBufferPtrs =
-            PaUtil_AllocateMemory( sizeof(void*)*numInputChannels );
-        if( bp->tempInputBufferPtrs == 0 )
-        {
-            result = paInsufficientMemory;
-            goto error;
-        }
-    }
-
-    tempOutputBufferSize =
-        bp->bytesPerUserOutputSample * numOutputChannels * framesPerUserBuffer;
-    bp->tempOutputBuffer = PaUtil_AllocateMemory( tempOutputBufferSize );
-    if( bp->tempOutputBuffer == 0 )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
-
-
-    if( userOutputSampleFormat & paNonInterleaved )
-    {
-        bp->tempOutputBufferPtrs =
-            PaUtil_AllocateMemory( sizeof(void*)*numOutputChannels );
-        if( bp->tempOutputBufferPtrs == 0 )
-        {
-            result = paInsufficientMemory;
-            goto error;
-        }
-    }
 
     return result;
 
@@ -232,16 +236,18 @@ static void* ConfigureUserOutputBufferPtr( PaUtilBufferProcessor *bp, void *host
                 for( i=0; i < bp->numOutputChannels; ++i )
                 {
                     bp->tempOutputBufferPtrs[i] = p;
-                    p +=  bp->framesPerUserBuffer * bp->bytesPerUserInputSample;
+                    p +=  bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
                 }
 
-                result = bp->tempInputBufferPtrs;
+                result = bp->tempOutputBufferPtrs;
             }
         }
         else
         {
             /* pass output buffer directly if no conversion is needed */
             result = hostBuffer;
+
+            /* REVIEW: what if no conversion is necessary but the host is interleaved and the user isn't or vice versa ? */
         }
     }
 
@@ -370,14 +376,12 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bp,
         hostFramesRemaining -= bp->framesPerUserBuffer;
     }
 
-    //TODO: rewind the non-interleaved pointers if necessary.
-
     return result;
 }
 
 
 int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
-        void *hostInput, void *hostOutput, PaTimestamp outTime )
+        void **hostInput, void **hostOutput, PaTimestamp outTime )
 {
     unsigned int hostFramesRemaining = bp->framesPerHostBuffer;
     void *userInput, *userOutput;
@@ -452,7 +456,7 @@ int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
             }
         }
 
-        userOutput = ConfigureUserOutputBufferPtr( hostOutput, bp );
+        userOutput = ConfigureUserOutputBufferPtr( bp, hostOutput );
 
         result = bp->userCallback( userInput, userOutput,
                                    bp->framesPerUserBuffer, outTime, bp->userData );
@@ -470,11 +474,11 @@ int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
                     destNonInterleavedPtr = (unsigned char**)hostOutput;
                     for( i=0; i<bp->numOutputChannels; ++i )
                     {
-                        bp->inputConverter( *destNonInterleavedPtr, 1,
+                        bp->outputConverter( *destNonInterleavedPtr, 1,
                                             srcBytePtr, bp->numOutputChannels,
                                             bp->framesPerUserBuffer, &bp->ditherGenerator );
 
-                        srcBytePtr += bp->bytesPerHostOutputSample; /* skip to next interleaved channel */
+                        srcBytePtr += bp->bytesPerUserOutputSample; /* skip to next interleaved channel */
 
                         /* advance output ptr for next iteration */
                         *destNonInterleavedPtr += bp->framesPerUserBuffer * bp->bytesPerHostOutputSample;
@@ -509,7 +513,27 @@ int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
         hostFramesRemaining -= bp->framesPerUserBuffer;
     }
 
-    //TODO: rewind the non-interleaved pointers if necessary.
+    /* rewind the non-interleaved pointers, so they have the same values as they did on entry */
+
+    if( bp->numInputChannels != 0 )
+    {
+        srcNonInterleavedPtr = (unsigned char**)hostInput;
+        for( i=0; i<bp->numInputChannels; ++i )
+        {
+            *srcNonInterleavedPtr -= bp->framesPerHostBuffer * bp->bytesPerHostInputSample;
+            ++srcNonInterleavedPtr;
+        }
+    }
+
+    if( bp->numOutputChannels != 0 )
+    {
+        destNonInterleavedPtr = (unsigned char**)hostOutput;
+        for( i=0; i<bp->numOutputChannels; ++i )
+        {
+            *destNonInterleavedPtr -= bp->framesPerHostBuffer * bp->bytesPerHostOutputSample;
+            ++destNonInterleavedPtr;
+        }
+    }
 
     return result;
 }
