@@ -402,7 +402,26 @@ static void Float32_To_Int24(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    float *src = (float*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    signed long temp;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        /* convert to 32 bit and drop the low 8 bits */
+        double scaled = *src * 0x7FFFFFFF;
+        temp = (signed long) scaled;
+
+        /* REVIEW, FIXME : this is little endian byte order */
+        dest[0] = (unsigned char)(temp >> 24);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 8);
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -412,7 +431,28 @@ static void Float32_To_Int24_Dither(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    float *src = (float*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    signed long temp;
+
+    while( count-- )
+    {
+        /* convert to 32 bit and drop the low 8 bits */
+
+        double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        double dithered = ((double)*src * (2147483646.0)) + dither;
+        
+        temp = (signed long) dithered;
+
+        /* REVIEW, FIXME : this is little endian byte order */
+        dest[0] = (unsigned char)(temp >> 24);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 8);
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -422,7 +462,27 @@ static void Float32_To_Int24_Clip(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    float *src = (float*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    signed long temp;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        /* convert to 32 bit and drop the low 8 bits */
+        double scaled = *src * 0x7FFFFFFF;
+        PA_CLIP_( scaled, -2147483648., 2147483647.  );
+        temp = (signed long) scaled;
+
+        /* REVIEW, FIXME : this is little endian byte order */
+        dest[0] = (unsigned char)(temp >> 24);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 8);
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -432,7 +492,29 @@ static void Float32_To_Int24_DitherClip(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    float *src = (float*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+    signed long temp;
+    
+    while( count-- )
+    {
+        /* convert to 32 bit and drop the low 8 bits */
+        
+        double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        double dithered = ((double)*src * (2147483646.0)) + dither;
+        PA_CLIP_( dithered, -2147483648., 2147483647.  );
+        
+        temp = (signed long) dithered;
+
+        /* REVIEW, FIXME : this is little endian byte order */
+        dest[0] = (unsigned char)(temp >> 24);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 8);
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -890,7 +972,24 @@ static void Int24_To_Float32(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    float *dest = (float*)destinationBuffer;
+    signed long temp;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        /* REVIEW, FIXME: this is little endian byte order */
+        temp = src[0] << 24;
+        temp = src[1] << 16;
+        temp = src[2] << 8;
+
+        *dest = (double)temp * const_1_div_2147483648_;
+
+        src += sourceStride * 3;
+        dest += destinationStride;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1196,7 +1295,18 @@ static void Int8_To_Int24(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    /* IMPLEMENT ME */
+    signed char *src = (signed char*)sourceBuffer;
+    unsigned char *dest =  (unsigned char*)destinationBuffer;
+    (void)ditherGenerator; /* unused parameter */
+
+    while( count-- )
+    {
+
+        /* IMPLEMENT ME */
+
+        src += sourceStride;
+        dest += destinationStride * 3;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
