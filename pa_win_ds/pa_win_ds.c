@@ -118,7 +118,7 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 
 /* FIXME: should convert hr to a string */
 #define PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr ) \
-    PaUtil_SetLastHostError( paDirectSound, hr, "DirectSound error" )
+    PaUtil_SetLastHostErrorInfo( paDirectSound, hr, "DirectSound error" )
 
 /************************************************* DX Prototypes **********/
 static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
@@ -209,7 +209,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
     LPDIRECTSOUND                 lpDirectSound;
     PaWinDsHostApiRepresentation *winDsHostApi  = (PaWinDsHostApiRepresentation *) lpContext;
     PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
-    int                           index = hostApi->deviceCount;
+    int                           index = hostApi->info.deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
     int                           deviceOK = TRUE;
@@ -300,7 +300,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
 
     if( deviceOK )
     {
-        if( lpGUID == NULL ) hostApi->defaultOutputDeviceIndex = index;
+        if( lpGUID == NULL ) hostApi->info.defaultOutputDevice = index;
 
         /* Allocate room for descriptive name. */
         if( lpszDesc != NULL )
@@ -317,7 +317,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
             deviceInfo->name = deviceName;
         }
 
-        hostApi->deviceCount++;
+        hostApi->info.deviceCount++;
     }
 
     return( TRUE );
@@ -337,7 +337,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
     LPDIRECTSOUNDCAPTURE          lpDirectSoundCapture;
     PaWinDsHostApiRepresentation *winDsHostApi  = (PaWinDsHostApiRepresentation *) lpContext;
     PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
-    int                           index = hostApi->deviceCount;
+    int                           index = hostApi->info.deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
     int                           deviceOK = TRUE;
@@ -414,9 +414,9 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
             deviceInfo->name = deviceName;
         }
 
-        if( lpGUID == NULL ) hostApi->defaultInputDeviceIndex = index;
+        if( lpGUID == NULL ) hostApi->info.defaultInputDevice = index;
 
-        hostApi->deviceCount++;
+        hostApi->info.deviceCount++;
     }
 
     return TRUE;
@@ -452,9 +452,9 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     (*hostApi)->info.type = paDirectSound;
     (*hostApi)->info.name = "Windows DirectSound";
     
-    (*hostApi)->deviceCount = 0;  
-    (*hostApi)->defaultInputDeviceIndex = paNoDevice;
-    (*hostApi)->defaultOutputDeviceIndex = paNoDevice;
+    (*hostApi)->info.deviceCount = 0;
+    (*hostApi)->info.defaultInputDevice = paNoDevice;
+    (*hostApi)->info.defaultOutputDevice = paNoDevice;
 
     deviceCount = 0;
 /* DSound - enumerate devices to count them. */
@@ -605,12 +605,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
-    int numInputChannels, numOutputChannels;
+    int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numberOfChannels;
+        inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
@@ -619,22 +619,22 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
-        numInputChannels = 0;
+        inputChannelCount = 0;
     }
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numberOfChannels;
+        outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         
         /* unless alternate device specification is supported, reject the use of
@@ -643,17 +643,17 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
-        numOutputChannels = 0;
+        outputChannelCount = 0;
     }
     
     /*
@@ -730,14 +730,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaWinDsHostApiRepresentation *winDsHostApi = (PaWinDsHostApiRepresentation*)hostApi;
     PaWinDsStream *stream = 0;
-    int numInputChannels, numOutputChannels;
+    int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     unsigned long suggestedInputLatencyFrames, suggestedOutputLatencyFrames;
 
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numChannels;
+        inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
         suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
 
@@ -749,24 +749,24 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
             
         /* validate hostApiSpecificStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
-        numInputChannels = 0;
+        inputChannelCount = 0;
         suggestedInputLatencyFrames = 0;
     }
 
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numChannels;
+        outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
 
@@ -775,17 +775,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate hostApiSpecificStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */            
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */            
     }
     else
     {
-        numOutputChannels = 0;
+        outputChannelCount = 0;
         suggestedOutputLatencyFrames = 0;
     }
 
@@ -857,8 +857,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-                    numInputChannels, inputSampleFormat, hostInputSampleFormat,
-                    numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+                    inputChannelCount, inputSampleFormat, hostInputSampleFormat,
+                    outputChannelCount, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer,
                     framesPerBuffer, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
                 /* This next mode is required because DS can split the host buffer when it wraps around. */
@@ -920,7 +920,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputParameters->device ];
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputDevice));
 
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->numChannels * sizeof(short);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->channelCount * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -944,7 +944,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitOutputBuffer( dsw,
                                        (unsigned long) (sampleRate + 0.5),
-                                       outputParameters->numChannels, bytesPerDirectSoundBuffer );
+                                       outputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -955,7 +955,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             /* Calculate value used in latency calculation to avoid real-time divides. */
             stream->secondsPerHostByte = 1.0 /
                 (stream->bufferProcessor.bytesPerHostOutputSample *
-                numOutputChannels * sampleRate);
+                outputChannelCount * sampleRate);
         }
 
         /* ------------------ INPUT */
@@ -963,7 +963,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         {
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputParameters->device ];
             
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->numChannels * sizeof(short);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->channelCount * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -986,7 +986,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitInputBuffer( dsw,
                                       (unsigned long) (sampleRate + 0.5),
-                                      inputParameters->numChannels, bytesPerDirectSoundBuffer );
+                                      inputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitInputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -1043,7 +1043,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     dsw = &stream->directSoundWrapper;
 
     /* How much input data is available? */
-    if( stream->bufferProcessor.numInputChannels > 0 )
+    if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         DSW_QueryInputFilled( dsw, &bytesFilled );
         framesToXfer = numInFramesReady = bytesFilled / dsw->dsw_BytesPerInputFrame;
@@ -1051,7 +1051,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     }
 
     /* How much output room is available? */
-    if( stream->bufferProcessor.numOutputChannels > 0 )
+    if( stream->bufferProcessor.outputChannelCount > 0 )
     {
         DSW_QueryOutputSpace( dsw, &bytesEmpty );
         framesToXfer = numOutFramesReady = bytesEmpty / dsw->dsw_BytesPerOutputFrame;
@@ -1076,7 +1076,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
     /* Input */
-        if( stream->bufferProcessor.numInputChannels > 0 )
+        if( stream->bufferProcessor.inputChannelCount > 0 )
         {
             bytesToXfer = framesToXfer * dsw->dsw_BytesPerInputFrame;
             hresult = IDirectSoundCaptureBuffer_Lock ( dsw->dsw_InputBuffer,
@@ -1104,7 +1104,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         }
 
     /* Output */
-        if( stream->bufferProcessor.numOutputChannels > 0 )
+        if( stream->bufferProcessor.outputChannelCount > 0 )
         {
             bytesToXfer = framesToXfer * dsw->dsw_BytesPerOutputFrame;
             hresult = IDirectSoundBuffer_Lock ( dsw->dsw_OutputBuffer,
@@ -1135,7 +1135,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         numFrames = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
         stream->framesWritten += numFrames;
         
-        if( stream->bufferProcessor.numOutputChannels > 0 )
+        if( stream->bufferProcessor.outputChannelCount > 0 )
         {
         /* Update our buffer offset and unlock sound buffer */
             bytesProcessed = numFrames * dsw->dsw_BytesPerOutputFrame;
@@ -1145,7 +1145,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         }
 
 error1:
-        if( stream->bufferProcessor.numInputChannels > 0 )
+        if( stream->bufferProcessor.inputChannelCount > 0 )
         {
         /* Update our buffer offset and unlock sound buffer */
             bytesProcessed = numFrames * dsw->dsw_BytesPerInputFrame;
@@ -1177,7 +1177,7 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
         else if( stream->stopProcessing )
         {
             DSoundWrapper   *dsw = &stream->directSoundWrapper;
-            if( stream->bufferProcessor.numOutputChannels > 0 )
+            if( stream->bufferProcessor.outputChannelCount > 0 )
             {
                 DSW_ZeroEmptySpace( dsw );
                 /* clear isActive when all sound played */
@@ -1227,7 +1227,7 @@ static PaError StartStream( PaStream *s )
     PaWinDsStream   *stream = (PaWinDsStream*)s;
     HRESULT          hr;
 
-    if( stream->bufferProcessor.numInputChannels > 0 )
+    if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         hr = DSW_StartInput( &stream->directSoundWrapper );
         DBUG(("StartStream: DSW_StartInput returned = 0x%X.\n", hr));
@@ -1245,7 +1245,7 @@ static PaError StartStream( PaStream *s )
     stream->stopProcessing = 0;
     stream->isActive = 1;
 
-    if( stream->bufferProcessor.numOutputChannels > 0 )
+    if( stream->bufferProcessor.outputChannelCount > 0 )
     {
         /* Give user callback a chance to pre-fill buffer. REVIEW - i thought we weren't pre-filling, rb. */
         result = Pa_TimeSlice( stream );
@@ -1311,12 +1311,12 @@ static PaError StopStream( PaStream *s )
     }
 
 
-    if( stream->bufferProcessor.numOutputChannels > 0 )
+    if( stream->bufferProcessor.outputChannelCount > 0 )
     {
         hr = DSW_StopOutput( &stream->directSoundWrapper );
     }
 
-    if( stream->bufferProcessor.numInputChannels > 0 )
+    if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         hr = DSW_StopInput( &stream->directSoundWrapper );
     }

@@ -185,7 +185,7 @@ static ASIOCallbacks asioCallbacks_ =
 
 
 #define PA_ASIO_SET_LAST_HOST_ERROR( errorCode, errorText ) \
-    PaUtil_SetLastHostError( paASIO, errorCode, errorText )
+    PaUtil_SetLastHostErrorInfo( paASIO, errorCode, errorText )
 
 static const char* PaAsio_GetAsioErrorText( ASIOError asioError )
 {
@@ -209,7 +209,7 @@ static const char* PaAsio_GetAsioErrorText( ASIOError asioError )
 
 
 #define PA_ASIO_SET_LAST_ASIO_ERROR( asioError ) \
-    PaUtil_SetLastHostError( paASIO, asioError, PaAsio_GetAsioErrorText( asioError ) )
+    PaUtil_SetLastHostErrorInfo( paASIO, asioError, PaAsio_GetAsioErrorText( asioError ) )
     
 
 /* PaAsioHostApiRepresentation - host api datastructure specific to this implementation */
@@ -1057,13 +1057,13 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     if( (*hostApi)->deviceCount > 0 )
     {
-        (*hostApi)->defaultInputDeviceIndex = 0;
-        (*hostApi)->defaultOutputDeviceIndex = 0;
+        (*hostApi)->info.defaultInputDevice = 0;
+        (*hostApi)->info.defaultOutputDevice = 0;
     }
     else
     {
-        (*hostApi)->defaultInputDeviceIndex = paNoDevice;
-        (*hostApi)->defaultOutputDeviceIndex = paNoDevice;
+        (*hostApi)->info.defaultInputDevice = paNoDevice;
+        (*hostApi)->info.defaultOutputDevice = paNoDevice;
     }
 
 
@@ -1142,7 +1142,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
@@ -1166,7 +1166,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
@@ -1354,7 +1354,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         /* validate hostApiSpecificStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
@@ -1377,7 +1377,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         /* validate hostApiSpecificStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
