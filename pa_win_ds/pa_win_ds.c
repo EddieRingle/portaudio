@@ -48,6 +48,9 @@
 
     @todo check that CoInitialize() CoUninitialize() are always correctly
         paired, even in error cases.
+
+    @todo make sure all buffers have been played before stopping the stream
+        when the stream callback returns paComplete
 */
 
 #include <stdio.h>
@@ -1305,7 +1308,8 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
                 PaUtil_Set2ndInterleavedOutputChannels( &stream->bufferProcessor, 0, lpOutBuf2, 0 );
             }
         }
-        
+
+        result = paContinue;
         numFrames = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
         stream->framesWritten += numFrames;
         
@@ -1406,6 +1410,8 @@ static PaError StartStream( PaStream *s )
     PaWinDsStream   *stream = (PaWinDsStream*)s;
     HRESULT          hr;
 
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
+    
     if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         hr = DSW_StartInput( &stream->directSoundWrapper );

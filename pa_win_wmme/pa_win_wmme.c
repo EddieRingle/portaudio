@@ -83,6 +83,9 @@
     @todo implement PaDeviceInfo.defaultSampleRate;
 
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
+
+    @todo make sure all buffers have been played before stopping the stream
+        when the stream callback returns paComplete
 */
 
 #include <stdio.h>
@@ -2089,7 +2092,8 @@ Gordon Gidluck:
                     PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement inputBufferAdcTime and currentTime */
 
 
-                    if( hostOutputBufferIndex != -1 ){
+                    if( hostOutputBufferIndex != -1 )
+                    {
                         MMTIME time;
                         double now;
                         long totalRingFrames;
@@ -2161,7 +2165,8 @@ Gordon Gidluck:
                             channel += channelCount;
                         }
                     }
-                    
+
+                    callbackResult = paContinue;
                     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
                     stream->framesUsedInCurrentInputBuffer += framesProcessed;
@@ -2189,7 +2194,7 @@ Gordon Gidluck:
 
                     /*
                     FIXME: the following code is incorrect, because stopProcessing should
-                    still queue the current buffer.
+                    still queue the current buffer - it should also drain the buffer processor
                     */
                     if( stream->stopProcessing == 0 && stream->abortProcessing == 0 )
                     {
@@ -2366,6 +2371,9 @@ static PaError StartStream( PaStream *s )
     MMRESULT mmresult;
     unsigned int i, j;
 
+    
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
+    
     if( PA_IS_INPUT_STREAM_(stream) )
     {
         for( i=0; i<stream->numInputBuffers; ++i )

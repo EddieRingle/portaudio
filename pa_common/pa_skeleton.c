@@ -612,6 +612,8 @@ static PaError StartStream( PaStream *s )
     PaError result = paNoError;
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
     return result;
