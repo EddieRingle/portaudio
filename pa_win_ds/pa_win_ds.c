@@ -611,9 +611,21 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
                 deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
 
-/* constants from a (LGPLed) wine patch by Francois Gouget, see:
-   http://www.winehq.com/hypermail/wine-patches/2003/01/0290.html
-   permission to use under BSD license requested 11-may-2004
+/*  constants from a WINE patch by Francois Gouget, see:
+    http://www.winehq.com/hypermail/wine-patches/2003/01/0290.html
+
+    ---
+    Date: Fri, 14 May 2004 10:38:12 +0200 (CEST)
+    From: Francois Gouget <fgouget@ ... .fr>
+    To: Ross Bencina <rbencina@ ... .au>
+    Subject: Re: Permission to use wine 48/96 wave patch in BSD licensed library
+
+    [snip]
+
+    I give you permission to use the patch below under the BSD license.
+    http://www.winehq.com/hypermail/wine-patches/2003/01/0290.html
+
+    [snip]
 */
 #ifndef WAVE_FORMAT_48M08
 #define WAVE_FORMAT_48M08      0x00001000    /* 48     kHz, Mono,   8-bit  */
