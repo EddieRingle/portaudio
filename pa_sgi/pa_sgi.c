@@ -51,29 +51,35 @@
  CPU-measurements now also runs (thanks to Arve, who implemented PaUtil_GetTime()).
  Tested:
         - paqa_devs              ok, but at a certain point digital i/o fails:
-                                 TestAdvance: INPUT, device = 2, rate = 32000, numChannels = 1, format = 1
-        - patest1                ok (stops after a certain time).
+                                     TestAdvance: INPUT, device = 2, rate = 32000, numChannels = 1, format = 1
+                                     Possibly, this is an illegal sr or number of channels for digital i/o.
+        + patest1                ok.
         + patest_buffer          ok.
+      --- patest_callbackstop    COREDUMPS !!!!!
         - patest_clip            ok, but hear no difference between dithering turned OFF and ON.
-        
+        + patest_latency         ok.
+        + patest_leftright       ok.
+        + patest_many            ok.
+        + patest_pink            ok.
+        - patest_prime           ok, but we should work on 'playback with priming'!
+        - patest_read_record     ok, but playback stops a little earlier than 5 seconds it seems(?).
+        + patest_record          ok.
+        + patest_ringmix         ok.
+        + patest_saw             ok.
+        + patest_sine            ok.
+        + patest_sine8           ok.
+        - patest_sine_formats    ok, FLOAT32 + INT16 + INT18 are OK, but UINT8 IS NOT OK!
+        + patest_start_stop      ok, but under/overflow errors of course in the AL queue monitor.
+        + patest_stop            ok now! (Mon Dec 15 22:48:27 CET 2003).
+        - patest_sync            ok?
+        + patest_toomanysines    ok, CPU load measurement works fine!
+        - patest_underflow       ok? (stopping after SleepTime = 91: err=Stream is stopped)
+        - patest_wire            ok.
+        - patest_write_sine      ok.
         + pa_devs                ok.
         + pa_fuzz                ok.
-        + patest_many            ok.
-        + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
-                                     for usleeps above 999999 microseconds).
-        + patest_prime           ok (in the sense it shows no errors or coredumps).
-        + patest_leftright       ok.
-        + patest_record          ok.
-        + patest_toomanysines    ok (december 2003).
-        - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
-        - patest_start_stop      seems ok.
-        - patest_stop            seems ok (stops a bit too early?).
-        - patest_underflow       ok? (stopping after SleepTime = 91: err=Stream is stopped)
-        - patest_wire            ok (but AL opens stereo always).
-        - patest_write_sine      ok.
-        - patest_callbackstop    COREDUMPS !!!!!
-        - patest_read_record     COREDUMPS !!!!!  
-
+        - pa_minlat              ok.
+        
  Todo: Debug queue sizes and latencies. Debug blocking reads.
        MOST IMPORTANT: do prefilling with silence, and let outputbuffers drain. 
 
@@ -495,16 +501,15 @@ typedef struct PaSGIStream
                                 /** Host buffers and AL ports. */
     PaSGIhostPortBuffer         hostPortBuffIn,
                                 hostPortBuffOut;
-                                /** Stream state may be 0, 1 or 2, but never 3! */
+                                /** Stream state may be 0 or 1 or 2, but never 3. */
     unsigned char               state;
-                                /** Request to stop (by parent or by child itself). */
-    unsigned char               stop;
+                                /** Request to stop or abort (by parent or by child itself (user callback result)). */
+    unsigned char               stopAbort;
     pthread_t                   thread;
 }
     PaSGIStream;
 
-/*
-    Stream can be in only one of the following three states: stopped (1), active (2), or
+/** Stream can be in only one of the following three states: stopped (1), active (2), or
     callback finshed (0). To prevent 'state 3' from occurring, Setting and testing of the
     state bits is done atomically.
 */
@@ -513,8 +518,14 @@ typedef struct PaSGIStream
 #define PA_SGI_STREAM_FLAG_ACTIVE_   (2) /* Set by StartStream. Reset by OpenStream(),           */
                                          /* StopStream() and AbortStream().                      */
 
-/**
-    Called by OpenStream() once or twice. First, the number of channels and the sampleformat 
+/** Stop requests, via the 'stopAbort' field can be either 1, meaning 'stop' or 2, meaning 'abort'.
+    When both occur at the same time, 'abort' takes precedence, even after a first 'stop'.
+*/
+#define PA_SGI_REQ_CONT_    (0)         /* Reset by OpenStream(), StopStream and AbortStream. */
+#define PA_SGI_REQ_STOP_    (1)         /* Set by StopStream(). */
+#define PA_SGI_REQ_ABORT_   (2)         /* Set by AbortStream(). */
+
+/** Called by OpenStream() once or twice. First, the number of channels and the sampleformat 
     is configured. The configuration is then bound to the specified AL device. Then an AL port 
     is opened. Finally, the samplerate of the device is altered (or at least set again).
     Writes actual latency in *pa_params, and samplerate *samplerate.
@@ -882,8 +893,8 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         { DBUG(("PaUtil_InitializeBufferProcessor()=%d!\n", result)); goto cleanup; }
 
     stream->framesPerHostCallback = framesPerHostBuffer;
-    stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  /* After opening the stream is in the Stopped state. */
-    stream->stop  = 0;
+    stream->state                 = PA_SGI_STREAM_FLAG_STOPPED_; /* After opening the stream is in the stopped state. */
+    stream->stopAbort             = PA_SGI_REQ_CONT_;            /* 0. */
     
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
@@ -905,11 +916,12 @@ static void* PaSGIpthread(void *userData)
 {
     PaSGIStream*  stream = (PaSGIStream*)userData;
     int           callbackResult = paContinue;
-    double        nanosec_per_frame = 1000000000.0 / stream->streamRepresentation.streamInfo.sampleRate;
+    double        nanosec_per_frame;
 
     stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Parent thread also sets active, but we make no assumption */
-                                                /* about who does it first (probably the parent thread).     */
-    while (!stream->stop)
+                                                /* about who does this first (the parent thread, probably).  */
+    nanosec_per_frame = 1000000000.0 / stream->streamRepresentation.streamInfo.sampleRate;
+    while (!stream->stopAbort)                  /* Exit loop immediately when 'stop' or 'abort' are raised.  */
         {
         PaStreamCallbackTimeInfo  timeInfo;
         unsigned long             framesProcessed;
@@ -917,7 +929,6 @@ static void* PaSGIpthread(void *userData)
         
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
         /* IMPLEMENT ME: - handle buffer slips. */
-        
         if (stream->hostPortBuffIn.port)
             {
             /*  Get device sample frame number associated with next audio sample frame
@@ -959,8 +970,6 @@ static void* PaSGIpthread(void *userData)
                     0, /* first channel of inputBuffer is channel 0 */
                     stream->hostPortBuffIn.buffer,
                     0 ); /* 0 - use inputChannelCount passed to init buffer processor */
-            /* Read interleaved samples from ALport (alReadFrames() may block the first time?).   MOVED UP ^^^^^
-               alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback); */
             }
         if (stream->hostPortBuffOut.port)
             {
@@ -977,30 +986,36 @@ static void* PaSGIpthread(void *userData)
             You can check whether the buffer processor's output buffer is empty
             using PaUtil_IsBufferProcessorOuputEmpty( bufferProcessor )
         */
-        
         framesProcessed = PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
         /*
             If you need to byte swap or shift outputBuffer to convert it to host format, do it here.
         */
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
         if (callbackResult != paContinue)
-            {
-            if (stream->streamRepresentation.streamFinishedCallback != 0 ) /* once finished, call the finished callback */
+            {                                              /* Once finished, call the finished callback. */
+            if (stream->streamRepresentation.streamFinishedCallback)
                 stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
             if (callbackResult == paAbort)
                 {
                 /* DBUG(("CallbackResult == paAbort (finish playback immediately).\n")); */
+                stream->stopAbort = PA_SGI_REQ_ABORT_;
                 break; /* Don't play the last buffer returned. */
                 }
             else /* paComplete or some other non-zero value. */
                 {
                 /* DBUG(("CallbackResult != 0 (finish playback after last buffer).\n")); */
-                stream->stop = 1;
+                stream->stopAbort = PA_SGI_REQ_STOP_;
                 }
             }
         /* Write interleaved samples to SGI device (like unix_oss, AFTER checking callback result). */
         if (stream->hostPortBuffOut.port)
             alWriteFrames(stream->hostPortBuffOut.port, stream->hostPortBuffOut.buffer, stream->framesPerHostCallback);
+        }
+    if (stream->hostPortBuffOut.port) /* Drain output buffer(s), as long as we don't see an 'abort' request. */
+        {
+        while ((!(stream->stopAbort & PA_SGI_REQ_ABORT_)) &&    /* Assume _STOP_ is set (or meant). */
+               (alGetFilled(stream->hostPortBuffOut.port) > 1)) /* In case of _ABORT_ we quickly leave (again). */
+            ; /* Don't provide any new (not even silent) samples, but let an underrun [almost] occur. */
         }
     if (callbackResult != paContinue)
         stream->state = PA_SGI_STREAM_FLAG_FINISHED_;
@@ -1061,7 +1076,7 @@ static PaError StopStream( PaStream *s )
     /* DBUG(("SGI StopStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
-        stream->stop = 1;
+        stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain output buffers. */
         if (pthread_join(stream->thread, NULL)) /* When succesful, stream->state */
             {                                   /* is still ACTIVE, or FINISHED. */
             DBUG(("pthread_join() failed!\n"));
@@ -1069,7 +1084,7 @@ static PaError StopStream( PaStream *s )
             }
         else  /* Transition from ACTIVE or FINISHED to STOPPED. */
             stream->state = PA_SGI_STREAM_FLAG_STOPPED_;
-        stream->stop = 0;
+        stream->stopAbort = PA_SGI_REQ_CONT_; /* For possible next start. */
         }
 /*  else
         stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  Is this necessary for blocking i/o? */
@@ -1085,7 +1100,7 @@ static PaError AbortStream( PaStream *s )
     /* DBUG(("SGI AbortStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
-        stream->stop = 1;
+        stream->stopAbort = PA_SGI_REQ_ABORT_;
         if (pthread_join(stream->thread, NULL))
             {
             DBUG(("pthread_join() failed!\n"));
@@ -1093,7 +1108,7 @@ static PaError AbortStream( PaStream *s )
             }
         else  /* Transition from ACTIVE or FINISHED to STOPPED. */
             stream->state = PA_SGI_STREAM_FLAG_STOPPED_;
-        stream->stop = 0;
+        stream->stopAbort = PA_SGI_REQ_CONT_; /* For possible next start. */
         }
 /*  else
         stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  Is this necessary for blocking i/o? */
@@ -1145,6 +1160,10 @@ static PaError ReadStream( PaStream* s,
 {
     PaSGIStream*    stream = (PaSGIStream*)s;
     int             n;
+
+printf("stream->framesPerHostCallback=%ld.\n", stream->framesPerHostCallback);
+fflush(stdout);
+
     while (frames)
         {
         if (frames > stream->framesPerHostCallback) n = stream->framesPerHostCallback;
@@ -1198,22 +1217,19 @@ static PaError WriteStream( PaStream* s,
 
 static signed long GetStreamReadAvailable( PaStream* s )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-
-    return (signed long)alGetFilled(stream->hostPortBuffIn.port);
+    return (signed long)alGetFilled(((PaSGIStream*)s)->hostPortBuffIn.port);
 }
 
 
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-
-    return (signed long)alGetFillable(stream->hostPortBuffOut.port);
+    return (signed long)alGetFillable(((PaSGIStream*)s)->hostPortBuffOut.port);
 }
 
+
 /* CVS reminder:
-   To download (co means checkout) 'v19-devel' branch from portaudio's CVS server for the first time:
-    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs co -r v19-devel portaudio
+   To download the 'v19-devel' branch from portaudio's CVS server for the first time, type:
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs checkout -r v19-devel portaudio
    Then 'cd' to the 'portaudio' directory that should have been created.
    Example that logs in as 'pieter' and commit edits (will require password):
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs login
