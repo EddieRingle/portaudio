@@ -40,8 +40,7 @@
 
  @todo implement the converters marked IMPLEMENT ME: Float32_To_UInt8_Dither,
  Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24,
- Int32_To_Int24_Dither, Int32_To_Int16, Int32_To_Int16_Dither, Int32_To_Int8,
- Int32_To_Int8_Dither, Int32_To_UInt8, Int32_To_UInt8_Dither, Int24_To_Int32,
+ Int32_To_Int24_Dither, Int32_To_UInt8, Int32_To_UInt8_Dither, Int24_To_Int32,
  Int24_To_Int16, Int24_To_Int16_Dither, Int24_To_Int8, Int24_To_Int8_Dither,
  Int24_To_UInt8, Int24_To_UInt8_Dither, Int16_To_Int32, Int16_To_Int24,
  Int16_To_Int8, Int16_To_Int8_Dither, Int16_To_UInt8, Int16_To_UInt8_Dither,
@@ -49,7 +48,8 @@
  UInt8_To_Int24, UInt8_To_Int16, UInt8_To_Int8
 
  @todo review the converters marked REVIEW: Float32_To_Int32,
- Float32_To_Int32_Dither, Float32_To_Int32_Clip, Float32_To_Int32_DitherClip
+ Float32_To_Int32_Dither, Float32_To_Int32_Clip, Float32_To_Int32_DitherClip,
+ Int32_To_Int16_Dither, Int32_To_Int8_Dither
 */
 
 
@@ -930,8 +930,7 @@ static void Int32_To_Int16(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        *dest = (signed short) ((*src) >> 16);
 
         src += sourceStride;
         dest += destinationStride;
@@ -947,12 +946,13 @@ static void Int32_To_Int16_Dither(
 {
     signed long *src = (signed long*)sourceBuffer;
     signed short *dest =  (signed short*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
+    signed long dither;
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        /* REVIEW */
+        dither = PaUtil_Generate16BitTriangularDither( ditherGenerator );
+        *dest = (signed short) ((((*src)>>1) + dither) >> 15);
 
         src += sourceStride;
         dest += destinationStride;
@@ -972,8 +972,7 @@ static void Int32_To_Int8(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        *dest = (signed short) ((*src) >> 24);
 
         src += sourceStride;
         dest += destinationStride;
@@ -989,12 +988,13 @@ static void Int32_To_Int8_Dither(
 {
     signed long *src = (signed long*)sourceBuffer;
     signed char *dest =  (signed char*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
+    signed long dither;
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        /* REVIEW */
+        dither = PaUtil_Generate16BitTriangularDither( ditherGenerator );
+        *dest = (signed short) ((((*src)>>1) + dither) >> 23);
 
         src += sourceStride;
         dest += destinationStride;
