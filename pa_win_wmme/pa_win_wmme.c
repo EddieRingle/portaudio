@@ -988,7 +988,7 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
 
     }else if( latency < requestedLatency ){
 
-        userBufferSizeIsPowerOfTwo = 0; // FIXME: what's a quick test for isPowerOf2 ?
+        userBufferSizeIsPowerOfTwo = (! (userBufferSize & (userBufferSize - 1))); 
         if( userBufferSizeIsPowerOfTwo ){
 
             /* double size of waveHeaders without exceeding requestedLatency */
@@ -1001,8 +1001,7 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
                 sizeMultiplier *= 2;
                 nextBufferSize = (userBufferSize * (sizeMultiplier*2));
                 nextLatency = nextBufferSize * (bufferCount-1);
-            }
-
+            }   
 
         }else{
 
