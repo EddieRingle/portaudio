@@ -957,8 +957,9 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
         {
             destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
                     bp->bytesPerUserInputSample * bp->numInputChannels *
-                    (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
-
+ // rb test           (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
+                      bp->framesInTempInputBuffer );
+                      
             destStride = bp->numInputChannels;
             destBytePtrStride = bp->bytesPerUserInputSample;
 
@@ -968,8 +969,9 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
         {
             destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
                     bp->bytesPerUserInputSample *
-                    (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
-                            
+ // rb test                    (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
+                    bp->framesInTempInputBuffer );
+
             destStride = 1;
             destBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserInputSample;
 
