@@ -1,12 +1,8 @@
 /** @file patest_prime.c
 	@brief Test stream priming mode.
-
-
-
-
-
 	@author Ross Bencina http://www.audiomulch.com/~rossb
 */
+
 /*
  * $Id$
  *
@@ -38,10 +34,12 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
+ 
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
 #include "pa_util.h"
+
 #define NUM_BEEPS           (3)
 #define SAMPLE_RATE         (44100)
 #define SAMPLE_PERIOD       (1.0/44100.0)
@@ -52,6 +50,7 @@
 
 #define STATE_BKG_IDLE      (0)
 #define STATE_BKG_BEEPING   (1)
+
 typedef struct
 {
     float        leftPhase;
@@ -71,15 +70,14 @@ static void InitializeTestData( paTestData *testData )
     testData->idleCountdown = IDLE_DURATION;
 }
 
-
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
 static int patestCallback( const void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
-			   const PaStreamCallbackTimeInfo *timeInfo,
-			   PaStreamCallbackFlags statusFlags, void *userData )
+			               const PaStreamCallbackTimeInfo *timeInfo,
+			               PaStreamCallbackFlags statusFlags, void *userData )
 {
     /* Cast data passed through stream to our structure. */
     paTestData *data = (paTestData*)userData;
@@ -131,6 +129,7 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
     
     return result;
 }
+
 /*******************************************************************/
 static PaError DoTest( int flags )
 {
@@ -179,6 +178,7 @@ static PaError DoTest( int flags )
 error:
     return err;
 }
+
 /*******************************************************************/
 int main(void);
 int main(void)
