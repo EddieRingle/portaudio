@@ -76,9 +76,8 @@
 //					as a result of using IASIOThiscallResolver.
 // Version:         1.4 Added separate macro CALL_THISCALL_1_DOUBLE from
 //                  Andrew Baldwin, and volatile for whole gcc asm blocks,
-//                  both for compatibility with newer gcc versions (as yet
-//                  untested with gcc). Cleaned up Borland asm to use one less
-//                  register.
+//                  both for compatibility with newer gcc versions. Cleaned up
+//                  Borland asm to use one less register.
 //                  1.3 Switched to including assert.h for better compatibility.
 //                  Wrapped entire .h and .cpp contents with a check for
 //                  _MSC_VER to provide better compatibility with MS compilers.
