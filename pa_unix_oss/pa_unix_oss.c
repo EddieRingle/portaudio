@@ -41,6 +41,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <alloca.h>
 
 #ifdef __linux__
 # include <linux/soundcard.h>
@@ -112,7 +113,7 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
+static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
 static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 static PaError BuildDeviceList( PaOSSHostApiRepresentation *hostApi );
@@ -1136,31 +1137,78 @@ static PaError ReadStream( PaStream* s,
 {
     PaOSSStream *stream = (PaOSSStream*)s;
     int bytesRequested, bytesRead;
+    unsigned long framesRequested;
+    void *userBuffer;
 
-    bytesRequested = frames * 2 * stream->inputChannelCount;
-    bytesRead = read( stream->deviceHandle, stream->inputBuffer, bytesRequested );
+    /* If user input is non-interleaved, PaUtil_CopyInput will manipulate the channel pointers,
+     * so we copy the user provided pointers */
+    if( stream->bufferProcessor.userInputIsInterleaved )
+        userBuffer = buffer;
+    else /* Copy channels into local array */
+    {
+        int numBytes = sizeof (void *) * stream->inputChannelCount;
+        if( (userBuffer = alloca( numBytes )) == NULL )
+            return paInsufficientMemory;
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->inputChannelCount );
+    }
 
-    if ( bytesRequested != bytesRead )
-        return paUnanticipatedHostError;
-    else
-        return paNoError;
+    while( frames )
+    {
+	if( frames > stream->framesPerHostCallback )
+	    framesRequested = stream->framesPerHostCallback;
+	else
+	    framesRequested = frames;
+
+	bytesRequested = framesRequested * 2 * stream->inputChannelCount;
+	bytesRead = read( stream->deviceHandle, stream->inputBuffer, bytesRequested );
+	if ( bytesRequested != bytesRead )
+	    return paUnanticipatedHostError;
+
+	PaUtil_SetInputFrameCount( &stream->bufferProcessor, stream->framesPerHostCallback );
+	PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, stream->inputBuffer, stream->inputChannelCount );
+        PaUtil_CopyInput( &stream->bufferProcessor, &userBuffer, framesRequested );
+	frames -= framesRequested;
+    }
+    return paNoError;
 }
 
 
 static PaError WriteStream( PaStream* s,
-                            void *buffer,
+                            const void *buffer,
                             unsigned long frames )
 {
     PaOSSStream *stream = (PaOSSStream*)s;
     int bytesRequested, bytesWritten;
+    unsigned long framesConverted;
+    const void *userBuffer;
 
-    bytesRequested = frames * 2 * stream->outputChannelCount;
-    bytesWritten = write( stream->deviceHandle, buffer, bytesRequested );
+    /* If user output is non-interleaved, PaUtil_CopyOutput will manipulate the channel pointers,
+     * so we copy the user provided pointers */
+    if( stream->bufferProcessor.userOutputIsInterleaved )
+        userBuffer = buffer;
+    else /* Copy channels into local array */
+    {
+        int numBytes = sizeof (void *) * stream->outputChannelCount;
+        if( (userBuffer = alloca( numBytes )) == NULL )
+            return paInsufficientMemory;
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->outputChannelCount );
+    }
 
-    if ( bytesRequested != bytesWritten )
-        return paUnanticipatedHostError;
-    else
-        return paNoError;
+    while( frames )
+    {
+	PaUtil_SetOutputFrameCount( &stream->bufferProcessor, stream->framesPerHostCallback );
+	PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, stream->outputBuffer, stream->outputChannelCount );
+
+	framesConverted = PaUtil_CopyOutput( &stream->bufferProcessor, &userBuffer, frames );
+	frames -= framesConverted;
+
+	bytesRequested = framesConverted * 2 * stream->outputChannelCount;
+	bytesWritten = write( stream->deviceHandle, stream->outputBuffer, bytesRequested );
+
+	if ( bytesRequested != bytesWritten )
+	    return paUnanticipatedHostError;
+    }
+    return paNoError;
 }
 
 
