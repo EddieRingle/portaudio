@@ -57,8 +57,10 @@
         12-04-02 Add Mac includes for <Devices.h> and <Timer.h> : Phil Burk
         13-04-02 Removes another compiler warning : Stephane Letz
         30-04-02 Pa_ASIO_QueryDeviceInfo bug correction, memory allocation checking, better error handling : D Viens, P Burk, S Letz
-        12-05-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
+        12-06-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
+        18-06-02 Added pa_asio.h, PaAsio_GetAvailableLatencyValues() : Ross B.
 
+        
         TO DO :
 
         (critical...)
@@ -67,8 +69,6 @@
             - use greater of input and output latency
 
         - implement block adaption
-
-        - pa_asio.h with low level latency parameter settings.
 
         - implement timecode parameter in callback
 
@@ -93,6 +93,7 @@
 #include <string.h>
 
 #include "portaudio.h"
+#include "pa_asio.h"
 #include "pa_util.h"
 #include "pa_allocation.h"
 #include "pa_hostapi.h"
@@ -756,6 +757,51 @@ static void SelectPaToAsioConverter( ASIOSampleType type, PaAsioBufferConverter 
 }
 
 
+typedef struct PaAsioDeviceInfo
+{
+    PaDeviceInfo commonDeviceInfo;
+    long minBufferSize;
+    long maxBufferSize;
+    long preferredBufferSize;
+    long bufferGranularity;
+}
+PaAsioDeviceInfo;
+
+
+PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device, 
+		long *minLatency, long *maxLatency, long *preferredLatency, long *granularity )
+{
+    PaError result;
+    PaUtilHostApiRepresentation *hostApi;
+    PaDeviceIndex hostApiDevice;
+    
+#if MAC
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paMacOSASIO );
+#elif WINDOWS
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paWin32ASIO );
+#endif
+
+    if( result == paNoError )
+    {
+        result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice, device, hostApi );
+
+        if( result == paNoError )
+        {
+            PaAsioDeviceInfo *asioDeviceInfo =
+                    (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+
+            *minLatency = asioDeviceInfo->minBufferSize;
+            *maxLatency = asioDeviceInfo->maxBufferSize;
+            *preferredLatency = asioDeviceInfo->preferredBufferSize;
+            *granularity = asioDeviceInfo->bufferGranularity;
+        }
+    }
+
+    return result;
+}
+
+
+
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
 static ASIOSampleRate possibleSampleRates_[]
     = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
@@ -766,14 +812,15 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     PaError result = paNoError;
     int i, j, driverCount;
     PaAsioHostApiRepresentation *asioHostApi;
-    PaDeviceInfo *deviceInfoArray;
+    PaAsioDeviceInfo *deviceInfoArray;
     char **names;
     ASIOError asioError;
     ASIODriverInfo asioDriverInfo;
     ASIOChannelInfo asioChannelInfo;
     long inputChannels, outputChannels;
     double *sampleRates;
-    
+    long minBufferSize, maxBufferSize, preferredBufferSize, bufferGranularity;
+
     asioHostApi = (PaAsioHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaAsioHostApiRepresentation) );
     if( !asioHostApi )
     {
@@ -840,8 +887,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
-                asioHostApi->allocations, sizeof(PaDeviceInfo) * driverCount );
+        deviceInfoArray = (PaAsioDeviceInfo*)PaUtil_GroupAllocateMemory(
+                asioHostApi->allocations, sizeof(PaAsioDeviceInfo) * driverCount );
         if( !deviceInfoArray )
         {
             result = paInsufficientMemory;
@@ -875,9 +922,14 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 /* you would think that we should unload the driver here, but it seems to cause crashes, so don't */
                 /* ASIOExit(); */
             }
+            else if( (asioError = ASIOGetBufferSize( &minBufferSize, &maxBufferSize, &preferredBufferSize, &bufferGranularity )) != ASE_OK )
+            {
+                PA_DEBUG(("PaAsio_Initialize: could not ASIOGetBufferSize for %s\n", names[i]));
+            }
             else
             {
-                PaDeviceInfo *deviceInfo = &deviceInfoArray[ (*hostApi)->deviceCount ];
+                PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->deviceCount ];
+                PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
 
                 deviceInfo->structVersion = 2;
                 deviceInfo->hostApi = hostApiIndex;
@@ -889,6 +941,11 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
                 PA_DEBUG(("PaAsio_Initialize: inputChannels = %d\n", inputChannels ));
                 PA_DEBUG(("PaAsio_Initialize: outputChannels = %d\n", outputChannels ));
+
+                asioDeviceInfo->minBufferSize = minBufferSize;
+                asioDeviceInfo->maxBufferSize = maxBufferSize;
+                asioDeviceInfo->preferredBufferSize = preferredBufferSize;
+                asioDeviceInfo->bufferGranularity = bufferGranularity;
 
                 deviceInfo->numSampleRates = 0;
 
@@ -908,7 +965,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 /* Loop through the possible sampling rates and check each to see if the device supports it. */
                 for( j = 0; j < PA_NUM_POSSIBLESAMPLINGRATES_; ++j )
                 {
-                    if( ASIOCanSampleRate(possibleSampleRates_[j]) != ASE_NoClock ){
+                    if( ASIOCanSampleRate(possibleSampleRates_[j]) != ASE_NoClock ){  /* FIXME, is that really the best comparison? */
                         PA_DEBUG(("PaAsio_Initialize : %s, possible sample rate = %d\n", names[i], (long)possibleSampleRates_[j]));
                         *sampleRates = possibleSampleRates_[j];
                         sampleRates++;
@@ -920,7 +977,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 /* We assume that all channels have the same SampleType, so check the first */
                 asioChannelInfo.channel = 0;
                 asioChannelInfo.isInput = 1;
-                ASIOGetChannelInfo( &asioChannelInfo );
+                ASIOGetChannelInfo( &asioChannelInfo );  /* FIXME, check return code */
                     
                 deviceInfo->nativeSampleFormats = AsioSampleTypeToPaNativeSampleFormat( asioChannelInfo.type );
 
@@ -1170,6 +1227,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         driverName = asioHostApi->commonHostApiRep.deviceInfos[ outputDevice ]->name;
     }
+
+    /* NOTE: we load the driver and use its current settings
+        rather than the ones in our device info structure which may be stale*/
 
     result = LoadAsioDriver( driverName, &driverInfo );
     if( result == paNoError )
