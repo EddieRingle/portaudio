@@ -52,10 +52,10 @@ void PaUtil_ResetTraceMessages()
 void PaUtil_DumpTraceMessages()
 {
     int i;
-    int numDump = (traceIndex < PA_MAX_TRACE_RECORDS) ? traceIndex : PA_MAX_TRACE_RECORDS;
+    int messageCount = (traceIndex < PA_MAX_TRACE_RECORDS) ? traceIndex : PA_MAX_TRACE_RECORDS;
 
     printf("DumpTraceMessages: traceIndex = %d\n", traceIndex );
-    for( i=0; i<numDump; i++ )
+    for( i=0; i<messageCount; i++ )
     {
         printf("%3d: %s = 0x%08X\n",
                i, traceTextArray[i], traceIntArray[i] );
