@@ -78,9 +78,6 @@ enquire about status on the PortAudio mailing list first.
     @todo Consider adding a new error code for when (inputParameters == NULL)
     && (outputParameters == NULL)
 
-    @todo review use of defaultHighInputLatency for suggestedLatency in
-    Pa_OpenDefaultStream.
-
     @todo review whether Pa_CloseStream() should call the interface's
     CloseStream function if aborting the stream returns an error code.
 
@@ -1356,7 +1353,12 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
         hostApiInputParameters.channelCount = inputChannelCount;
         hostApiInputParameters.sampleFormat = sampleFormat;
-        hostApiInputParameters.suggestedLatency =  /** @todo REVIEW: should we be using high input latency here? */
+        /* defaultHighInputLatency is used below instead of
+           defaultLowInputLatency because it is more important for the default
+           stream to work reliably than it is for it to work with the lowest
+           latency.
+         */
+        hostApiInputParameters.suggestedLatency = 
              Pa_GetDeviceInfo( hostApiInputParameters.device )->defaultHighInputLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiInputParametersPtr = &hostApiInputParameters;
@@ -1371,7 +1373,12 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
         hostApiOutputParameters.channelCount = outputChannelCount;
         hostApiOutputParameters.sampleFormat = sampleFormat;
-        hostApiOutputParameters.suggestedLatency =  /** @todo REVIEW: should we be using high input latency here? */
+        /* defaultHighOutputLatency is used below instead of
+           defaultLowOutputLatency because it is more important for the default
+           stream to work reliably than it is for it to work with the lowest
+           latency.
+         */
+        hostApiOutputParameters.suggestedLatency =
              Pa_GetDeviceInfo( hostApiOutputParameters.device )->defaultHighOutputLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiOutputParametersPtr = &hostApiOutputParameters;
