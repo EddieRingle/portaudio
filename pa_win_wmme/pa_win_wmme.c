@@ -79,6 +79,10 @@
     @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
 
     @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
+
+    @todo implement IsFormatSupported
+
+    @todo implement PaDeviceInfo.defaultSampleRate;
 */
 
 #include <stdio.h>
@@ -155,6 +159,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStreamFlags streamFlags,
                            PaStreamCallback *streamCallback,
                            void *userData );
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
 static PaError StopStream( PaStream *stream );
@@ -323,13 +331,10 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
-    double *sampleRates; /* non-const ptr */
     int inputWinMmeId;
     MMRESULT mmresult;
     WAVEINCAPS wic;
     int i;
-
-    sampleRates = (double*)deviceInfo->sampleRates;
 
     inputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, deviceIndex );
 
@@ -378,31 +383,8 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
         PA_DEBUG(("Pa_GetDeviceInfo: Num input channels reported as %d! Changed to 2.\n", deviceInfo->maxOutputChannels ));
         deviceInfo->maxInputChannels = 2;
     }
-    /* Add a sample rate to the list if we can do stereo 16 bit at that rate
-     * based on the format flags. */
-    if( wic.dwFormats & WAVE_FORMAT_1M16 ||wic.dwFormats & WAVE_FORMAT_1S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 11025.;
-    if( wic.dwFormats & WAVE_FORMAT_2M16 ||wic.dwFormats & WAVE_FORMAT_2S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 22050.;
-    if( wic.dwFormats & WAVE_FORMAT_4M16 ||wic.dwFormats & WAVE_FORMAT_4S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 44100.;
-    /* Add a sample rate to the list if we can do stereo 16 bit at that rate
-     * based on opening the device successfully. */
-    for( i=0; i < PA_NUM_CUSTOMSAMPLINGRATES_; ++i )
-    {
-        WAVEFORMATEX wfx;
-        wfx.wFormatTag = WAVE_FORMAT_PCM;
-        wfx.nSamplesPerSec = customSamplingRates_[i];
-        wfx.wBitsPerSample = 16;
-        wfx.cbSize = 0; /* ignored */
-        wfx.nChannels = (WORD)deviceInfo->maxInputChannels;
-        wfx.nAvgBytesPerSec = wfx.nChannels * wfx.nSamplesPerSec * sizeof(short);
-        wfx.nBlockAlign = (WORD)(wfx.nChannels * sizeof(short));
-        if( waveInOpen( NULL, inputWinMmeId, &wfx, 0, 0, WAVE_FORMAT_QUERY ) == MMSYSERR_NOERROR )
-        {
-            sampleRates[ deviceInfo->numSampleRates++ ] = customSamplingRates_[i];
-        }
-    }
+
+    deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
 
 error:
     return result;
@@ -413,13 +395,10 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
-    double *sampleRates; /* non-const ptr */
     int outputWinMmeId;
     MMRESULT mmresult;
     WAVEOUTCAPS woc;
     int i;
-
-    sampleRates = (double*)deviceInfo->sampleRates;
 
     outputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, deviceIndex );
 
@@ -496,32 +475,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
         PA_DEBUG((" Changed to %d.\n", deviceInfo->maxOutputChannels ));
     }
 
-    /* Add a sample rate to the list if we can do stereo 16 bit at that rate
-     * based on the format flags. */
-    if( woc.dwFormats & WAVE_FORMAT_1M16 ||woc.dwFormats & WAVE_FORMAT_1S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 11025.;
-    if( woc.dwFormats & WAVE_FORMAT_2M16 ||woc.dwFormats & WAVE_FORMAT_2S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 22050.;
-    if( woc.dwFormats & WAVE_FORMAT_4M16 ||woc.dwFormats & WAVE_FORMAT_4S16 )
-        sampleRates[ deviceInfo->numSampleRates++ ] = 44100.;
-
-    /* Add a sample rate to the list if we can do stereo 16 bit at that rate
-     * based on opening the device successfully. */
-    for( i=0; i < PA_NUM_CUSTOMSAMPLINGRATES_; i++ )
-    {
-        WAVEFORMATEX wfx;
-        wfx.wFormatTag = WAVE_FORMAT_PCM;
-        wfx.nSamplesPerSec = customSamplingRates_[i];
-        wfx.wBitsPerSample = 16;
-        wfx.cbSize = 0; /* ignored */
-        wfx.nChannels = (WORD)deviceInfo->maxOutputChannels;
-        wfx.nAvgBytesPerSec = wfx.nChannels * wfx.nSamplesPerSec * sizeof(short);
-        wfx.nBlockAlign = (WORD)(wfx.nChannels * sizeof(short));
-        if( waveOutOpen( NULL, outputWinMmeId, &wfx, 0, 0, WAVE_FORMAT_QUERY ) == MMSYSERR_NOERROR )
-        {
-            sampleRates[ deviceInfo->numSampleRates++ ] = customSamplingRates_[i];
-        }
-    }
+    deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
 
 error:
     return result;
@@ -588,10 +542,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
             deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
             deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
-            deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */  
+            deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
 
-
-            deviceInfo->numSampleRates = 0;
 
             /* allocate space for all possible sample rates */
             sampleRates = (double*)PaUtil_GroupAllocateMemory(
@@ -601,9 +553,6 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 result = paInsufficientMemory;
                 goto error;
             }
-
-            deviceInfo->sampleRates = sampleRates;
-            deviceInfo->nativeSampleFormats = paInt16;
 
             if( i < winMmeHostApi->numInputDevices )
             {
@@ -627,7 +576,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
-
+    (*hostApi)->IsFormatSupported = IsFormatSupported;
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
@@ -670,12 +619,86 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaUtil_FreeMemory( winMmeHostApi );
 }
 
-/* GetBufferSettings() fills the framesPerHostInputBuffer, numHostInputBuffers,
+
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
+{
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numInputChannels = 0;
+    }
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numOutputChannels = 0;
+    }
+    
+    /*
+        IMPLEMENT ME:
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported
+
+            - check that the device supports sampleRate
+    */
+
+    return paFormatIsSupported;
+}
+
+
+/* CalculateBufferSettings() fills the framesPerHostInputBuffer, numHostInputBuffers,
     framesPerHostOutputBuffer and numHostOutputBuffers parameters based on the values
     of the other parameters.
-
-
-
 
 */
 

@@ -41,6 +41,10 @@
 
     @todo audit handling of DirectSound result codes - in many cases we could convert a HRESULT into
         a native portaudio error code. Standard DirectSound result codes are documented at msdn.
+
+    @todo implement IsFormatSupported
+
+    @todo implement PaDeviceInfo.defaultSampleRate;
 */
 
 #include <stdio.h>
@@ -92,6 +96,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStreamFlags streamFlags,
                            PaStreamCallback *streamCallback,
                            void *userData );
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
 static PaError StopStream( PaStream *stream );
@@ -247,7 +255,10 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
             /* Mono or stereo device? */
             deviceInfo->maxOutputChannels = ( caps.dwFlags & DSCAPS_PRIMARYSTEREO ) ? 2 : 1;
 
+            deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
+
             /* Get sample rates. */
+            /*
             winDsDeviceInfo->sampleRates[0] = (double) caps.dwMinSecondarySampleRate;
             winDsDeviceInfo->sampleRates[1] = (double) caps.dwMaxSecondarySampleRate;
             if( caps.dwFlags & DSCAPS_CONTINUOUSRATE ) deviceInfo->numSampleRates = -1;
@@ -255,14 +266,14 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
             {
                 if( caps.dwMinSecondarySampleRate == 0 )
                 {
-                    /*
-                    ** On my Thinkpad 380Z, DirectSoundV6 returns min-max=0 !!
-                    ** But it supports continuous sampling.
-                    ** So fake range of rates, and hope it really supports it.
-                    */
+                    //
+                    // On my Thinkpad 380Z, DirectSoundV6 returns min-max=0 !!
+                    // But it supports continuous sampling.
+                    // So fake range of rates, and hope it really supports it.
+                    //
                     winDsDeviceInfo->sampleRates[0] = 11025.0f;
                     winDsDeviceInfo->sampleRates[1] = 48000.0f;
-                    deviceInfo->numSampleRates = -1; /* continuous range */
+                    deviceInfo->numSampleRates = -1; // continuous range
 
                     DBUG(("PA - Reported rates both zero. Setting to fake values for device #%d\n", sDeviceIndex ));
                 }
@@ -273,14 +284,15 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
             }
             else if( (caps.dwMinSecondarySampleRate < 1000.0) && (caps.dwMaxSecondarySampleRate > 50000.0) )
             {
-                /* The EWS88MT drivers lie, lie, lie. The say they only support two rates, 100 & 100000.
-                ** But we know that they really support a range of rates!
-                ** So when we see a ridiculous set of rates, assume it is a range.
-                */
+                // The EWS88MT drivers lie, lie, lie. The say they only support two rates, 100 & 100000.
+                // But we know that they really support a range of rates!
+                // So when we see a ridiculous set of rates, assume it is a range.
+                //
                 deviceInfo->numSampleRates = -1;
                 DBUG(("PA - Sample rate range used instead of two odd values for device #%d\n", sDeviceIndex ));
             }
             else deviceInfo->numSampleRates = 2;
+            */
         }
 
         IDirectSound_Release( lpDirectSound );
@@ -288,9 +300,6 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
 
     if( deviceOK )
     {
-        deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
-        deviceInfo->nativeSampleFormats = paInt16;
-
         if( lpGUID == NULL ) hostApi->defaultOutputDeviceIndex = index;
 
         /* Allocate room for descriptive name. */
@@ -362,6 +371,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
         /* printf("caps.dwFormats = 0x%x\n", caps.dwFormats ); */
         deviceInfo->maxInputChannels = caps.dwChannels;
         /* Determine sample rates from flags. */
+        /*
         if( caps.dwChannels == 2 )
         {
             int index = 0;
@@ -383,6 +393,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
             deviceInfo->numSampleRates = 0;
             deviceOK = FALSE;
         }
+        */
         IDirectSoundCapture_Release( lpDirectSoundCapture );
     }
 
@@ -509,6 +520,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
+    (*hostApi)->IsFormatSupported = IsFormatSupported;
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
@@ -589,6 +601,83 @@ static int PaWinDS_GetMinSystemLatency( void )
 	}
     return minLatencyMsec;
 }
+
+/***********************************************************************************/
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
+{
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numInputChannels = 0;
+    }
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numOutputChannels = 0;
+    }
+    
+    /*
+        IMPLEMENT ME:
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported
+
+            - check that the device supports sampleRate
+    */
+
+    return paFormatIsSupported;
+}
+
 
 /*************************************************************************
 ** Determine minimum number of buffers required for this host based
@@ -1109,6 +1198,7 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
         {
             if( Pa_TimeSlice( stream ) != 0)  /* Call time slice independant of timing method. */
             {
+                /* FIXME implement handling of paComplete and paAbort if possible */
                 stream->stopProcessing = 1;
             }
         }
