@@ -761,7 +761,8 @@ typedef int PaStreamCallback(
 
  @param userData A client supplied pointer which is passed to the stream callback
  function. It could for example, contain a pointer to instance data necessary
- for processing the audio buffers.
+ for processing the audio buffers. This parameter is ignored if streamCallback
+ is NULL.
      
  @return
  Upon success Pa_OpenStream() returns paNoError and places a pointer to a

@@ -24,6 +24,7 @@ o- patest_maxsines.c
 o- patest_multi_sine.c
 o- patest_pink.c
 x- patest_prime.c
+x- patest_read_record.c
 x- patest_record.c
 x- patest_ringmix.c
 o- patest_saw.c
@@ -37,6 +38,8 @@ x- patest_sync.c
 o- patest_toomanysines.c
 o- patest_underflow.c
 o- patest_wire.c
+x- patest_write_sine.c
 x- pa_devs.c
 x- pa_fuzz.c
 o- pa_minlat.c
+
