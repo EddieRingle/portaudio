@@ -40,7 +40,7 @@
 
 #define NUM_SECONDS         (5)
 #define SAMPLE_RATE         (44100)
-#define FRAMES_PER_BUFFER   (64)
+#define FRAMES_PER_BUFFER   (1024)
 
 #ifndef M_PI
 #define M_PI  (3.14159265)
@@ -59,7 +59,9 @@ int main(void)
     float sine[TABLE_SIZE]; /* sine wavetable */
     int left_phase = 0;
     int right_phase = 0;
-    int i, j;
+    int left_inc = 1;
+    int right_inc = 3; /* higher pitch so we can distinguish left and right. */
+    int i, j, k;
     int bufferCount;
 
     
@@ -92,31 +94,42 @@ int main(void)
               NULL ); /* no callback, so no callback userData */
     if( err != paNoError ) goto error;
 
-    err = Pa_StartStream( stream );
-    if( err != paNoError ) goto error;
 
-    printf("Play for %d seconds.\n", NUM_SECONDS );
-
-    bufferCount = ((NUM_SECONDS * SAMPLE_RATE) / FRAMES_PER_BUFFER);
-
-    for( i=0; i < bufferCount; i++ )
+    printf( "Play 3 times, higher each time.\n" );
+    
+    for( k=0; k < 3; ++k )
     {
-        for( j=0; j < FRAMES_PER_BUFFER; j++ )
-        {
-            buffer[j][0] = sine[left_phase];  /* left */
-            buffer[j][1] = sine[right_phase];  /* right */
-            left_phase += 1;
-            if( left_phase >= TABLE_SIZE ) left_phase -= TABLE_SIZE;
-            right_phase += 3; /* higher pitch so we can distinguish left and right. */
-            if( right_phase >= TABLE_SIZE ) right_phase -= TABLE_SIZE;
-        }
-
-        err = Pa_WriteStream( stream, buffer, FRAMES_PER_BUFFER );
+        err = Pa_StartStream( stream );
         if( err != paNoError ) goto error;
-    }   
 
-    err = Pa_StopStream( stream );
-    if( err != paNoError ) goto error;
+        printf("Play for %d seconds.\n", NUM_SECONDS );
+
+        bufferCount = ((NUM_SECONDS * SAMPLE_RATE) / FRAMES_PER_BUFFER);
+
+        for( i=0; i < bufferCount; i++ )
+        {
+            for( j=0; j < FRAMES_PER_BUFFER; j++ )
+            {
+                buffer[j][0] = sine[left_phase];  /* left */
+                buffer[j][1] = sine[right_phase];  /* right */
+                left_phase += left_inc;
+                if( left_phase >= TABLE_SIZE ) left_phase -= TABLE_SIZE;
+                right_phase += right_inc;
+                if( right_phase >= TABLE_SIZE ) right_phase -= TABLE_SIZE;
+            }
+
+            err = Pa_WriteStream( stream, buffer, FRAMES_PER_BUFFER );
+            if( err != paNoError ) goto error;
+        }   
+
+        err = Pa_StopStream( stream );
+        if( err != paNoError ) goto error;
+
+        ++left_inc;
+        ++right_inc;
+
+        Pa_Sleep( 1000 );
+    }
 
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
