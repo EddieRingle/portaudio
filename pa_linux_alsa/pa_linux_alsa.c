@@ -144,7 +144,7 @@ typedef struct PaAlsaStream
     int isActive;                   /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
     snd_pcm_uframes_t startThreshold;
     pthread_mutex_t stateMtx;      /* Used to synchronize access to stream state */
-    pthread_mutex_t startMtx;      /* Used to synchronize stream start */
+    pthread_mutex_t startMtx;      /* Used to synchronize stream start in callback mode */
     pthread_cond_t startCond;      /* Wait untill audio is started in callback thread */
 
     /* Used by callback thread for underflow/overflow handling */
@@ -372,7 +372,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     snd_ctl_t *ctl;
     snd_ctl_card_info_t *card_info;
     PaError result = paNoError;
-    int blocking = getenv("PA_INITIALIZE_BLOCK") ? 0 : SND_PCM_NONBLOCK;
+    int blocking = SND_PCM_NONBLOCK;
+    if( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) && atoi( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) ) )
+        blocking = 0;
 
     /* These two will be set to the first working input and output device, respectively */
     commonApi->info.defaultInputDevice = paNoDevice;
@@ -1010,8 +1012,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
      * specifies these by setting environment variables. */
     if( framesPerBuffer == paFramesPerBufferUnspecified )
     {
-        if( getenv("PA_PERIODSIZE") != NULL )
-            framesPerHostBuffer = atoi( getenv("PA_PERIODSIZE") );
+        if( getenv("PA_ALSA_PERIODSIZE") != NULL )
+            framesPerHostBuffer = atoi( getenv("PA_ALSA_PERIODSIZE") );
         else
         {
             /* We need to determine how many frames per host buffer to use.  Our
@@ -1299,7 +1301,6 @@ static PaError AlsaStart( PaAlsaStream *stream, int priming )
 {
     PaError result = paNoError;
 
-    pthread_mutex_lock( &stream->startMtx );
     if( stream->pcm_playback )
     {
         if( stream->callback_mode )
@@ -1323,7 +1324,6 @@ static PaError AlsaStart( PaAlsaStream *stream, int priming )
     }
 
 end:
-    pthread_mutex_unlock( &stream->startMtx );
     return result;
 error:
     goto end;
@@ -1362,6 +1362,7 @@ static int IsRunning( PaAlsaStream *stream )
 
 end:
     pthread_mutex_unlock( &stream->stateMtx );
+
     return result;
 }
 
@@ -1373,23 +1374,44 @@ static PaError StartStream( PaStream *s )
     /* Ready the processor */
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
 
+    /* Set now, so we can test for activity further down */
+    stream->isActive = 1;
+
     if( stream->callback_mode )
     {
         int res = 0;
         PaTime pt = PaUtil_GetTime();
         struct timespec ts;
+        pthread_attr_t attr;
 
-        pthread_mutex_lock( &stream->startMtx );
-        ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ), paInternalError );
+        UNLESS( !pthread_attr_init( &attr ), paInternalError );
+        /* Priority relative to other processes */
+        UNLESS( !pthread_attr_setscope( &attr, PTHREAD_SCOPE_SYSTEM ), paInternalError );   
+
+        UNLESS( !pthread_create( &stream->callback_thread, &attr, &CallbackThread, stream ), paInternalError );
+
+        if( getenv( "PA_ALSA_REALTIME" ) && atoi( getenv( "PA_ALSA_REALTIME" ) ) )
+        {
+            struct sched_param spm = { 0 };
+            int maxPri = sched_get_priority_max( SCHED_FIFO ), minPri = sched_get_priority_min( SCHED_FIFO );
+
+            spm.sched_priority = (maxPri - minPri) / 2 + minPri;
+            if( pthread_setschedparam( stream->callback_thread, SCHED_FIFO, &spm ) != 0 )
+                PA_DEBUG(( "Failed bumping priority\n" ));
+        }
 
         /*! Wait for stream to be started */
         ts.tv_sec = (__time_t) pt + 1;
         ts.tv_nsec = (long) pt * 1000000000;
 
-        while( !IsRunning( stream ) && res != ETIMEDOUT )
+        /* Since we'll be holding a lock on the startMtx (when not waiting on the condition), IsRunning won't be checking
+         * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
+         * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
+        UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
+        while( !IsRunning( stream ) && res != ETIMEDOUT && IsStreamActive( s ) )
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
-        pthread_mutex_unlock( &stream->startMtx );
-        PA_DEBUG(( "Waited for %g seconds for stream to start\n", PaUtil_GetTime() - pt ));
+        UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
+        PA_DEBUG(( "StartStream: Waited for %g seconds for stream to start\n", PaUtil_GetTime() - pt ));
 
         if( res == ETIMEDOUT )
         {
@@ -1401,11 +1423,10 @@ static PaError StartStream( PaStream *s )
     else
         PA_ENSURE( AlsaStart( stream, 0 ) );
 
-    stream->isActive = 1;
-
 end:
     return result;
 error:
+    stream->isActive = 0;
     goto end;
 }
 
@@ -1459,27 +1480,32 @@ static PaError RealStop( PaStream *s, int abort )
      */
     if( stream->callback_mode )
     {
+        int res = 0;
         if( stream->callback_finished )
         {
-            pthread_join( stream->callback_thread, &pret );  /* Just wait for it to die */
+            res = pthread_join( stream->callback_thread, &pret );  /* Just wait for it to die */
             
             if( pret )  /* Message from dying thread */
             {
-                retVal = *(int *) pret;
-                free(pret);
-                ENSURE(retVal, retVal);
+                retVal = *(PaError *) pret;
+                free( pret );
+                PA_ENSURE( retVal );
             }
         }
         else
         {
             /* We are running in callback mode, and the callback thread
              * is still running.  Cancel it and wait for it to be done. */
+            PA_DEBUG(( "RealStop: Canceling thread\n" ));
             pthread_cancel( stream->callback_thread );      /* Snuff it! */
-            pthread_join( stream->callback_thread, NULL );
+            res = pthread_join( stream->callback_thread, NULL );
             /* XXX: Some way to obtain return value from cancelled thread? */
         }
 
         stream->callback_finished = 0;
+
+        if( res != 0 )  /* Pthread call went wrong */
+            PA_ENSURE( paInternalError );
     }
     else
     {
@@ -1517,7 +1543,7 @@ static PaError IsStreamStopped( PaStream *s )
     PaError res;
 
     /* callback_finished indicates we need to join callback thread (ie. in Abort/StopStream) */
-    res = !IsStreamActive(s) && !stream->callback_finished;
+    res = !IsStreamActive( s ) && !stream->callback_finished;
 
     return res;
 }
@@ -1527,7 +1553,6 @@ static PaError IsStreamActive( PaStream *s )
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
     return stream->isActive;
-
 }
 
 static PaTime GetStreamTime( PaStream *s )
@@ -1639,14 +1664,15 @@ static PaError AlsaRestart( PaAlsaStream *stream )
 
     PA_DEBUG(( "Restarting audio\n" ));
 
-    pthread_mutex_lock( &stream->stateMtx );
+    UNLESS( !pthread_mutex_lock( &stream->stateMtx ), paInternalError );
     PA_ENSURE( AlsaStop( stream, 0 ) );
     PA_ENSURE( AlsaStart( stream, 0 ) );
 
     PA_DEBUG(( "Restarted audio\n" ));
 
 end:
-    pthread_mutex_unlock( &stream->stateMtx );
+    if( pthread_mutex_unlock( &stream->stateMtx ) != 0 )
+        result = paInternalError;
     return result;
 error:
    goto end;
@@ -2007,12 +2033,11 @@ static void OnExit( void *data )
  */
 void *CallbackThread( void *userData )
 {
-    PaError result = paNoError;
+    PaError result = paNoError, *pres;
     PaAlsaStream *stream = (PaAlsaStream*) userData;
     snd_pcm_uframes_t framesAvail, framesGot, framesProcessed;
     snd_pcm_sframes_t startThreshold = stream->startThreshold;
     snd_pcm_status_t *capture_status, *playback_status;
-    int *pres;
 
     assert( userData );
 
@@ -2026,10 +2051,10 @@ void *CallbackThread( void *userData )
 
     if( startThreshold <= 0 )
     {
+        UNLESS( !pthread_mutex_lock( &stream->startMtx), paInternalError );
         PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
-        pthread_mutex_lock( &stream->startMtx);
-        pthread_cond_signal( &stream->startCond );
-        pthread_mutex_unlock( &stream->startMtx);
+        UNLESS( !pthread_cond_signal( &stream->startCond ), paInternalError );
+        UNLESS( !pthread_mutex_unlock( &stream->startMtx), paInternalError );
     }
     else /* Priming output? Prepare first */
     {
@@ -2188,10 +2213,10 @@ void *CallbackThread( void *userData )
             {
                 if( (startThreshold -= framesGot) <= 0 )
                 {
+                    UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
                     PA_ENSURE( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
-                    pthread_mutex_lock( &stream->startMtx);
-                    pthread_cond_signal( &stream->startCond );
-                    pthread_mutex_unlock( &stream->startMtx);
+                    UNLESS( !pthread_cond_signal( &stream->startCond ), paInternalError );
+                    UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
                 }
             }
 
@@ -2226,8 +2251,8 @@ end:
 
 error:
     /* Pass on error code */
-    pres = malloc( sizeof (int) );
-    *pres = (result);
+    pres = malloc( sizeof (PaError) );
+    *pres = result;
     
     pthread_exit( pres );
 }
@@ -2438,4 +2463,5 @@ void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info )
     info->size = sizeof (PaAlsaStreamInfo);
     info->hostApiType = paALSA;
     info->version = 1;
+    info->deviceString = NULL;
 }
