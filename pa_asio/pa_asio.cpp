@@ -2218,7 +2218,7 @@ previousTime = paTimeInfo.currentTime;
                     /* Finish playback once currently queued audio has completed. */
                     theAsioStream->stopProcessing = true;
 
-                    if( PaUtil_IsBufferProcessorOuputEmpty( &theAsioStream->bufferProcessor ) )
+                    if( PaUtil_IsBufferProcessorOutputEmpty( &theAsioStream->bufferProcessor ) )
                     {
                         theAsioStream->zeroOutput = true;
                         theAsioStream->stopPlayoutCount = 0;
