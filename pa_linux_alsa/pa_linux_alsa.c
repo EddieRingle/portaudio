@@ -1252,6 +1252,9 @@ static void PaAlsaStreamComponent_Terminate( PaAlsaStreamComponent *self )
         PaUtil_FreeMemory( self->userBuffers );
 }
 
+/** Configure the associated ALSA pcm.
+ *
+ */
 static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, const PaStreamParameters *params, unsigned long
         framesPerHostBuffer, int primeBuffers, int callbackMode, double *sampleRate, PaTime *returnedLatency )
 {
@@ -1268,11 +1271,12 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
         numPeriods = 2;
     */
 
-    /* configuration consists of setting all of ALSA's parameters.
+    /* Configuration consists of setting all of ALSA's parameters.
      * These parameters come in two flavors: hardware parameters
      * and software paramters.  Hardware parameters will affect
      * the way the device is initialized, software parameters
-     * affect the way ALSA interacts with me, the user-level client. */
+     * affect the way ALSA interacts with me, the user-level client.
+     */
 
     snd_pcm_hw_params_t *hwParams;
     snd_pcm_sw_params_t *swParams;
@@ -1309,14 +1313,15 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
     }
 
     /* If requested access mode fails, try alternate mode */
-    if( snd_pcm_hw_params_set_access( pcm, hwParams, accessMode ) < 0 ) {
+    if( snd_pcm_hw_params_set_access( pcm, hwParams, accessMode ) < 0 )
+    {
         ENSURE_( snd_pcm_hw_params_set_access( pcm, hwParams, alternateAccessMode ), paUnanticipatedHostError );
-        self->hostInterleaved = !(self->userInterleaved);     /* Flip mode */ }
+        /* Flip mode */
+        self->hostInterleaved = !self->userInterleaved;
+    }
 
-    /* set the format based on what the user selected */
     ENSURE_( snd_pcm_hw_params_set_format( pcm, hwParams, self->nativeFormat ), paUnanticipatedHostError );
 
-    /* ... set the sample rate */
     ENSURE_( SetApproximateSampleRate( pcm, hwParams, sr ), paInvalidSampleRate );
     ENSURE_( GetExactSampleRate( hwParams, &sr ), paUnanticipatedHostError );
     /* reject if there's no sample rate within 1% of the one requested */
@@ -1329,11 +1334,14 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
     ENSURE_( snd_pcm_hw_params_set_channels( pcm, hwParams, self->numHostChannels ), paInvalidChannelCount );
 
     /* I think there should be at least 2 periods (even though ALSA doesn't appear to enforce this) */
+    dir = 0;
     ENSURE_( snd_pcm_hw_params_set_periods_min( pcm, hwParams, &minPeriods, &dir ), paUnanticipatedHostError );
+    dir = 0;
     ENSURE_( snd_pcm_hw_params_set_period_size_near( pcm, hwParams, &self->framesPerBuffer, &dir ), paUnanticipatedHostError );
     
     /* Find an acceptable number of periods */
     numPeriods = (latency * sr) / self->framesPerBuffer + 1;
+    dir = 0;
     ENSURE_( snd_pcm_hw_params_set_periods_near( pcm, hwParams, &numPeriods, &dir ), paUnanticipatedHostError );
     /* Minimum of periods should already be 2 */
     PA_UNLESS( numPeriods >= 2, paInternalError );
@@ -1386,12 +1394,11 @@ static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiReprese
 
     memset( self, 0, sizeof (PaAlsaStream) );
 
-    if( callback )
+    if( NULL != callback )
     {
         PaUtil_InitializeStreamRepresentation( &self->streamRepresentation,
                                                &alsaApi->callbackStreamInterface,
                                                callback, userData );
-
         self->callbackMode = 1;
     }
     else
@@ -1411,9 +1418,9 @@ static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiReprese
     memset( &self->capture, 0, sizeof (PaAlsaStreamComponent) );
     memset( &self->playback, 0, sizeof (PaAlsaStreamComponent) );
     if( inParams )
-        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->capture, alsaApi, inParams, StreamDirection_In, callback != NULL ) );
+        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->capture, alsaApi, inParams, StreamDirection_In, NULL != callback ) );
     if( outParams )
-        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->playback, alsaApi, outParams, StreamDirection_Out, callback != NULL ) );
+        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->playback, alsaApi, outParams, StreamDirection_Out, NULL != callback ) );
 
     assert( self->capture.nfds || self->playback.nfds );
 
@@ -1432,7 +1439,7 @@ error:
 
 /** Free resources associated with stream, and eventually stream itself.
  *
- * Frees allocated memory, and closes opened pcms.
+ * Frees allocated memory, and terminates individual StreamComponents.
  */
 static void PaAlsaStream_Terminate( PaAlsaStream *self )
 {
@@ -1467,7 +1474,7 @@ static int CalculatePollTimeout( const PaAlsaStream *stream, unsigned long frame
     return (int)ceil( 1000 * frames / stream->streamRepresentation.streamInfo.sampleRate );
 }
 
-/** Configure the associated ALSA pcms of the stream.
+/** Set up ALSA stream parameters.
  *
  */
 static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParameters *inParams, const PaStreamParameters
