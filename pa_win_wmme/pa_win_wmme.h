@@ -59,10 +59,10 @@ extern "C"
     PaWinMmeDontThrottleOverloadedProcessingThread */
 #define PaWinMmeUseTimeCriticalThreadPriority           (0x05)
 
-typedef struct PaWinMmeDeviceAndNumChannels{
+typedef struct PaWinMmeDeviceAndChannelCount{
     PaDeviceIndex device;
-    int numChannels;
-}PaWinMmeDeviceAndNumChannels;
+    int channelCount;
+}PaWinMmeDeviceAndChannelCount;
 
 
 typedef struct PaWinMmeStreamInfo{
@@ -89,11 +89,11 @@ typedef struct PaWinMmeStreamInfo{
         to Pa_OpenStream() should be set to paUseHostApiSpecificDeviceSpecification,
         otherwise an paInvalidDevice error will result.
         The total number of channels accross all specified devices
-        must agree with the corresponding numChannels parameter to
+        must agree with the corresponding channelCount parameter to
         Pa_OpenStream() otherwise a paInvalidChannelCount error will result.
     */
-    PaWinMmeDeviceAndNumChannels *devices;
-    unsigned long numDevices;
+    PaWinMmeDeviceAndChannelCount *devices;
+    unsigned long deviceCount;
 
 }PaWinMmeStreamInfo;
 
