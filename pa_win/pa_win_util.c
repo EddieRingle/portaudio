@@ -70,7 +70,7 @@ void PaUtil_FreeMemory( void *block )
 }
 
 
-int PaUtil_CountMemoryLeaks( void )
+int PaUtil_CountCurrentlyAllocatedBlocks( void )
 {
 #if PA_TRACK_MEMORY
     return numAllocations_;

@@ -64,9 +64,20 @@ void PaUtil_DebugPrint( const char *format, ... );
 /* the following functions are implemented in a per-platform .c file */
 
 void *PaUtil_AllocateMemory( long size );
-void PaUtil_FreeMemory( void *block );
+/**< Allocate size bytes, guaranteed to be aligned to a FIXME byte boundary */
 
-int PaUtil_CountMemoryLeaks( void ); /* PA_TRACK_MEMORY must be defined for this to work */
+void PaUtil_FreeMemory( void *block );
+/**< Realease block if non-NULL. block may be NULL */
+
+int PaUtil_CountCurrentlyAllocatedBlocks( void );
+/**<
+    Return the number of currently allocated blocks. This function can be
+    used for detecting memory leaks.
+
+    @note Allocations will only be tracked if PA_TRACK_MEMORY is #defined. If
+    it isn't, this function will always return 0.
+*/
+
 
 void PaUtil_InitializeMicrosecondClock( void );
 double PaUtil_MicrosecondTime( void ); /* used to implement CPU load functions */
