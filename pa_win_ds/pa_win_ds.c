@@ -125,7 +125,7 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
     PaUtil_SetLastHostErrorInfo( paDirectSound, hr, "DirectSound error" )
 
 /************************************************* DX Prototypes **********/
-static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
+/*static*/ BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
                                      LPCTSTR lpszDesc,
                                      LPCTSTR lpszDrvName,
                                      LPVOID lpContext );
@@ -300,7 +300,7 @@ static PaError TerminateDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *gu
 /************************************************************************************
 ** Collect preliminary device information during DirectSound enumeration 
 */
-static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
+/*static*/ BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
                                      LPCTSTR lpszDesc,
                                      LPCTSTR lpszDrvName,
                                      LPVOID lpContext )
@@ -587,6 +587,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     
 /* DSound - enumerate devices to count them and to gather their GUIDs */
+
 
     result = InitializeDSDeviceNameAndGUIDVector( &captureNamesAndGUIDs, winDsHostApi->allocations );
     if( result != paNoError )
