@@ -80,7 +80,7 @@ typedef enum PaErrorCode
     paStreamIsNotStopped,
     paInputOverflowed,
     paOutputUnderflowed
-} PaErrorNum;
+} PaErrorCode;
 
 
 /** Translate the supplied PortAudio error number into a human readable
@@ -898,7 +898,7 @@ PaError Pa_WriteStream( PaStream* stream,
 
  @return If non-negative, the return value is the maximum number of frames
  that can be read from the stream without blocking or busy waiting. A
- negative value is a PaErrorNum.
+ negative value is a PaErrorCode.
 */
 signed long Pa_GetStreamReadAvailable( PaStream* stream );
 
@@ -908,7 +908,7 @@ signed long Pa_GetStreamReadAvailable( PaStream* stream );
 
  @return If non-negative, the return value is the maximum number of frames
  that can be written to the stream without blocking or busy waiting. A
- negative value is a PaErrorNum.
+ negative value is a PaErrorCode.
 */
 signed long Pa_GetStreamWriteAvailable( PaStream* stream );
 
