@@ -1,7 +1,6 @@
 /** @file
 	@brief Hear the latency caused by big buffers.
 	Play a sine wave and change frequency based on letter input.
-	@todo needs to be updated to use the V19 API
 	@author Phil Burk <philburk@softsynth.com>, and Darren Gibbs
 */
 /*
@@ -35,20 +34,14 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
+
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
 
-#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDeviceID())
+#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice())
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (64)
-
-#if 0
-#define MIN_LATENCY_MSEC    (2000)
-#define NUM_BUFFERS         ((MIN_LATENCY_MSEC * SAMPLE_RATE) / (FRAMES_PER_BUFFER * 1000))
-#else
-#define NUM_BUFFERS         (0)
-#endif
 
 #define MIN_FREQ            (100.0f)
 #define CalcPhaseIncrement(freq)  ((freq)/SAMPLE_RATE)
@@ -56,6 +49,7 @@
 #define M_PI  (3.14159265)
 #endif
 #define TABLE_SIZE   (400)
+
 typedef struct
 {
     float sine[TABLE_SIZE + 1]; // add one for guard point for interpolation
@@ -64,6 +58,7 @@ typedef struct
     float right_phase;
 }
 paTestData;
+
 float LookupSine( paTestData *data, float phase );
 /* Convert phase between and 1.0 to sine value
  * using linear interpolation.
@@ -78,20 +73,22 @@ float LookupSine( paTestData *data, float phase )
     float val = lo + fract*(hi-lo);
     return val;
 }
+
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patestCallback( void *inputBuffer, void *outputBuffer,
+static int patestCallback( const void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
-                           PaTimestamp outTime, void *userData )
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData )
 {
     paTestData *data = (paTestData*)userData;
     float *out = (float*)outputBuffer;
     int i;
-    int finished = 0;
-    (void) outTime; /* Prevent unused variable warnings. */
-    (void) inputBuffer;
+
+    (void) inputBuffer; /* Prevent unused variable warning. */
 
     for( i=0; i<framesPerBuffer; i++ )
     {
@@ -104,16 +101,19 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
     }
     return 0;
 }
+
 /*******************************************************************/
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
+    PaStreamParameters outputParameters;
     PaError err;
     paTestData data;
     int i;
     int done = 0;
-    printf("PortAudio Test: enter letter then hit ENTER. numBuffers = %d\n", NUM_BUFFERS );
+
+    printf("PortAudio Test: enter letter then hit ENTER.\n" );
     /* initialise sinusoidal wavetable */
     for( i=0; i<TABLE_SIZE; i++ )
     {
@@ -126,23 +126,27 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
     printf("PortAudio Test: output device = %d\n", OUTPUT_DEVICE );
+
+    outputParameters.device = OUTPUT_DEVICE;
+    outputParameters.channelCount = 2;         /* stereo output */
+    outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+    
+    printf("Requested output latency = %.4f seconds.\n", outputParameters.suggestedLatency );
+    printf("%d frames per buffer.\n.", FRAMES_PER_BUFFER );
+
     err = Pa_OpenStream(
               &stream,
-              paNoDevice,
-              0,              /* no input */
-              paFloat32,  /* 32 bit floating point input */
-              NULL,
-              OUTPUT_DEVICE,
-              2,              /* stereo output */
-              paFloat32,      /* 32 bit floating point output */
-              NULL,
+              NULL, /* no input */
+              &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              NUM_BUFFERS,    /* number of buffers, if zero then use default minimum */
-              paClipOff|paDitherOff, /* we won't output out of range samples so don't bother clipping them */
+              paClipOff|paDitherOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
     if( err != paNoError ) goto error;
+
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
     printf("Play ASCII keyboard. Hit 'q' to stop. (Use RETURN key on Mac)\n");

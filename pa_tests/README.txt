@@ -16,7 +16,7 @@ x- patest_callbackstop.c
 x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)
 o- patest_dither.c
 o- patest_hang.c
-o- patest_latency.c
+x- patest_latency.c
 x- patest_leftright.c
 o- patest_longsine.c
 x- patest_many.c
@@ -27,7 +27,7 @@ x- patest_prime.c
 x- patest_read_record.c
 x- patest_record.c
 x- patest_ringmix.c
-o- patest_saw.c
+x- patest_saw.c
 x- patest_sine.c
 x- patest_sine8.c
 x- patest_sine_formats.c
@@ -41,5 +41,4 @@ x- patest_wire.c
 x- patest_write_sine.c
 x- pa_devs.c
 x- pa_fuzz.c
-o- pa_minlat.c
-
+x- pa_minlat.c

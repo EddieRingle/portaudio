@@ -2,7 +2,6 @@
     @brief Experiment with different numbers of buffers to determine the
 	minimum latency for a computer.
 	@author Phil Burk  http://www.softsynth.com
-	@todo needs to be updated to use the V19 API
 */
 /*
  * $Id$
@@ -35,6 +34,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -55,9 +55,11 @@ typedef struct
 paTestData;
 
 /* Very simple synthesis routine to generate two sine waves. */
-static int paminlatCallback( void *inputBuffer, void *outputBuffer,
+static int paminlatCallback( const void *inputBuffer, void *outputBuffer,
                              unsigned long framesPerBuffer,
-                             PaTimestamp outTime, void *userData )
+                             const PaStreamCallbackTimeInfo* timeInfo,
+                             PaStreamCallbackFlags statusFlags,
+                             void *userData )
 {
     paTestData *data = (paTestData*)userData;
     float *out = (float*)outputBuffer;
@@ -83,9 +85,11 @@ static int paminlatCallback( void *inputBuffer, void *outputBuffer,
     data->right_phase = right_phase;
     return 0;
 }
-void main( int argc, char **argv );
-void main( int argc, char **argv )
+
+int main( int argc, char **argv );
+int main( int argc, char **argv )
 {
+    PaStreamParameters outputParameters;
     PaStream *stream;
     PaError err;
     paTestData data;
@@ -95,6 +99,7 @@ void main( int argc, char **argv )
     int    framesPerBuffer;
     double sampleRate = 44100.0;
     char   str[256];
+
     printf("pa_minlat - Determine minimum latency for your computer.\n");
     printf("  usage:         pa_minlat {userBufferSize}\n");
     printf("  for example:   pa_minlat 64\n");
@@ -117,21 +122,18 @@ void main( int argc, char **argv )
     go = 1;
     while( go )
     {
+        outputParameters.device                    = Pa_GetDefaultOutputDevice(); /* Default output device. */
+        outputParameters.channelCount              = 2;                           /* Stereo output */
+        outputParameters.sampleFormat              = paFloat32;                   /* 32 bit floating point output. */
+        outputParameters.suggestedLatency          = (double)outLatency / sampleRate; /* In seconds. */
+        outputParameters.hostApiSpecificStreamInfo = NULL;
+        
+        printf("Latency = %d frames = %6.1f msec.\n", outLatency, outputParameters.suggestedLatency * 1000.0 );
 
-        printf("Latency = %d frames = %6.1f msec.\n", outLatency,
-            (outLatency * 1000.0 / sampleRate) );
         err = Pa_OpenStream(
                   &stream,
-                  paNoDevice,
-                  0,              /* no input */
-                  paFloat32,  /* 32 bit floating point input */
-                  0,
-                  NULL,
-                  Pa_GetDefaultOutputDevice(), /* default output device */
-                  2,              /* stereo output */
-                  paFloat32,      /* 32 bit floating point output */
-                  outLatency,
-                  NULL,
+                  NULL, /* no input */
+                  &outputParameters,
                   sampleRate,
                   framesPerBuffer,
                   paClipOff,      /* we won't output out of range samples so don't bother clipping them */
@@ -146,7 +148,7 @@ void main( int argc, char **argv )
 
         /* Ask user for a new nlatency. */
         printf("\nMove windows around to see if the sound glitches.\n");
-        printf("Latency currently %d, enter new number, or 'q' to quit: ", outLatency );
+        printf("Latency now %d, enter new number of frames, or 'q' to quit: ", outLatency );
         gets( str );
         if( str[0] == 'q' ) go = 0;
         else
@@ -168,10 +170,11 @@ void main( int argc, char **argv )
     printf("the minimum latency that worked.\n");
     printf("PortAudio: Test finished.\n");
     Pa_Terminate();
-    return;
+    return 0;
 error:
     Pa_Terminate();
     fprintf( stderr, "An error occured while using the portaudio stream\n" );
     fprintf( stderr, "Error number: %d\n", err );
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
+    return 1;
 }
