@@ -128,15 +128,15 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat(
 #define PA_SELECT_CONVERTER_DITHER_CLIP_( flags, source, destination )         \
     if( flags & paClipOff ){ /* no clip */                                     \
         if( flags & paDitherOff ){ /* no dither */                             \
-            return paConverters. ## source ## _To_ ## destination;             \
+            return paConverters. source ## _To_ ## destination;             \
         }else{ /* dither */                                                    \
-            return paConverters. ## source ## _To_ ## destination ## _Dither;  \
+            return paConverters. source ## _To_ ## destination ## _Dither;  \
         }                                                                      \
     }else{ /* clip */                                                          \
         if( flags & paDitherOff ){ /* no dither */                             \
-            return paConverters. ## source ## _To_ ## destination ## _Clip;    \
+            return paConverters. source ## _To_ ## destination ## _Clip;    \
         }else{ /* dither */                                                    \
-            return paConverters. ## source ## _To_ ## destination ## _DitherClip;\
+            return paConverters. source ## _To_ ## destination ## _DitherClip;\
         }                                                                      \
     }
 
@@ -144,20 +144,20 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat(
 
 #define PA_SELECT_CONVERTER_DITHER_( flags, source, destination )              \
     if( flags & paDitherOff ){ /* no dither */                                 \
-        return paConverters. ## source ## _To_ ## destination;                 \
+        return paConverters. source ## _To_ ## destination;                 \
     }else{ /* dither */                                                        \
-        return paConverters. ## source ## _To_ ## destination ## _Dither;      \
+        return paConverters. source ## _To_ ## destination ## _Dither;      \
     }
 
 /* -------------------------------------------------------------------------- */
 
 #define PA_USE_CONVERTER_( source, destination )\
-    return paConverters. ## source ## _To_ ## destination;
+    return paConverters. source ## _To_ ## destination;
 
 /* -------------------------------------------------------------------------- */
 
 #define PA_UNITY_CONVERSION_( wordlength )\
-    return paConverters.Copy_ ## wordlength ## _To_ ## wordlength;
+    return paConverters. Copy_ ## wordlength ## _To_ ## wordlength;
 
 /* -------------------------------------------------------------------------- */
 
