@@ -561,10 +561,11 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->maxInputChannels = 0;
                 deviceInfo->maxOutputChannels = 0;
 
-                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                /* @todo: tune the following values, NT may need to be higher */
+                deviceInfo->defaultLowInputLatency = 0.2;
+                deviceInfo->defaultLowOutputLatency = 0.2;
+                deviceInfo->defaultHighInputLatency = 0.4;
+                deviceInfo->defaultHighOutputLatency = 0.4;                    
 
                 result = InitializeInputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
@@ -593,10 +594,11 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->maxInputChannels = 0;
                 deviceInfo->maxOutputChannels = 0;
 
-                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                /* @todo: tune the following values, NT may need to be higher */
+                deviceInfo->defaultLowInputLatency = 0.2;
+                deviceInfo->defaultLowOutputLatency = 0.2;
+                deviceInfo->defaultHighInputLatency = 0.4;
+                deviceInfo->defaultHighOutputLatency = 0.4; 
 
                 result = InitializeOutputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
@@ -735,10 +737,140 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                 of input and output parameters is supported
 
             - check that the device supports sampleRate
-    */
+
+            for mme all we can do is test that the input and output devices
+            support the requested sample rate and number of channels. we
+            cannot test for full duplex capability.
+    */                                             
 
     return paFormatIsSupported;
 }
+
+
+
+static void SelectBufferSizeAndCount( unsigned long userBufferSize,
+    unsigned long requestedLatency,
+    unsigned long baseBufferCount, unsigned long minimumBufferCount,
+    unsigned long maximumBufferSize, unsigned long *hostBufferSize,
+    unsigned long *hostBufferCount )
+{
+    unsigned long sizeMultiplier, bufferCount, latency;
+    unsigned long nextLatency, nextBufferSize;
+    int userBufferSizeIsPowerOfTwo;
+    
+    sizeMultiplier = 1;
+    bufferCount = baseBufferCount;
+
+    /* count-1 below because latency is always determined by one less
+        than the total number of buffers.
+    */
+    latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+
+    if( latency > requestedLatency )
+    {
+
+        /* reduce number of buffers without falling below suggested latency */
+
+        nextLatency = (userBufferSize * sizeMultiplier) * (bufferCount-2);
+        while( bufferCount > minimumBufferCount && nextLatency >= requestedLatency )
+        {
+            --bufferCount;
+            nextLatency = (userBufferSize * sizeMultiplier) * (bufferCount-2);
+        }
+
+    }else if( latency < requestedLatency ){
+
+        userBufferSizeIsPowerOfTwo = 0; // FIXME: what's a quick test for isPowerOf2 ?
+        if( userBufferSizeIsPowerOfTwo ){
+
+            /* double size of buffers without exceeding requestedLatency */
+
+            nextBufferSize = (userBufferSize * (sizeMultiplier*2));
+            nextLatency = nextBufferSize * (bufferCount-1);
+            while( nextBufferSize <= maximumBufferSize
+                    && nextLatency < requestedLatency )
+            {
+                sizeMultiplier *= 2;
+                nextBufferSize = (userBufferSize * (sizeMultiplier*2));
+                nextLatency = nextBufferSize * (bufferCount-1);
+            }
+
+
+        }else{
+
+            /* increase size of buffers upto first excess of requestedLatency */
+
+            nextBufferSize = (userBufferSize * (sizeMultiplier+1));
+            nextLatency = nextBufferSize * (bufferCount-1);
+            while( nextBufferSize <= maximumBufferSize
+                    && nextLatency < requestedLatency )
+            {
+                ++sizeMultiplier;
+                nextBufferSize = (userBufferSize * (sizeMultiplier+1));
+                nextLatency = nextBufferSize * (bufferCount-1);
+            }
+
+            if( nextLatency < requestedLatency )
+                ++sizeMultiplier;            
+        }
+
+        /* increase number of buffers until requestedLatency is reached */
+
+        latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+        while( latency < requestedLatency )
+        {
+            ++bufferCount;
+            latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+        }
+    }
+
+    *hostBufferSize = userBufferSize * sizeMultiplier;
+    *hostBufferCount = bufferCount;
+}
+
+
+static void ReselectBufferCount( unsigned long bufferSize,
+    unsigned long requestedLatency,
+    unsigned long baseBufferCount, unsigned long minimumBufferCount,
+    unsigned long *hostBufferCount )
+{
+    unsigned long bufferCount, latency;
+    unsigned long nextLatency;
+
+    bufferCount = baseBufferCount;
+
+    /* count-1 below because latency is always determined by one less
+        than the total number of buffers.
+    */
+    latency = bufferSize * (bufferCount-1);
+
+    if( latency > requestedLatency )
+    {
+        /* reduce number of buffers without falling below suggested latency */
+
+        nextLatency = bufferSize * (bufferCount-2);
+        while( bufferCount > minimumBufferCount && nextLatency >= requestedLatency )
+        {
+            --bufferCount;
+            nextLatency = bufferSize * (bufferCount-2);
+        }
+
+    }else if( latency < requestedLatency ){
+
+        /* increase number of buffers until requestedLatency is reached */
+
+        latency = bufferSize * (bufferCount-1);
+        while( latency < requestedLatency )
+        {
+            ++bufferCount;
+            latency = bufferSize * (bufferCount-1);
+        }                                                         
+    }
+
+    *hostBufferCount = bufferCount;
+}
+
+
 
 
 /* CalculateBufferSettings() fills the framesPerHostInputBuffer, numHostInputBuffers,
@@ -777,66 +909,26 @@ static PaError CalculateBufferSettings(
         }
         else
         {
-            /* hardwire for now, FIXME */
-            /* don't forget that there will be one more buffer than the number required to achieve the requested latency */
-            *framesPerHostInputBuffer = 4096;
-            *numHostInputBuffers = 4;
+            unsigned long minimumBufferCount, hostBufferSizeBytes, hostBufferCount;
+            if( outputChannelCount > 0 )
+                minimumBufferCount = 3;
+            else
+                minimumBufferCount = 2;
 
-            /*
-                Need to determine the right heuristic for mapping latency in
-                seconds to buffer sizes and number of buffers.
+            /* compute the following in bytes, then convert back to frames */
 
-                - for output don't allocate less than 1+1 buffers
-                
-                - for input don't allocate less than 2+1 buffers
-                    (less than 1+1 if input only)
+            SelectBufferSizeAndCount(
+                ((framesPerBuffer == paFramesPerBufferUnspecified)
+                    ? 16
+                    : framesPerBuffer ) * inputChannelCount * sizeof(short), /* userBufferSize */
+                ((unsigned long)(suggestedInputLatency * sampleRate)) * inputChannelCount * sizeof(short), /* suggestedLatency */
+                4, /* baseBufferCount */
+                minimumBufferCount,
+                1024 * 32, /* maximumBufferSize -- bigger buffers are known to crash some drivers */
+                &hostBufferSizeBytes, &hostBufferCount );
 
-                - don't allocate buffers smaller than framesPerBuffer
-
-                - if the client doesn't care about the buffer size use a power
-                    of two buffer size. otherwise use a multiple of the user
-                    buffer size. if the user buffer size is a power of 2, it
-                    might be wise to make the host buffer size a power of 2 too.
-
-                - there probably shouldn't be too many buffers ( 3 to 10 seems
-                    reasonable).
-
-                - aside from a limit on what constitutes a "reasonable" number
-                    of buffers, there should be as many buffers as possible,
-                    because this will place a less bursty load on CPU resources
-
-                - the host buffers should be as big as practical (ie multiple
-                    user buffers per host buffer).
-
-
-                . One way to achieve the above is to say: Try to have 8
-                    host buffers, and host buffers cannot be larger than 32k
-                    unless the user buffer size requires it"
-                    I say 32k because buffers larger than this are known to
-                    crash some drivers (Turtle Beach for example.)
-
-                just some idle rambling:
-                
-                if( framesPerBuffer == 0 ){
-                    // use a power of two buffer size
-
-                }else{
-                    latencySamples = ceil(requestedLatency * sampleRate)
-
-                    numBuffers = ceil(latencySamples / framesPerBuffer);
-
-                    bufferSize = framesPerBuffer;
-            
-                    minBuffers = ( inputChannelCount > 0 && outputChannelCount > 0 ) ? 2 : 1;
-
-                    if( numBuffers <= minBuffers ){
-                        numBuffers = minBuffers;
-                    }else{
-                        make buffer size a multiple of framesPerBuffer until numBuffers  is
-                        greater than 4 and less than 10.
-                    }
-                }
-            */
+            *framesPerHostInputBuffer = hostBufferSizeBytes / (inputChannelCount * sizeof(short)) ;
+            *numHostInputBuffers = hostBufferCount;
         }
     }
     else
@@ -864,10 +956,66 @@ static PaError CalculateBufferSettings(
         }
         else
         {
-            /* hardwire for now, FIXME */
-            /* don't forget that there will be one more buffer than the number required to achieve the requested latency */
-            *framesPerHostOutputBuffer = 4096;
-            *numHostOutputBuffers = 4;
+            unsigned long minimumBufferCount, hostBufferSizeBytes, hostBufferCount;
+            minimumBufferCount = 2;
+
+            /* compute the following in bytes, then convert back to frames */
+
+            SelectBufferSizeAndCount(
+                ((framesPerBuffer == paFramesPerBufferUnspecified)
+                    ? 16
+                    : framesPerBuffer ) * outputChannelCount * sizeof(short), /* userBufferSize */
+                ((unsigned long)(suggestedOutputLatency * sampleRate)) * outputChannelCount * sizeof(short), /* suggestedLatency */
+                4, /* baseBufferCount */
+                minimumBufferCount,
+                1024 * 32, /* maximumBufferSize -- bigger buffers are known to crash some drivers */
+                &hostBufferSizeBytes, &hostBufferCount );
+
+            *framesPerHostOutputBuffer = hostBufferSizeBytes / (outputChannelCount * sizeof(short)) ;
+            *numHostOutputBuffers = hostBufferCount;
+
+
+            if( inputChannelCount > 0 )
+            {
+                /* ensure that both input and output buffer sizes are the same.
+                    if they don't match at this stage, choose the smallest one
+                    and use that for input and output
+                */
+
+                if( *framesPerHostOutputBuffer != *framesPerHostInputBuffer )
+                {
+                    if( framesPerHostInputBuffer < framesPerHostOutputBuffer )
+                    {
+                        unsigned long framesPerHostBuffer = *framesPerHostInputBuffer;
+                        
+                        minimumBufferCount = 2;
+                        ReselectBufferCount(
+                            framesPerHostBuffer * outputChannelCount * sizeof(short), /* bufferSize */
+                            ((unsigned long)(suggestedOutputLatency * sampleRate)) * outputChannelCount * sizeof(short), /* suggestedLatency */
+                            4, /* baseBufferCount */
+                            minimumBufferCount,
+                            &hostBufferCount );
+
+                        *framesPerHostOutputBuffer = framesPerHostBuffer;
+                        *numHostOutputBuffers = hostBufferCount;
+                    }
+                    else
+                    {
+                        unsigned long framesPerHostBuffer = *framesPerHostOutputBuffer;
+                        
+                        minimumBufferCount = 3;
+                        ReselectBufferCount(
+                            framesPerHostBuffer * inputChannelCount * sizeof(short), /* bufferSize */
+                            ((unsigned long)(suggestedInputLatency * sampleRate)) * inputChannelCount * sizeof(short), /* suggestedLatency */
+                            4, /* baseBufferCount */
+                            minimumBufferCount,
+                            &hostBufferCount );
+
+                        *framesPerHostInputBuffer = framesPerHostBuffer;
+                        *numHostInputBuffers = hostBufferCount;
+                    }
+                }   
+            }
         }
     }
     else
