@@ -106,10 +106,13 @@ const char *Pa_GetErrorText( PaError errorCode );
  host APIs for use. This function MUST be called before using any other
  PortAudio API functions.
 
- If Pa_Initialize() is called multiple times, each call must be matched with
- a corresponding call to Pa_Terminate(). Pairs of calls to
- Pa_Initialize()/Pa_Terminate() may overlap, and are not requireed to be fully
- nested.
+ If Pa_Initialize() is called multiple times, each successful 
+ call must be matched with a corresponding call to Pa_Terminate(). 
+ Pairs of calls to Pa_Initialize()/Pa_Terminate() may overlap, and are not 
+ required to be fully nested.
+
+ Note that if Pa_Initialize() returns an error code, Pa_Terminate() should
+ NOT be called.
 
  @return paNoError if successful, otherwise an error code indicating the cause
  of failure.
