@@ -65,21 +65,17 @@ TODO:
             callbackBufferSize, requested input and output latency
         o- this code should generate defaults the way the old code did
 
-    o- handle case where user suppled buffer count/size are not compatible
+    o- handle case where user suppled full duplex buffer sizes are not compatible
          (must be common multiples)
 
-    o- fix callback to work even when input and output buffer sizes are not equal
-
-    x- add multidevice multichannel support
-    o- add bufferslip management
-    o- add thread throttling on overload
+    - fix buffer catch up code, can sometimes get stuck
 
     - implement "close sample rate matching" if needed - is this really needed
         in mme?
         
     - investigate supporting host buffer formats > 16 bits
 
-    - other miscellaneous fixmes
+    - see other  fixmes
 */
 
 #include <stdio.h>
@@ -153,12 +149,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -842,7 +838,9 @@ typedef struct PaWinMmeStream
     WAVEHDR **inputBuffers;
     unsigned int numInputBuffers;
     unsigned int currentInputBufferIndex;
-
+    unsigned int framesPerInputBuffer;
+    unsigned int framesUsedInCurrentInputBuffer;
+    
     /* Output -------------- */
     HWAVEOUT *hWaveOuts;
     unsigned int numOutputDevices;
@@ -850,12 +848,21 @@ typedef struct PaWinMmeStream
     WAVEHDR **outputBuffers;
     unsigned int numOutputBuffers;
     unsigned int currentOutputBufferIndex;
+    unsigned int framesPerOutputBuffer;
+    unsigned int framesUsedInCurrentOutputBuffer;
 
     /* Processing thread management -------------- */
     HANDLE abortEvent;
     HANDLE bufferEvent;
     HANDLE processingThread;
     DWORD processingThreadId;
+
+    char noHighPriorityProcessClass;
+    char useTimeCriticalProcessingThreadPriority;
+    char throttleProcessingThreadOnOverload; /* 0 -> don't throtte, non-0 -> throttle */
+    int processingThreadPriority;
+    int highThreadPriority;
+    int throttledThreadPriority;
 
     volatile int isActive;
     volatile int stopProcessing; /* stop thread once existing buffers have been returned */
@@ -883,12 +890,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -916,15 +923,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long numInputDevices = (inputDevice != paNoDevice) ? 1 : 0;
     PaWinMmeDeviceAndNumChannels *outputDevices = 0;
     unsigned long numOutputDevices = (outputDevice != paNoDevice) ? 1 : 0;
+    char noHighPriorityProcessClass = 0;
+    char useTimeCriticalProcessingThreadPriority = 0;
+    char throttleProcessingThreadOnOverload = 1;
 
     /* check that input device can support numInputChannels */
-    if( (inputDevice != paNoDevice) && (inputDevice != paUseAlternateDeviceSpecification) &&
+    if( (inputDevice != paNoDevice) && (inputDevice != paUseHostApiSpecificDeviceSpecification) &&
             (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )
         return paInvalidChannelCount;
 
 
     /* check that output device can support numInputChannels */
-    if( (outputDevice != paNoDevice) && (outputDevice != paUseAlternateDeviceSpecification) &&
+    if( (outputDevice != paNoDevice) && (outputDevice != paUseHostApiSpecificDeviceSpecification) &&
             (numOutputChannels > hostApi->deviceInfos[ outputDevice ]->maxOutputChannels) )
         return paInvalidChannelCount;
 
@@ -938,14 +948,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* validate inputStreamInfo */
     if( inputStreamInfo )
     {
-        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->header.size != sizeof( PaWinMmeStreamInfo )
-                || ((PaWinMmeStreamInfo*)inputStreamInfo)->header.version != 1 )
+        if( inputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
+                || inputStreamInfo->version != 1 )
         {
             return paIncompatibleStreamInfo;
         }
 
+        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeNoHighPriorityProcessClass )
+            noHighPriorityProcessClass = 1;
+        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
+            throttleProcessingThreadOnOverload = 0;
+        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseTimeCriticalThreadPriority )
+            useTimeCriticalProcessingThreadPriority = 1;
+            
         /* validate multidevice fields */
-        
+
         if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseMultipleDevices )
         {
             int totalChannels = 0;
@@ -955,7 +972,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     the number of channels is legal */
                 PaDeviceIndex hostApiDevice;
 
-                if( inputDevice != paUseAlternateDeviceSpecification )
+                if( inputDevice != paUseHostApiSpecificDeviceSpecification )
                     return paInvalidDevice;
 
                 numChannels = ((PaWinMmeStreamInfo*)inputStreamInfo)->devices[i].numChannels;
@@ -989,12 +1006,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* validate outputStreamInfo */
     if( outputStreamInfo )
     {
-        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->header.size != sizeof( PaWinMmeStreamInfo )
-                || ((PaWinMmeStreamInfo*)outputStreamInfo)->header.version != 1 )
+        if( outputStreamInfo->size != sizeof( PaWinMmeStreamInfo )
+                || outputStreamInfo->version != 1 )
         {
             return paIncompatibleStreamInfo;
         }
 
+        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeNoHighPriorityProcessClass )
+            noHighPriorityProcessClass = 1;
+        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeDontThrottleOverloadedProcessingThread )
+            throttleProcessingThreadOnOverload = 0;
+        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseTimeCriticalThreadPriority )
+            useTimeCriticalProcessingThreadPriority = 1;
+            
         /* validate multidevice fields */
         
         if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseMultipleDevices )
@@ -1006,7 +1030,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     the number of channels is legal */
                 PaDeviceIndex hostApiDevice;
 
-                if( outputDevice != paUseAlternateDeviceSpecification )
+                if( outputDevice != paUseHostApiSpecificDeviceSpecification )
                     return paInvalidDevice;
 
                 numChannels = ((PaWinMmeStreamInfo*)outputStreamInfo)->devices[i].numChannels;
@@ -1073,6 +1097,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->outputBuffers = 0;
     stream->processingThread = 0;
 
+    stream->noHighPriorityProcessClass = noHighPriorityProcessClass;
+    stream->useTimeCriticalProcessingThreadPriority = useTimeCriticalProcessingThreadPriority;
+    stream->throttleProcessingThreadOnOverload = throttleProcessingThreadOnOverload;
+    
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                            &winMmeHostApi->callbackStreamInterface, callback, userData );
 
@@ -1110,6 +1138,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         framesPerBufferProcessorCall = framesPerHostOutputBuffer;
     }
 
+    stream->framesPerInputBuffer = framesPerHostInputBuffer;
+    stream->framesPerOutputBuffer = framesPerHostOutputBuffer;
+
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
@@ -1136,12 +1167,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputDevice != paNoDevice )
     {
-        bytesPerInputFrame = numInputChannels * stream->bufferProcessor.bytesPerHostInputSample;
-
         wfx.wFormatTag = WAVE_FORMAT_PCM;
         wfx.nSamplesPerSec = (DWORD) sampleRate;
-        wfx.nAvgBytesPerSec = (DWORD)(bytesPerInputFrame * sampleRate);
-        wfx.nBlockAlign = (WORD)bytesPerInputFrame;
         wfx.cbSize = 0;
 
         stream->numInputDevices = numInputDevices;
@@ -1177,6 +1204,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 wfx.nChannels = (WORD) numInputChannels;
             }
 
+            bytesPerInputFrame = wfx.nChannels * stream->bufferProcessor.bytesPerHostInputSample;
+
+            wfx.nAvgBytesPerSec = (DWORD)(bytesPerInputFrame * sampleRate);
+            wfx.nBlockAlign = (WORD)bytesPerInputFrame;
             wfx.wBitsPerSample = (WORD)((bytesPerInputFrame/wfx.nChannels) * 8);
 
             /* REVIEW: consider not firing an event for input when a full duplex stream is being used */
@@ -1213,12 +1244,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputDevice != paNoDevice )
     {
-        bytesPerOutputFrame = numOutputChannels * stream->bufferProcessor.bytesPerHostOutputSample;
-
         wfx.wFormatTag = WAVE_FORMAT_PCM;
         wfx.nSamplesPerSec = (DWORD) sampleRate;
-        wfx.nAvgBytesPerSec = (DWORD)(bytesPerOutputFrame * sampleRate);
-        wfx.nBlockAlign = (WORD)bytesPerOutputFrame;
         wfx.cbSize = 0;
 
         stream->numOutputDevices = numOutputDevices;
@@ -1254,6 +1281,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 wfx.nChannels = (WORD) numOutputChannels;
             }
 
+            bytesPerOutputFrame = wfx.nChannels * stream->bufferProcessor.bytesPerHostOutputSample;
+
+            wfx.nAvgBytesPerSec = (DWORD)(bytesPerOutputFrame * sampleRate);
+            wfx.nBlockAlign = (WORD)bytesPerOutputFrame;
             wfx.wBitsPerSample = (WORD)((bytesPerOutputFrame/wfx.nChannels) * 8);
 
             mmresult = waveOutOpen( &stream->hWaveOuts[i], outputWinMmeId, &wfx,
@@ -1288,13 +1319,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     
     if( PA_IS_INPUT_STREAM_(stream) )
     {
-        int hostInputBufferBytes = Pa_GetSampleSize( hostInputSampleFormat ) * framesPerHostInputBuffer * numInputChannels;
-        if( hostInputBufferBytes < 0 )
-        {
-            result = paInternalError;
-            goto error;
-        }
-
         stream->inputBuffers = (WAVEHDR**)PaUtil_AllocateMemory( sizeof(WAVEHDR*) * stream->numInputDevices );
         if( stream->inputBuffers == 0 )
         {
@@ -1309,6 +1333,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         for( i =0; i < stream->numInputDevices; ++i )
         {
+            int hostInputBufferBytes = Pa_GetSampleSize( hostInputSampleFormat ) *
+                framesPerHostInputBuffer *
+                ((inputDevices) ? inputDevices[i].numChannels : numInputChannels);
+            if( hostInputBufferBytes < 0 )
+            {
+                result = paInternalError;
+                goto error;
+            }
+
             result = InitializeBufferSet( &stream->inputBuffers[i], numHostInputBuffers, hostInputBufferBytes,
                              (MmePrepareHeader*)waveInPrepareHeader,
                              (MmePrepareHeader*)waveInUnprepareHeader,
@@ -1322,13 +1355,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
     {
-        int hostOutputBufferBytes = Pa_GetSampleSize( hostOutputSampleFormat ) * framesPerHostOutputBuffer * numOutputChannels;
-        if( hostOutputBufferBytes < 0 )
-        {
-            result = paInternalError;
-            goto error;
-        }
-        
         stream->outputBuffers = (WAVEHDR**)PaUtil_AllocateMemory( sizeof(WAVEHDR*) * stream->numOutputDevices );
         if( stream->outputBuffers == 0 )
         {
@@ -1343,6 +1369,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         
         for( i=0; i < stream->numOutputDevices; ++i )
         {
+            int hostOutputBufferBytes = Pa_GetSampleSize( hostOutputSampleFormat ) *
+                    framesPerHostOutputBuffer *
+                    ((outputDevices) ? outputDevices[i].numChannels  : numOutputChannels);
+            if( hostOutputBufferBytes < 0 )
+            {
+                result = paInternalError;
+                goto error;
+            }
+
             result = InitializeBufferSet( &stream->outputBuffers[i], numHostOutputBuffers, hostOutputBufferBytes,
                                  (MmePrepareHeader*)waveOutPrepareHeader,
                                  (MmePrepareHeader*)waveOutUnprepareHeader,
@@ -1488,6 +1523,8 @@ static PaError AdvanceToNextInputBuffer( PaWinMmeStream *stream )
     stream->currentInputBufferIndex = (stream->currentInputBufferIndex+1 >= stream->numInputBuffers) ?
                                       0 : stream->currentInputBufferIndex+1;
 
+    stream->framesUsedInCurrentInputBuffer = 0;
+
     return result;
 }
 
@@ -1513,6 +1550,8 @@ static PaError AdvanceToNextOutputBuffer( PaWinMmeStream *stream )
     stream->currentOutputBufferIndex = (stream->currentOutputBufferIndex+1 >= stream->numOutputBuffers) ?
                                        0 : stream->currentOutputBufferIndex+1;
 
+    stream->framesUsedInCurrentOutputBuffer = 0;
+    
     return result;
 }
 
@@ -1530,7 +1569,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     signed int hostInputBufferIndex, hostOutputBufferIndex;
     int callbackResult;
     int done = 0;
-    unsigned int channel, i;
+    unsigned int channel, i, j;
+    unsigned long framesProcessed;
     
     /* prepare event array for call to WaitForMultipleObjects() */
     events[numEvents++] = stream->bufferEvent;
@@ -1587,11 +1627,40 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     hostInputBufferIndex = stream->currentInputBufferIndex;
                     for( i=0; i<stream->numInputDevices; ++i )
                     {
-                        if( !stream->inputBuffers[i][ stream->currentInputBufferIndex ].dwFlags & WHDR_DONE )
+                        if( !(stream->inputBuffers[i][ stream->currentInputBufferIndex ].dwFlags & WHDR_DONE) )
                         {
                             hostInputBufferIndex = -1;
                             break;
                         }         
+                    }
+
+                    if( hostInputBufferIndex != -1 )
+                    {
+                        /* if all of the other buffers are also ready then we dicard all but the
+                            most recent. */
+                        int inputCatchUp = 1;
+
+                        for( i=0; i < stream->numInputBuffers && inputCatchUp == 1; ++i )
+                        {
+                            for( j=0; j<stream->numInputDevices; ++j )
+                            {
+                                if( !(stream->inputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
+                                {
+                                    inputCatchUp = 0;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if( inputCatchUp )
+                        {
+                            for( i=0; i < stream->numInputBuffers - 1; ++i )
+                            {
+                                result = AdvanceToNextInputBuffer( stream );
+                                if( result != paNoError )
+                                    done = 1;
+                            }
+                        }
                     }
                 }
 
@@ -1600,10 +1669,56 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     hostOutputBufferIndex = stream->currentOutputBufferIndex;
                     for( i=0; i<stream->numOutputDevices; ++i )
                     {
-                        if( !stream->outputBuffers[i][ stream->currentOutputBufferIndex ].dwFlags & WHDR_DONE )
+                        if( !(stream->outputBuffers[i][ stream->currentOutputBufferIndex ].dwFlags & WHDR_DONE) )
                         {
                             hostOutputBufferIndex = -1;
                             break;
+                        }
+                    }
+
+                    if( hostOutputBufferIndex != - 1 )
+                    {
+                        /* if all of the other buffers are also ready, catch up by copying
+                            the most recently generated buffer into all but one of the output
+                            buffers */
+                        int outputCatchUp = 1;
+
+                        for( i=0; i < stream->numOutputBuffers && outputCatchUp == 1; ++i )
+                        {
+                            for( j=0; j<stream->numOutputDevices; ++j )
+                            {
+                                if( !(stream->outputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
+                                {
+                                    outputCatchUp = 0;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if( outputCatchUp )
+                        {
+                            /* FIXME: this is an output underflow buffer slip and should be flagged as such */
+                            unsigned int previousBufferIndex = (stream->currentOutputBufferIndex==0)
+                                    ? stream->numOutputBuffers - 1
+                                    : stream->currentOutputBufferIndex - 1;
+
+                            for( i=0; i < stream->numOutputBuffers - 1; ++i )
+                            {
+                                for( j=0; j<stream->numOutputDevices; ++j )
+                                {
+                                    if( stream->outputBuffers[j][ stream->currentOutputBufferIndex ].lpData
+                                            != stream->outputBuffers[j][ previousBufferIndex ].lpData )
+                                    {
+                                        CopyMemory( stream->outputBuffers[j][ stream->currentOutputBufferIndex ].lpData,
+                                                    stream->outputBuffers[j][ previousBufferIndex ].lpData,
+                                                    stream->outputBuffers[j][ stream->currentOutputBufferIndex ].dwBufferLength );
+                                    }
+                                }
+
+                                result = AdvanceToNextOutputBuffer( stream );
+                                if( result != paNoError )
+                                    done = 1;
+                            }
                         }
                     }
                 }
@@ -1612,14 +1727,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
                         (!PA_IS_FULL_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
-
-                    /*
-                    IMPLEMENT ME:
-                        - handle buffer slips
-                        FIXME: this code will only work for full duplex streams if the input and output
-                        buffer sizes are the same.
-                    */
-                    PaTimestamp outTime = 0; /* FIXME */
+                    PaTimestamp outTime = 0;
 
                     if( hostOutputBufferIndex != -1 ){
                         MMTIME time;
@@ -1645,7 +1753,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     }
 
 
-                    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer /*FIXME: this is a bit of a hack*/ );
+                    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
                     PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
 
@@ -1656,12 +1764,17 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         channel = 0;
                         for( i=0; i<stream->numInputDevices; ++i )
                         {
+                             /* we have stored the number of channels in the buffer in dwUser */
+                            int numChannels = stream->inputBuffers[i][ hostInputBufferIndex ].dwUser;
+                            
                             PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, channel,
-                                    stream->inputBuffers[i][ hostInputBufferIndex ].lpData,
-                                    stream->inputBuffers[i][ hostInputBufferIndex ].dwUser );
+                                    stream->inputBuffers[i][ hostInputBufferIndex ].lpData +
+                                        stream->framesUsedInCurrentInputBuffer * numChannels *
+                                        stream->bufferProcessor.bytesPerHostInputSample,
+                                    numChannels );
                                     
-                            /* we have stored the number of channels in the buffer in dwUser */
-                            channel += stream->inputBuffers[i][ hostInputBufferIndex ].dwUser;
+
+                            channel += numChannels;
                         }
                     }
 
@@ -1672,18 +1785,26 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         channel = 0;
                         for( i=0; i<stream->numOutputDevices; ++i )
                         {
+                            /* we have stored the number of channels in the buffer in dwUser */
+                            int numChannels = stream->outputBuffers[i][ hostOutputBufferIndex ].dwUser;
+
                             PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
-                                    stream->outputBuffers[i][ hostOutputBufferIndex ].lpData,
-                                    stream->outputBuffers[i][ hostOutputBufferIndex ].dwUser );
+                                    stream->outputBuffers[i][ hostOutputBufferIndex ].lpData +
+                                        stream->framesUsedInCurrentOutputBuffer * numChannels *
+                                        stream->bufferProcessor.bytesPerHostOutputSample,
+                                    numChannels );
 
                             /* we have stored the number of channels in the buffer in dwUser */
-                            channel += stream->outputBuffers[i][ hostOutputBufferIndex ].dwUser;
+                            channel += numChannels;
                         }
                     }
                     
-                    PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
+                    framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
-                    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+                    stream->framesUsedInCurrentInputBuffer += framesProcessed;
+                    stream->framesUsedInCurrentOutputBuffer += framesProcessed;
+
+                    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
                     if( callbackResult == paContinue )
                     {
@@ -1704,19 +1825,45 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     }
 
                     /*
-                    FIXME: the following code is buggy, because stopProcessing should
+                    FIXME: the following code is incorrect, because stopProcessing should
                     still queue the current buffer.
                     */
                     if( stream->stopProcessing == 0 && stream->abortProcessing == 0 )
                     {
-                        if( PA_IS_INPUT_STREAM_(stream) )
+                        if( stream->throttleProcessingThreadOnOverload != 0 )
+                        {
+                            if( PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer ) > 1. )
+                            {
+                                if( stream->processingThreadPriority != stream->throttledThreadPriority )
+                                {
+                                    SetThreadPriority( stream->processingThread, stream->throttledThreadPriority );
+                                    stream->processingThreadPriority = stream->throttledThreadPriority;
+                                }
+
+                                /* sleep for a quater of a buffer's duration to give other processes a go */
+                                Sleep( stream->bufferProcessor.framesPerHostBuffer *
+                                        stream->bufferProcessor.samplePeriod * .25 );
+                            }
+                            else
+                            {
+                                if( stream->processingThreadPriority != stream->highThreadPriority )
+                                {
+                                    SetThreadPriority( stream->processingThread, stream->highThreadPriority );
+                                    stream->processingThreadPriority = stream->highThreadPriority;
+                                }
+                            }
+                        }
+
+                        if( PA_IS_INPUT_STREAM_(stream) &&
+                                stream->framesUsedInCurrentInputBuffer == stream->framesPerInputBuffer )
                         {
                             result = AdvanceToNextInputBuffer( stream );
                             if( result != paNoError )
                                 done = 1;
                         }
 
-                        if( PA_IS_OUTPUT_STREAM_(stream) )
+                        if( PA_IS_OUTPUT_STREAM_(stream) &&
+                                stream->framesUsedInCurrentOutputBuffer == stream->framesPerOutputBuffer )
                         {
                             result = AdvanceToNextOutputBuffer( stream );
                             if( result != paNoError )
@@ -1862,6 +2009,7 @@ static PaError StartStream( PaStream *s )
             }
         }
         stream->currentInputBufferIndex = 0;
+        stream->framesUsedInCurrentInputBuffer = 0;
     }
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
@@ -1891,6 +2039,7 @@ static PaError StartStream( PaStream *s )
             }
         }
         stream->currentOutputBufferIndex = 0;
+        stream->framesUsedInCurrentOutputBuffer = 0;
     }
 
     stream->streamPosition = 0.;
@@ -1934,25 +2083,31 @@ static PaError StartStream( PaStream *s )
         stream is open
     */
 
+    if( !stream->noHighPriorityProcessClass )
+    {
+        if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
+        {
+            result = paHostError;
+            PaUtil_SetHostError( GetLastError() );
+            goto error;
+        }
+    }
 
-#if 0
-FIXME this code defed out while debugging only
+    if( stream->useTimeCriticalProcessingThreadPriority )
+        stream->highThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
+    else
+        stream->highThreadPriority = THREAD_PRIORITY_HIGHEST;
 
-    if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
+    stream->throttledThreadPriority = THREAD_PRIORITY_NORMAL;
+
+    if( !SetThreadPriority( stream->processingThread, stream->highThreadPriority ) )
     {
         result = paHostError;
         PaUtil_SetHostError( GetLastError() );
         goto error;
     }
+    stream->processingThreadPriority = stream->highThreadPriority;
 
-    /* FIXME: could go TIME_CRITICAL with mme-specific flag */
-    if( !SetThreadPriority( stream->processingThread, THREAD_PRIORITY_HIGHEST ) )
-    {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
-        goto error;
-    }
-#endif
 
     if( PA_IS_INPUT_STREAM_(stream) )
     {
