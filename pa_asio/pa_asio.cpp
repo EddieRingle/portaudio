@@ -1925,7 +1925,7 @@ static PaError CloseStream( PaStream* s )
 }
 
 
-static void bufferSwitch(long index, ASIOBool processNow)
+static void bufferSwitch(long index, ASIOBool directProcess)
 {
 //TAKEN FROM THE ASIO SDK
 
@@ -1947,7 +1947,7 @@ static void bufferSwitch(long index, ASIOBool processNow)
             timeInfo.timeInfo.flags = kSystemTimeValid | kSamplePositionValid;
 
     // Call the real callback
-    bufferSwitchTimeInfo( &timeInfo, index, processNow );
+    bufferSwitchTimeInfo( &timeInfo, index, directProcess );
 }
 
 
@@ -1959,14 +1959,26 @@ static void bufferSwitch(long index, ASIOBool processNow)
 	#define ASIO64toDouble(a)  ((a).lo + (a).hi * twoRaisedTo32)
 #endif
 
-static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool processNow )
+static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool directProcess )
 {
     // the actual processing callback.
     // Beware that this is normally in a seperate thread, hence be sure that
     // you take care about thread synchronization. This is omitted here for simplicity.
 
 
-    (void) processNow; /* unused parameter: FIXME: the sdk implies that we shouldn't process now if this parameter is false */
+    /* The SDK says the following about the directProcess flag:
+        suggests to the host whether it should immediately start processing
+        (directProcess == ASIOTrue), or whether its process should be deferred
+        because the call comes from a very low level (for instance, a high level
+        priority interrupt), and direct processing would cause timing instabilities for
+        the rest of the system. If in doubt, directProcess should be set to ASIOFalse.
+
+        We just ignore directProcess. This could cause incompatibilities with
+        drivers which really don't want the audio processing to occur in this
+        callback, but none have been identified yet.
+    */
+
+    (void) directProcess; /* suppress unused parameter warning */
 
 #if 0
     // store the timeInfo for later use
