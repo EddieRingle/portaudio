@@ -569,7 +569,7 @@ PaError Pa_OpenStream( PaStream** stream,
  callback function. See the definition of inputSampleFormat above for more
  details.
 
- @param outputLatency The desired number of frames of input latency. A value of
+ @param outputLatency The desired number of frames of output latency. A value of
  zero indicates that the default or known reliable latency value should be used
 
  @param outputStreamInfo A pointer to an optional host api specific data structure
