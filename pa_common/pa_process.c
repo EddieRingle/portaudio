@@ -401,27 +401,27 @@ void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaStreamCallbackTi
 
 
 static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostInputChannels,
         PaUtilChannelDescriptor *hostOutputChannels,
         unsigned long frameCount );
 
 static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostInputChannels,
         unsigned long frameCount );
 
 static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostOutputChannels,
         unsigned long framesToProcess );
 
 static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult, int processPartialUserBuffers );
+        int *streamCallbackResult, int processPartialUserBuffers );
 
 #define PA_MIN_( a, b ) ( ((a)<(b)) ? (a) : (b) )
 
-unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, PaStreamCallbackResult *streamCallbackResult )
+unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, int *streamCallbackResult )
 {
     unsigned long framesToProcess, framesToGo;
     unsigned long framesProcessed = 0;

@@ -1016,7 +1016,7 @@ error:
 /***********************************************************************************/
 static PaError Pa_TimeSlice( PaWinDsStream *stream )
 {
-    PaError           result = 0;   /* FIXME: this should be declared PaStreamCallbackResult and this function should also return that type */
+    PaError           result = 0;   /* FIXME: this should be declared int and this function should also return that type (same as stream callback return type)*/
     DSoundWrapper    *dsw;
     long              numFrames = 0;
     long              bytesEmpty = 0;

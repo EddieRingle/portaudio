@@ -132,7 +132,7 @@ void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor,
         PaStreamCallbackTimeInfo* timeInfo );
 
-unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaStreamCallbackResult *callbackResult );
+unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, int *callbackResult );
 /*<< returns the number of frames processed */
 
 void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bufferProcessor,

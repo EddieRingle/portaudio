@@ -496,7 +496,7 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)userData;
     PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
-    PaStreamCallbackResult callbackResult;
+    int callbackResult;
     unsigned long framesProcessed;
     
     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );

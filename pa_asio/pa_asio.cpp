@@ -1825,7 +1825,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         for( i=0; i<theAsioStream->numOutputChannels; ++i )
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
-        PaStreamCallbackResult callbackResult;
+        int callbackResult;
         unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
         
         if( theAsioStream->outputBufferConverter )

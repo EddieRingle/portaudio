@@ -1665,7 +1665,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     DWORD numTimeouts = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
-    PaStreamCallbackResult callbackResult;
+    int callbackResult;
     int done = 0;
     unsigned int channel, i, j;
     unsigned long framesProcessed;

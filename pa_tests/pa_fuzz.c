@@ -48,7 +48,7 @@
 typedef float SAMPLE;
 
 float CubicAmplifier( float input );
-static PaStreamCallbackResult fuzzCallback( void *inputBuffer, void *outputBuffer,
+static int fuzzCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
                          unsigned long statusFlags,

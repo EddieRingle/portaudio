@@ -632,7 +632,7 @@ typedef enum PaStreamCallbackResult
  @note With the exception of Pa_GetStreamCpuLoad() it is not permissable to call
  PortAudio API functions from within the stream callback.
 */
-typedef PaStreamCallbackResult PaStreamCallback(
+typedef int PaStreamCallback(
     void *input, void *output,
     unsigned long frameCount,
     const PaStreamCallbackTimeInfo* timeInfo,
