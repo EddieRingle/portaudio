@@ -477,6 +477,8 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     snd_pcm_access_t access_mode;
     snd_pcm_format_t alsa_format;
     int numPeriods;
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_sw_params_t *sw_params;
 
     if( getenv("PA_NUMPERIODS") != NULL )
         numPeriods = atoi( getenv("PA_NUMPERIODS") );
@@ -492,9 +494,6 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
      * and software paramters.  Hardware parameters will affect
      * the way the device is initialized, software parameters
      * affect the way ALSA interacts with me, the user-level client. */
-
-    snd_pcm_hw_params_t *hw_params;
-    snd_pcm_sw_params_t *sw_params;
 
     snd_pcm_hw_params_alloca( &hw_params );
     snd_pcm_sw_params_alloca( &sw_params );
@@ -698,10 +697,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* open the devices now, so we can obtain info about the available formats */
 
-    char deviceName[50];
     if( numInputChannels > 0 )
     {
         int ret;
+        char deviceName[50];
+
         snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
         if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
         {
@@ -727,6 +727,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numOutputChannels > 0 )
     {
         int ret;
+        char deviceName[50];
+
         snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
         if( (ret = snd_pcm_open( &stream->pcm_playback, deviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) < 0 )
         {
@@ -1233,11 +1235,11 @@ void CleanUpStream( PaAlsaStream *stream )
 
 int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate )
 {
-    assert( hwParams );
-
     unsigned long approx = (unsigned long) sampleRate;
     int dir;
     double fraction = sampleRate - approx;
+
+	assert( hwParams );
 
     if( fraction > 0.0 )
     {
@@ -1258,10 +1260,12 @@ int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, dou
 // Return exact sample rate in param sampleRate
 int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
 {
+    unsigned int num, den;
+    int err; 
+
     assert( hwParams );
 
-    unsigned int num, den;
-    int err = snd_pcm_hw_params_get_rate_numden( hwParams, &num, &den );
+	err = snd_pcm_hw_params_get_rate_numden( hwParams, &num, &den );
     *sampleRate = (double) num / den;
 
     return err;
