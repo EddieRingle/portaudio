@@ -85,6 +85,23 @@
         when the stream callback returns paComplete
 */
 
+/*
+    How it works:
+
+    For both callback and blocking read/write streams we open the MME devices
+    in CALLBACK_EVENT mode. In this mode, MME signals an Event object whenever
+    it has finished with a buffer (either filled it for input, or played it
+    for output). Where necessary we block waiting for Event objects using
+    WaitMultipleObjects().
+
+    When implementing a PA callback stream, we set up a high priority thread
+    which waits on the MME buffer Events and drains/fills the buffers when
+    they are ready.
+
+    When implementing a PA blocking read/write stream, we simply wait on these
+    Events (when necessary) inside the ReadStream() and WriteStream() functions.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
