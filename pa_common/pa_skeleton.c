@@ -259,6 +259,11 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
+        /* all standard sample formats are supported by the buffer adapter, but
+            this implementation doesn't support any custom sample formats */
+        if( inputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
+            
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
@@ -282,14 +287,19 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     {
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        
+
+        /* all standard sample formats are supported by the buffer adapter, but
+            this implementation doesn't support any custom sample formats */
+        if( outputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
+            
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support inputChannelCount */
+        /* check that output device can support outputChannelCount */
         if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
@@ -315,7 +325,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         is implemented, or under some other unusual conditions.
 
             - check that input device can support inputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
+                we have the capability to convert from inputSampleFormat to
                 a native format
 
             - check that output device can support outputSampleFormat, or that
@@ -326,8 +336,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     /* suppress unused variable warnings */
     (void) sampleRate;
-    (void) inputSampleFormat;
-    (void) outputSampleFormat;
 
     return paFormatIsSupported;
 }
