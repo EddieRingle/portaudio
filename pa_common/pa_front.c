@@ -395,6 +395,8 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
     }
     else
     {
+        result = -1;
+        
         for( i=0; i < hostApisCount_; ++i )
         {
             if( hostApis_[i].representation->info.type == type )

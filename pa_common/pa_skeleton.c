@@ -122,8 +122,8 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
 
     *hostApi = &skeletonHostApi->commonHostApiRep;
     (*hostApi)->info.structVersion = 1;
-    (*hostApi)->info.type = paInDevelopment;
-    (*hostApi)->info.name = "skeleton implementation";
+    (*hostApi)->info.type = paInDevelopment;            /* IMPLEMENT ME: change to correct type id */
+    (*hostApi)->info.name = "skeleton implementation";  /* IMPLEMENT ME: change to correct name */
     
     (*hostApi)->deviceCount = 0;  
     (*hostApi)->defaultInputDeviceIndex = paNoDevice;  /* IMPLEMENT ME */
