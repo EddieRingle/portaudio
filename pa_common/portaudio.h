@@ -360,7 +360,7 @@ PaDeviceIndex Pa_GetDeviceCount( void );
 /** Retrieve the index of the default input device. The result can be
  used in the inputDevice parameter to Pa_OpenStream().
 
- @return The default input device index for the defualt host API, or paNoDevice
+ @return The default input device index for the default host API, or paNoDevice
  if no default input device is available or an error was encountered.
 */
 PaDeviceIndex Pa_GetDefaultInputDevice( void );
@@ -717,7 +717,7 @@ typedef enum PaStreamCallbackResult
 
  @return
  The stream callback should return one of the values in the
- PaStreamCallbackResult enumeration. To ensure that the callback is continues
+ PaStreamCallbackResult enumeration. To ensure that the callback continues
  to be called, it should return paContinue (0). Either paComplete or paAbort
  can be returned to finish stream processing, after either of these values is
  returned the callback will not be called again. If paAbort is returned the
