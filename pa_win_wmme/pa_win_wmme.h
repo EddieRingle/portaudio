@@ -41,9 +41,23 @@ extern "C"
 
 #include "portaudio.h"
 
-#define PaWinMmeUseLowLevelLatencyParameters (0x01)
-#define PaWinMmeUseMultipleDevices  (0x02)  /* use mme specific multiple device feature */
+#define PaWinMmeUseLowLevelLatencyParameters            (0x01)
+#define PaWinMmeUseMultipleDevices                      (0x02)  /* use mme specific multiple device feature */
 
+/* by default, the mme implementation boosts the process priority class to
+    HIGH_PRIORITY_CLASS. This flag disables that priority boost */
+#define PaWinMmeNoHighPriorityProcessClass              (0x03)
+
+/* by default, the mme implementation drops the processing thread's priority
+    to THREAD_PRIORITY_NORMAL and sleeps the thread if the CPU load exceeds 100% */
+#define PaWinMmeDontThrottleOverloadedProcessingThread  (0x04)
+
+/* by default, the mme implementation sets the processing thread's priority to
+    THREAD_PRIORITY_HIGHEST. This flag sets the priority to
+    THREAD_PRIORITY_TIME_CRITICAL instead. Note that this has the potential
+    to freeze the machine, especially when used in combination with
+    PaWinMmeDontThrottleOverloadedProcessingThread */
+#define PaWinMmeUseTimeCriticalThreadPriority           (0x05)
 
 typedef struct PaWinMmeDeviceAndNumChannels{
     PaDeviceIndex device;
@@ -70,7 +84,7 @@ typedef struct PaWinMmeStreamInfo{
         this functionality will be used, otherwise the device parameter to
         Pa_OpenStream() will be used instead.
         If devices are specified here, the corresponding device parameter
-        to Pa_OpenStream() should be set to paUseAlternateDeviceSpecification,
+        to Pa_OpenStream() should be set to paUseHostApiSpecificDeviceSpecification,
         otherwise an paInvalidDevice error will result.
         The total number of channels accross all specified devices
         must agree with the corresponding numChannels parameter to
