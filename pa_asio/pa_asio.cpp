@@ -1963,7 +1963,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
 {
     // the actual processing callback.
     // Beware that this is normally in a seperate thread, hence be sure that
-    // you take care about thread synchronization. This is omitted here for simplicity.
+    // you take care about thread synchronization.
 
 
     /* The SDK says the following about the directProcess flag:
@@ -2046,7 +2046,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                 theAsioStream->callbackFlags |= paInputOverflow;
                 
             if( theAsioStream->outputChannelCount > 0 )
-                theAsioStream->callbackFlags |= paOutputOverflow;
+                theAsioStream->callbackFlags |= paOutputUnderflow;
         }
         else
         {
@@ -2100,7 +2100,7 @@ if( delta > theAsioStream->framesPerHostCallback )
         theAsioStream->callbackFlags |= paInputOverflow;
 
     if( theAsioStream->outputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paOutputOverflow;
+        theAsioStream->callbackFlags |= paOutputUnderflow;
 }
 
 // check that the buffer index is not the previous index (which would indicate
@@ -2112,7 +2112,7 @@ if( index == previousIndex )
         theAsioStream->callbackFlags |= paInputOverflow;
 
     if( theAsioStream->outputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paOutputOverflow;
+        theAsioStream->callbackFlags |= paOutputUnderflow;
 }
 previousIndex = index;
 #endif
@@ -2128,6 +2128,24 @@ previousIndex = index;
                 paTimeInfo.currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
                 paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
                 paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
+
+#if 1
+// detect underflows by checking inter-callback time > 2 buffer period
+static double previousTime = -1;
+if( previousTime > 0 ){
+
+    double delta = paTimeInfo.currentTime - previousTime;
+
+    if( delta >= 2. * (theAsioStream->framesPerHostCallback / theAsioStream->streamRepresentation.streamInfo.sampleRate) ){
+        if( theAsioStream->inputChannelCount > 0 )
+            theAsioStream->callbackFlags |= paInputOverflow;
+
+        if( theAsioStream->outputChannelCount > 0 )
+            theAsioStream->callbackFlags |= paOutputUnderflow;
+    }
+}
+previousTime = paTimeInfo.currentTime;
+#endif
 
                 // note that the above input and output times do not need to be
                 // adjusted for the latency of the buffer processor -- the buffer
