@@ -957,8 +957,7 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
         {
             destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
                     bp->bytesPerUserInputSample * bp->numInputChannels *
- // rb test           (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
-                      bp->framesInTempInputBuffer );
+                    bp->framesInTempInputBuffer;
                       
             destStride = bp->numInputChannels;
             destBytePtrStride = bp->bytesPerUserInputSample;
@@ -968,9 +967,7 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
         else /* user input is not interleaved */
         {
             destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
-                    bp->bytesPerUserInputSample *
- // rb test                    (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
-                    bp->framesInTempInputBuffer );
+                    bp->bytesPerUserInputSample * bp->framesInTempInputBuffer;
 
             destStride = 1;
             destBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserInputSample;
@@ -1316,7 +1313,7 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
             {
                 destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
                         bp->bytesPerUserInputSample * bp->numInputChannels *
-                        (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
+                        bp->framesInTempInputBuffer;
 
                 destStride = bp->numInputChannels;
                 destBytePtrStride = bp->bytesPerUserInputSample;
@@ -1324,9 +1321,8 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
             else /* user input is not interleaved */
             {
                 destBytePtr = ((unsigned char*)bp->tempInputBuffer) +
-                        bp->bytesPerUserInputSample *
-                        (bp->framesPerUserBuffer - bp->framesInTempInputBuffer );
-                            
+                        bp->bytesPerUserInputSample * bp->framesInTempInputBuffer;
+
                 destStride = 1;
                 destBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserInputSample;
             }
