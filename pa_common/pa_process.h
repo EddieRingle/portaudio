@@ -702,15 +702,18 @@ unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bufferProcessor,
 
 
 /* Zero samples in host output channels set up by the PaUtil_Set*OutputChannels
- functions. This function is useful for flushing blocking write streams.
- Zeros the number of host frames specified in a previous call to
- SetOutputFrameCount().
+ functions. This function is useful for flushing streams.
+ Zeros the minimum of frameCount and the number of host frames specified in a
+ previous call to SetOutputFrameCount().
 
  @param bufferProcessor The buffer processor.
 
+ @param frameCount The maximum number of frames to zero.
+ 
  @return The number of frames zeroed.
 */
-unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bufferProcessor );
+unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bufferProcessor,
+        unsigned long frameCount );
 
 
 /*@}*/

@@ -1682,14 +1682,14 @@ unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bp,
 }
 
 
-unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bp )
+unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bp, unsigned long frameCount )
 {
     PaUtilChannelDescriptor *hostOutputChannels;
     unsigned int framesToZero;
     unsigned int i;
 
     hostOutputChannels = bp->hostOutputChannels[0];
-    framesToZero = bp->hostOutputFrameCount[0];
+    framesToZero = PA_MIN_( bp->hostOutputFrameCount[0], frameCount );
 
     for( i=0; i<bp->outputChannelCount; ++i )
     {
