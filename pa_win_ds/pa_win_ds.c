@@ -321,7 +321,7 @@ static PaError TerminateDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *gu
         }
     }
     
-    /* Copy GUID to static array. Set pointer. */
+    /* Set GUID pointer, copy GUID to storage in DSDeviceNameAndGUIDVector. */
     if( lpGUID == NULL )
     {
         namesAndGUIDs->items[namesAndGUIDs->count].lpGUID = NULL;
@@ -334,7 +334,8 @@ static PaError TerminateDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *gu
         memcpy( &namesAndGUIDs->items[namesAndGUIDs->count].guid, lpGUID, sizeof(GUID) );
     }
 
-    namesAndGUIDs->items[namesAndGUIDs->count].name = DuplicateDeviceNameString( namesAndGUIDs->allocations, lpszDesc );
+    namesAndGUIDs->items[namesAndGUIDs->count].name =
+            DuplicateDeviceNameString( namesAndGUIDs->allocations, lpszDesc );
     if( namesAndGUIDs->items[namesAndGUIDs->count].name == NULL )
     {
         namesAndGUIDs->enumerationError = paInsufficientMemory;
@@ -366,15 +367,15 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     int                           deviceOK = TRUE;
     PaError                       result = paNoError;
     
-    /* Copy GUID to static array. Set pointer. */
+    /* Copy GUID to the device info structure. Set pointer. */
     if( lpGUID == NULL )
     {
         winDsDeviceInfo->lpGUID = NULL;
     }
     else
     {
-        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->GUID;
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
+        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->GUID;      
     }
 
     
@@ -392,12 +393,12 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     /*
     hr = CoCreateInstance( &CLSID_DirectSound, NULL, CLSCTX_INPROC_SERVER,
             &IID_IDirectSound, (void**)&lpDirectSound );
-    */
-    
+
     if( hr == S_OK )
     {
         hr = IDirectSound_Initialize( lpDirectSound, lpGUID );
     }
+    */
     
     if( hr != DS_OK )
     {
@@ -476,7 +477,7 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
     int                           deviceOK = TRUE;
     PaError                       result = paNoError;
     
-    /* Copy GUID to static array. Set pointer. */
+    /* Copy GUID to the device info structure. Set pointer. */
     if( lpGUID == NULL )
     {
         winDsDeviceInfo->lpGUID = NULL;
@@ -562,7 +563,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     PaError result = paNoError;
     int i, deviceCount;
     PaWinDsHostApiRepresentation *winDsHostApi;
-    DSDeviceNameAndGUIDVector captureNamesAndGUIDs, outputNamesAndGUIDs;
+    DSDeviceNameAndGUIDVector inputNamesAndGUIDs, outputNamesAndGUIDs;
     PaDeviceInfo *deviceInfoArray;
 
     HRESULT hr = CoInitialize(NULL);        /* @todo: should uninitialize too */
@@ -571,7 +572,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     }            
 
     /* initialise guid vectors so they can be safely deleted on error */
-    captureNamesAndGUIDs.items = NULL;
+    inputNamesAndGUIDs.items = NULL;
     outputNamesAndGUIDs.items = NULL;
 
     DSW_InitializeDSoundEntryPoints();
@@ -603,7 +604,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 /* DSound - enumerate devices to count them and to gather their GUIDs */
 
 
-    result = InitializeDSDeviceNameAndGUIDVector( &captureNamesAndGUIDs, winDsHostApi->allocations );
+    result = InitializeDSDeviceNameAndGUIDVector( &inputNamesAndGUIDs, winDsHostApi->allocations );
     if( result != paNoError )
         goto error;
 
@@ -611,13 +612,13 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     if( result != paNoError )
         goto error;
 
-    dswDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&captureNamesAndGUIDs );
+    dswDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&inputNamesAndGUIDs );
 
     dswDSoundEntryPoints.DirectSoundEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&outputNamesAndGUIDs );
 
-    if( captureNamesAndGUIDs.enumerationError != paNoError )
+    if( inputNamesAndGUIDs.enumerationError != paNoError )
     {
-        result = captureNamesAndGUIDs.enumerationError;
+        result = inputNamesAndGUIDs.enumerationError;
         goto error;
     }
 
@@ -627,7 +628,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         goto error;
     }
 
-    deviceCount = captureNamesAndGUIDs.count + outputNamesAndGUIDs.count;
+    deviceCount = inputNamesAndGUIDs.count + outputNamesAndGUIDs.count;
 
     if( deviceCount > 0 )
     {
@@ -667,11 +668,11 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
             (*hostApi)->deviceInfos[i] = deviceInfo;
         }
 
-        for( i=0; i< captureNamesAndGUIDs.count; ++i )
+        for( i=0; i< inputNamesAndGUIDs.count; ++i )
         {
             result = AddInputDeviceInfoFromDirectSoundCapture( winDsHostApi,
-                    captureNamesAndGUIDs.items[i].name,
-                    captureNamesAndGUIDs.items[i].lpGUID );
+                    inputNamesAndGUIDs.items[i].name,
+                    inputNamesAndGUIDs.items[i].lpGUID );
             if( result != paNoError )
                 goto error;
         }
@@ -686,7 +687,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         }
     }    
 
-    result = TerminateDSDeviceNameAndGUIDVector( &captureNamesAndGUIDs );
+    result = TerminateDSDeviceNameAndGUIDVector( &inputNamesAndGUIDs );
     if( result != paNoError )
         goto error;
 
@@ -723,7 +724,7 @@ error:
         PaUtil_FreeMemory( winDsHostApi );
     }
 
-    TerminateDSDeviceNameAndGUIDVector( &captureNamesAndGUIDs );
+    TerminateDSDeviceNameAndGUIDVector( &inputNamesAndGUIDs );
     TerminateDSDeviceNameAndGUIDVector( &outputNamesAndGUIDs );
 
     return result;
