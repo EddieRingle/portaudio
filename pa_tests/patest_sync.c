@@ -65,7 +65,7 @@ typedef struct
     float        right_phase;
     int          state;
     int          requestBeep;  /* Set by foreground, cleared by background. */
-    PaTimestamp  beepTime;
+    PaTime       beepTime;
     int          beepCount;
     double       latency;    /* For debugging. */
 }
@@ -87,7 +87,8 @@ static unsigned long GenerateRandomNumber( void )
 */
 static int patestCallback( void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
-                           PaTimestamp outTime, void *userData )
+			   const PaStreamCallbackTimeInfo *timeInfo,
+			   PaStreamCallbackFlags statusFlags, void *userData )
 {
     /* Cast data passed through stream to our structure. */
     paTestData *data = (paTestData*)userData;
@@ -95,7 +96,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
     unsigned int i;
     (void) inputBuffer;
 
-    data->latency = outTime - PaUtil_GetTime();
+    data->latency = timeInfo->outputBufferDacTime - timeInfo->currentTime;
 
     for( i=0; i<framesPerBuffer; i++ )
     {
@@ -106,7 +107,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
             if( data->requestBeep )
             {
                 int random = GenerateRandomNumber() >> 14;
-                data->beepTime = outTime + (( (double)(random + SAMPLE_RATE)) * SAMPLE_PERIOD );
+                data->beepTime = timeInfo->outputBufferDacTime + (( (double)(random + SAMPLE_RATE)) * SAMPLE_PERIOD );
                 data->state = STATE_BKG_PENDING;
             }
             *out++ = 0.0;  /* left */
@@ -114,7 +115,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
             break;
 
         case STATE_BKG_PENDING:
-            if( (outTime + (i*SAMPLE_PERIOD)) >= data->beepTime )
+            if( (timeInfo->outputBufferDacTime + (i*SAMPLE_PERIOD)) >= data->beepTime )
             {
                 data->state = STATE_BKG_BEEPING;
                 data->beepCount = BEEP_DURATION;
@@ -163,7 +164,8 @@ int main(void)
     PaError    err;
     paTestData DATA;
     int        i, timeout;
-    PaTimestamp  previousTime;
+    PaTime     previousTime;
+    PaStreamParameters outputParameters;
     printf("PortAudio Test: you should see BEEP at the same time you hear it.\n");
     printf("Wait for a few seconds random delay between BEEPs.\n");
     printf("BEEP %d times.\n", NUM_BEEPS );
@@ -175,19 +177,17 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
     
+    outputParameters.device = Pa_GetDefaultOutputDevice();
+    outputParameters.channelCount = 2;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+    outputParameters.sampleFormat = paFloat32;
+    outputParameters.suggestedLatency = (double)LATENCY_MSEC / 1000;
+
     /* Open an audio I/O stream. */
      err = Pa_OpenStream(
               &stream,
-              paNoDevice,/* default input device */
-              0,              /* no input */
-              paFloat32,  /* 32 bit floating point input */
-              0, /* default latency */
-              NULL,
-              Pa_GetDefaultOutputDevice(), /* default output device */
-              2,          /* stereo output */
-              paFloat32,      /* 32 bit floating point output */
-              LATENCY_MSEC, /* output latency */
-              NULL,
+	      NULL,                         /* no input */
+	      &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
@@ -201,7 +201,7 @@ int main(void)
     printf("started\n");
     fflush(stdout);
 
-    previousTime = PaUtil_GetTime();
+    previousTime = Pa_GetStreamTime( stream );
     for( i=0; i<NUM_BEEPS; i++ )
     {
         /* Request a beep from background. */
@@ -233,7 +233,7 @@ int main(void)
 
         /* Beep should be sounding now so print synchronized BEEP. */
         printf("hear \"BEEP\" at %9.3f, delta = %9.3f\n",
-               PaUtil_GetTime(), (DATA.beepTime - previousTime) );
+               Pa_GetStreamTime( stream ), (DATA.beepTime - previousTime) );
         fflush(stdout);
 
         previousTime = DATA.beepTime;
