@@ -33,6 +33,13 @@
 /* doxygen index page */
 /** @mainpage
 
+PortAudio is an open-source cross-platform ‘C’ library for audio input
+and output. It is designed to simplify the porting of audio applications
+between various platforms, and also to simplify the development of audio
+software in general by hiding the complexities of device interfacing.
+
+See the PortAudio website for further information http://www.portaudio.com/
+
 This documentation is under construction. Things you might be interested in
 include:
 
