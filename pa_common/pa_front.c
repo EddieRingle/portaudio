@@ -270,7 +270,7 @@ static void CloseOpenStreams( void )
 
 PaError Pa_Initialize( void )
 {
-    PaError result = paNoError;
+    PaError result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint( "Pa_Initialize called.\n" );
@@ -372,6 +372,47 @@ const char *Pa_GetErrorText( PaError errnum )
 }
 
 
+PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
+{
+    PaHostApiIndex result;
+    int i;
+    
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex called:\n" );
+    PaUtil_DebugPrint("\PaHostApiTypeId type: %d\n", type );
+#endif
+
+    if( !PA_IS_INITIALISED_ )
+    {
+
+        result = -1;
+        
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaHostApiIndex: -1 [ PortAudio not initialized ]\n\n" );
+#endif
+
+    }
+    else
+    {
+        for( i=0; i < hostApisCount_; ++i )
+        {
+            if( hostApis_[i].representation->info.type == type )
+            {
+                result = i;
+                break;
+            }         
+        }
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaHostApiIndex: %d\n\n", result );
+#endif
+    }
+
+    return result;
+}
+
 PaHostApiIndex Pa_CountHostApis( void )
 {
 
@@ -413,25 +454,23 @@ const PaHostApiInfo* Pa_GetHostApiInfo( PaHostApiIndex hostApi )
 
     if( !PA_IS_INITIALISED_ )
     {
+        info = NULL;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetHostApiInfo returned:\n" );
         PaUtil_DebugPrint("\tPaHostApiInfo*: NULL [ PortAudio not initialized ]\n\n" );
 #endif
 
-        return NULL;
     }
-
-
-    if( hostApi < 0 || hostApi >= hostApisCount_ )
+    else if( hostApi < 0 || hostApi >= hostApisCount_ )
     {
-
+        info = NULL;
+        
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetHostApiInfo returned:\n" );
         PaUtil_DebugPrint("\tPaHostApiInfo*: NULL [ hostApi out of range ]\n\n" );
 #endif
 
-        return NULL;
     }
     else
     {
@@ -447,8 +486,9 @@ const PaHostApiInfo* Pa_GetHostApiInfo( PaHostApiIndex hostApi )
         PaUtil_DebugPrint("\t}\n\n" );
 #endif
 
-        return info;
     }
+
+     return info;
 }
 
 
@@ -581,7 +621,7 @@ int Pa_HostApiCountDevices( PaHostApiIndex hostApi )
 #endif
 
     }
-    if( hostApi < 0 || hostApi >= hostApisCount_ )
+    else if( hostApi < 0 || hostApi >= hostApisCount_ )
     {
         result = 0;
 
@@ -606,20 +646,65 @@ int Pa_HostApiCountDevices( PaHostApiIndex hostApi )
 }
 
 
-PaDeviceIndex Pa_ConvertHostApiDeviceIndexToGlobalDeviceIndex( PaHostApiIndex hostApi, int perHostAPIIndex )
+PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int hostApiDeviceIndex )
 {
-    /* FIXME: remove this function or add PA_LOG_API_CALLS */
-    if( !PA_IS_INITIALISED_ )
-        return paNoDevice;
+    PaDeviceIndex result;
 
-    if( hostApi < 0 || hostApi >= hostApisCount_ )
-        return paNoDevice;
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex called:\n" );
+    PaUtil_DebugPrint("\tPaHostApiIndex hostApi: %d\n", hostApi );
+    PaUtil_DebugPrint("\tint hostApiDeviceIndex: %d\n", hostApiDeviceIndex );
+#endif
+
+
+    if( !PA_IS_INITIALISED_ )
+    {
+        result = paNoDevice;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ PortAudio not initialized ]\n\n" );
+#endif
+
+    }
     else
-        if( perHostAPIIndex < 0 ||
-                perHostAPIIndex >= hostApis_[hostApi].representation->deviceCount )
-            return paNoDevice;
+    {
+        if( hostApi < 0 || hostApi >= hostApisCount_ )
+        {
+            result = paNoDevice;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApi out of range ]\n\n" );
+#endif
+
+        }
         else
-            return hostApis_[hostApi].baseDeviceIndex + perHostAPIIndex;
+        {
+            if( hostApiDeviceIndex < 0 ||
+                    hostApiDeviceIndex >= hostApis_[hostApi].representation->deviceCount )
+            {
+                result = paNoDevice;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApiDeviceIndex out of range ]\n\n" );
+#endif
+
+            }
+            else
+            {
+                result = hostApis_[hostApi].baseDeviceIndex + hostApiDeviceIndex;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
+        PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
+#endif
+            }
+        }
+    }
+
+    return result;
 }
 
 
@@ -886,8 +971,6 @@ static PaError ValidateOpenStreamParameters(
         }
         else
         {
-            numInputChannels = 0;
-            inputStreamInfo = NULL;
             *hostApiInputDevice = paNoDevice;
         }
 
@@ -916,8 +999,6 @@ static PaError ValidateOpenStreamParameters(
         }
         else
         {
-            numOutputChannels = 0;
-            outputStreamInfo = NULL;
             *hostApiOutputDevice = paNoDevice;
         }
 
@@ -1023,6 +1104,18 @@ PaError Pa_OpenStream( PaStream** stream,
     if( callback == NULL )
     {
         return paNullCallback; /* FIXME: remove when blocking read/write is added */
+    }
+
+    if( inputDevice == paNoDevice )
+    {
+        numInputChannels = 0;
+        inputStreamInfo = NULL;
+    }
+
+    if( outputDevice == paNoDevice )
+    {
+        numOutputChannels = 0;
+        outputStreamInfo = NULL;
     }
 
     result = hostApi->OpenStream( hostApi, stream,
