@@ -53,5 +53,5 @@ double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* measurer );
 
 #ifdef __cplusplus
 }
-#endif /* __cplusplus */
+#endif /* __cplusplus */     
 #endif /* PA_CPULOAD_H */
