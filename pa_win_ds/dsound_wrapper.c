@@ -228,6 +228,11 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     // then DirectSound can crash. (Thanks for Scott Patterson for reporting this.)
     // So we will use GetDesktopWindow() which was suggested by Miller Puckette.
     // hWnd = GetForegroundWindow();
+    //
+    //  FIXME: The example code I have on the net creates a hidden window that
+    //      is managed by our code - I think we should do that - one hidden
+    //      window for the whole of Pa_DS
+    //
     hWnd = GetDesktopWindow();
 
     // Set cooperative level to DSSCL_EXCLUSIVE so that we can get 16 bit output, 44.1 KHz.
