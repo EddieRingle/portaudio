@@ -70,8 +70,9 @@ portaudio.dll : $(LINK32_OBJS) ".\portaudio.def"
     $(LINK32) $(DLL_LINK_FLAGS) /def:".\portaudio.def" $(LINK32_OBJS)
 
 #====================================================================
-# asio files in win32_all (need to agree to steinberg agreement)
-# this makefile assumes all files have being copied to Win32_ALL
+# asio files (need to agree to steinberg agreement)
+# this makefile assumes all files have being copied in the pa_win/msvc dir (for now)
+# see readme.txt for details
 
 ".\asio.obj" : ".\common\asio.cpp" 
     $(CPP) $(CFLAGS) $(ASIOINC) /Fo".\asio.obj" /c ".\common\asio.cpp"
@@ -139,9 +140,6 @@ portaudio.dll : $(LINK32_OBJS) ".\portaudio.def"
 
 ".\pa_x86_plain_converters.obj" : "..\..\pa_win\pa_x86_plain_converters.c" 
     $(CPP) $(CFLAGS) $(COMMONINC) /Fo".\pa_x86_plain_converters.obj" /c "..\..\pa_win\pa_x86_plain_converters.c"
-
-
-
 
 ".\pa_asio.obj" : "..\..\pa_asio\pa_asio.cpp" 
     $(CPP) $(CFLAGS) $(ASIOINC) $(COMMONINC) /Fo".\pa_asio.obj" /c "..\..\pa_asio\pa_asio.cpp"

@@ -16,7 +16,11 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
   You dont need "driver"
   
 
-2)execure "make.bat" OR 
+2)execure "make.bat", this assumes VC6 is installed in 
+     C:\Program Files\Microsoft Visual Studio\
+ 
+ if its not, 
+  
   Open a command Prompt and execute "vcvars32.bat" which sets the environment
   so that you can use Microsoft's "nmake"  
   EX: C:\Program Files\Microsoft Visual Studio\VC98\Bin\vcvars32.bat
@@ -24,22 +28,18 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
   
   You should now have seen a line that said:
   "Setting environment for using Microsoft Visual C++ tools."
-  
-3)While in pa_win\msvc , type "nmake makefile.msvc"
-  
+  While in pa_win\msvc , type "nmake makefile.msvc"  
   this _should_ create portaudio.dll and portaudio.lib 
-  
-4)Now in any VC6 project, in which you require portaudio,
+ 
+3)Now in any VC6 project, in which you require portaudio,
   you can just link with portaudio.lib, and of course include the 
   relevant headers
   (portaudio.h, and/or pa_asio.h , pa_x86_plain_converters.h) See (*)
   
-5) Your new exe should now use portaudio.dll.
-
+4) Your new exe should now use portaudio.dll.
 
 
 Have fun!
-
 
 (*): you may want to add/remove some DLL entry points.
 Right now those 3 entries are _not_ from portaudio.h
@@ -52,5 +52,5 @@ PaUtil_InitializeX86PlainConverters @52
 
 
 -----
-last update April 8th 2003
+last update April 16th 2003
 David Viens, davidv@plogue.com
