@@ -634,7 +634,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
 */
 
-static PaError CalculateBufferSettings( unsigned long *framesPerHostInputBuffer, unsigned long *numHostInputBuffers,
+static PaError CalculateBufferSettings(
+        unsigned long *framesPerHostInputBuffer, unsigned long *numHostInputBuffers,
         unsigned long *framesPerHostOutputBuffer, unsigned long *numHostOutputBuffers,
         int numInputChannels, PaSampleFormat hostInputSampleFormat,
         unsigned long inputLatency, PaWinMmeStreamInfo *inputStreamInfo,
@@ -980,8 +981,25 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputDevice != paNoDevice && outputDevice != paNoDevice )
     {
-        framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
-                    ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
+        /*
+            either host input and output buffers must be the same size, or the
+            larger one must be an integer multiple of the smaller one.
+            FIXME: should this return an error if the host specific latency
+            settings don't fulfill these constraints? rb: probably
+        */
+
+        if( framesPerHostInputBuffer < framesPerHostOutputBuffer )
+        {
+            assert( (framesPerHostOutputBuffer % framesPerHostInputBuffer) == 0 );
+
+            framesPerBufferProcessorCall = framesPerHostInputBuffer;
+        }
+        else
+        {
+            assert( (framesPerHostInputBuffer % framesPerHostOutputBuffer) == 0 );
+            
+            framesPerBufferProcessorCall = framesPerHostOutputBuffer;
+        }
     }
     else if( inputDevice != paNoDevice )
     {
@@ -990,19 +1008,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else if( outputDevice != paNoDevice )
     {
         framesPerBufferProcessorCall = framesPerHostOutputBuffer;
-    }
-
-     
-    if( inputDevice != paNoDevice && outputDevice != paNoDevice )
-    {
-        /*
-            either input and output buffers must be the same size, or the
-            larger one must be an integer multiple of the smaller one.
-
-            FIXME: this won't be needed later
-        */
-        assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
-        assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
     }
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
@@ -1359,6 +1364,9 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     IMPLEMENT ME:
                         - generate timing information
                         - handle buffer slips
+
+                        - this code will only work for full duplex streams if the input and output
+                        buffer sizes are the same.
                     */
                     PaTimestamp outTime = 0; /* FIXME */
 
@@ -1894,7 +1902,10 @@ static PaError ReadStream( PaStream* s,
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
+    (void) stream; /* unused parameters */
+    (void) buffer;
+    (void) frames;
+    
     return paNoError;
 }
 
@@ -1906,7 +1917,10 @@ static PaError WriteStream( PaStream* s,
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
+    (void) stream; /* unused parameters */
+    (void) buffer;
+    (void) frames;
+    
     return paNoError;
 }
 
@@ -1916,6 +1930,7 @@ static unsigned long GetStreamReadAvailable( PaStream* s )
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
+    (void) stream; /* unused parameter */
 
     return 0;
 }
@@ -1926,6 +1941,7 @@ static unsigned long GetStreamWriteAvailable( PaStream* s )
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
+    (void) stream; /* unused parameter */
 
     return 0;
 }
