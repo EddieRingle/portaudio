@@ -886,22 +886,21 @@ static double MeasureTimebaseOffset()
     } while( t2 == t1 ); /* wait until the millisecond ticks over */
     double t3 = PaUtil_GetTime();
 
-    t2 *= .001; /* convert to seconds */
-
-    return t2 - t3;
+    return  t3 - ((double)t2 *.001);
 }
+
 
 static double CalculateTimeBaseOffset()
 {
+    double result = 0.;
 #if MAC
 
-    return 0.; /* FIXME */
+    /* IMPLEMENT ME if necessary, (perhaps asio and Pa will use the same timebase on mac? */
 
 #elif WINDOWS
 #define PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_    100
     int i;
     double sum = 0;
-    double result;
     /* determine the difference between the portaudio time base (PaUtil_GetTime() and
         the ASIO time base (timeGetTime() on windows) */
 
@@ -915,9 +914,9 @@ static double CalculateTimeBaseOffset()
     timeEndPeriod(1);
     
     result = sum / (double)(PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_ );
-    
-    return result;
 #endif
+
+    return result;
 }
 
 
@@ -1511,6 +1510,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 
     ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
+
     stream->outputLatencySeconds = (double)stream->outputLatency / sampleRate;
 
 
