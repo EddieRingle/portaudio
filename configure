@@ -22,7 +22,7 @@ ac_help="$ac_help
 ac_help="$ac_help
   --with-winapi ((wmme/directx/asio) default=wmme)"
 ac_help="$ac_help
-  --with-macapi (asio) default=asio)"
+  --with-macapi ((asio/core/sm) default=core)"
 ac_help="$ac_help
   --with-asiodir (default=/usr/local/asiosdk2)"
 ac_help="$ac_help
@@ -1221,7 +1221,7 @@ if test "${with_macapi+set}" = set; then
   withval="$with_macapi"
   with_macapi=$withval
 else
-  with_macapi="asio"
+  with_macapi="core"
 fi
 
 
@@ -1254,11 +1254,14 @@ fi
 case "${host_os}" in
   darwin* )
 	
-	OTHER_OBJS="pa_mac_core/pa_mac_core.o";
-	LIBS="-framework AudioUnit -framework AudioToolbox -framework CoreAudio";
+	cat >> confdefs.h <<\EOF
+#define PA_USE_COREAUDIO 1
+EOF
+
+	OTHER_OBJS="pa_mac/pa_mac_hostapis.o pa_unix/pa_unix_util.o pa_mac_core/pa_mac_core.o";
+	LIBS="-framework CoreAudio -framework AudioToolbox";
 	PADLL="libportaudio.dylib";
-	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
-	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
+	SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -dynamiclib";
         if [ $with_macapi = "asio" ] ; then
             if [ $with_asiodir ] ; then
               ASIODIR="$with_asiodir";
@@ -1290,7 +1293,7 @@ case "${host_os}" in
             DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -ldsound -lole32";
             #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
-            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO" -DPA_NO_WDMKS;
         elif [ $with_winapi = "asio" ] ; then
             if [ $with_asiodir ] ; then
               ASIODIR="$with_asiodir";
@@ -1304,15 +1307,30 @@ case "${host_os}" in
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
-            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
+            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DPA_NO_WDMKS -DWINDOWS";
             CXXFLAGS="$CFLAGS";
+        elif [ $with_winapi = "wdmks" ] ; then
+            if [ $with_dxdir ] ; then
+              DXDIR="$with_dxdir";
+            else
+              DXDIR="/usr/local/dx7sdk";
+            fi
+            echo "DXDIR: $DXDIR"
+            OTHER_OBJS="pa_win_wdmks/pa_win_wdmks.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
+            LIBS="-lwinmm -lm -luuid -lsetupapi -lole32";
+            PADLL="portaudio.dll";
+            SHARED_FLAGS="-shared -mthreads";
+            DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -luuid -lsetupapi -lole32";
+            #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
+            #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_DS -DPA_NO_ASIO";
         else   # WMME default
             OTHER_OBJS="pa_win_wmme/pa_win_wmme.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm";
-            CFLAGS="$CFLAGS -Ipa_common -DPA_NO_DS -DPA_NO_ASIO";
+            CFLAGS="$CFLAGS -Ipa_common -DPA_NO_DS -DPA_NO_ASIO -DPA_NO_WDMKS";
         fi
         ;;
 
@@ -1327,7 +1345,7 @@ case "${host_os}" in
 
   irix* )
 		    	echo $ac_n "checking for pthread_create in -lpthread""... $ac_c" 1>&6
-echo "configure:1331: checking for pthread_create in -lpthread" >&5
+echo "configure:1349: checking for pthread_create in -lpthread" >&5
 ac_lib_var=`echo pthread'_'pthread_create | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -1335,7 +1353,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lpthread  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 1339 "configure"
+#line 1357 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -1346,7 +1364,7 @@ int main() {
 pthread_create()
 ; return 0; }
 EOF
-if { (eval echo configure:1350: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:1368: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -1375,7 +1393,7 @@ else
 fi
 
 	echo $ac_n "checking for alOpenPort in -laudio""... $ac_c" 1>&6
-echo "configure:1379: checking for alOpenPort in -laudio" >&5
+echo "configure:1397: checking for alOpenPort in -laudio" >&5
 ac_lib_var=`echo audio'_'alOpenPort | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -1383,7 +1401,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-laudio  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 1387 "configure"
+#line 1405 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -1394,7 +1412,7 @@ int main() {
 alOpenPort()
 ; return 0; }
 EOF
-if { (eval echo configure:1398: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:1416: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -1423,7 +1441,7 @@ else
 fi
 
 	echo $ac_n "checking for dmGetUST in -ldmedia""... $ac_c" 1>&6
-echo "configure:1427: checking for dmGetUST in -ldmedia" >&5
+echo "configure:1445: checking for dmGetUST in -ldmedia" >&5
 ac_lib_var=`echo dmedia'_'dmGetUST | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -1431,7 +1449,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-ldmedia  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 1435 "configure"
+#line 1453 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -1442,7 +1460,7 @@ int main() {
 dmGetUST()
 ; return 0; }
 EOF
-if { (eval echo configure:1446: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:1464: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -1488,7 +1506,7 @@ EOF
   *)
 	
    echo $ac_n "checking for pthread_create in -lpthread""... $ac_c" 1>&6
-echo "configure:1492: checking for pthread_create in -lpthread" >&5
+echo "configure:1510: checking for pthread_create in -lpthread" >&5
 ac_lib_var=`echo pthread'_'pthread_create | sed 'y%./+-%__p_%'`
 if eval "test \"`echo '$''{'ac_cv_lib_$ac_lib_var'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -1496,7 +1514,7 @@ else
   ac_save_LIBS="$LIBS"
 LIBS="-lpthread  $LIBS"
 cat > conftest.$ac_ext <<EOF
-#line 1500 "configure"
+#line 1518 "configure"
 #include "confdefs.h"
 /* Override any gcc2 internal prototype to avoid an error.  */
 /* We use char because int might match the return type of a gcc2
@@ -1507,7 +1525,7 @@ int main() {
 pthread_create()
 ; return 0; }
 EOF
-if { (eval echo configure:1511: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
+if { (eval echo configure:1529: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext}; then
   rm -rf conftest*
   eval "ac_cv_lib_$ac_lib_var=yes"
 else
@@ -1547,7 +1565,8 @@ EOF
 	fi
 
 	if [ $have_jack = "yes" ] && [ $with_jack != "no" ] ; then
-   	LIBS="$LIBS $JACK_LIBS"
+		LIBS="$LIBS $JACK_LIBS"
+		DLL_LIBS="$DLL_LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
 		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
                 cat >> confdefs.h <<\EOF
