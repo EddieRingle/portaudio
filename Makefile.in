@@ -36,11 +36,21 @@ COMMON_OBJS = \
 	pa_common/pa_trace.o
 
 TESTS = \
-	bin/pa_devs \
-	bin/pa_fuzz \
-	bin/patest_sine \
+	bin/patest_callbackstop \
+	bin/patest_clip \
 	bin/patest_leftright \
-	bin/patest_sine_formats
+	bin/patest_prime \
+	bin/patest_read_record \
+	bin/patest_record \
+	bin/patest_ringmix \
+	bin/patest_sine \
+	bin/patest_sine_formats \
+	bin/patest_start_stop \
+	bin/patest_stop \
+	bin/patest_sync \
+	bin/patest_write_sine \
+	bin/pa_devs \
+	bin/pa_fuzz
 
 # Most of these don't compile yet.  Put them in TESTS, above, if
 # you want to try to compile them...
