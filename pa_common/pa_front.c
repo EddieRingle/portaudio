@@ -1415,7 +1415,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
 }
 
 
-static PaError ValidateStream( PaStream* stream )
+PaError PaUtil_ValidateStreamPointer( PaStream* stream )
 {
     if( !PA_IS_INITIALISED_ ) return paNotInitialized;
 
@@ -1431,7 +1431,7 @@ static PaError ValidateStream( PaStream* stream )
 PaError Pa_CloseStream( PaStream* stream )
 {
     PaUtilStreamInterface *interface;
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_CloseStream called:\n" );
@@ -1466,7 +1466,7 @@ PaError Pa_CloseStream( PaStream* stream )
 
 PaError Pa_SetStreamFinishedCallback( PaStream *stream, PaStreamFinishedCallback* streamFinishedCallback )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_SetStreamFinishedCallback called:\n" );
@@ -1498,7 +1498,7 @@ PaError Pa_SetStreamFinishedCallback( PaStream *stream, PaStreamFinishedCallback
 
 PaError Pa_StartStream( PaStream *stream )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_StartStream called:\n" );
@@ -1528,7 +1528,7 @@ PaError Pa_StartStream( PaStream *stream )
 
 PaError Pa_StopStream( PaStream *stream )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_StopStream called\n" );
@@ -1558,7 +1558,7 @@ PaError Pa_StopStream( PaStream *stream )
 
 PaError Pa_AbortStream( PaStream *stream )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_AbortStream called:\n" );
@@ -1588,7 +1588,7 @@ PaError Pa_AbortStream( PaStream *stream )
 
 PaError Pa_IsStreamStopped( PaStream *stream )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_IsStreamStopped called:\n" );
@@ -1609,7 +1609,7 @@ PaError Pa_IsStreamStopped( PaStream *stream )
 
 PaError Pa_IsStreamActive( PaStream *stream )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_IsStreamActive called:\n" );
@@ -1630,7 +1630,7 @@ PaError Pa_IsStreamActive( PaStream *stream )
 
 const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream )
 {
-    PaError error = ValidateStream( stream );
+    PaError error = PaUtil_ValidateStreamPointer( stream );
     const PaStreamInfo *result;
 
 #ifdef PA_LOG_API_CALLS
@@ -1672,7 +1672,7 @@ const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream )
 
 PaTime Pa_GetStreamTime( PaStream *stream )
 {
-    PaError error = ValidateStream( stream );
+    PaError error = PaUtil_ValidateStreamPointer( stream );
     PaTime result;
 
 #ifdef PA_LOG_API_CALLS
@@ -1707,7 +1707,7 @@ PaTime Pa_GetStreamTime( PaStream *stream )
 
 double Pa_GetStreamCpuLoad( PaStream* stream )
 {
-    PaError error = ValidateStream( stream );
+    PaError error = PaUtil_ValidateStreamPointer( stream );
     double result;
 
 #ifdef PA_LOG_API_CALLS
@@ -1745,7 +1745,7 @@ PaError Pa_ReadStream( PaStream* stream,
                        void *buffer,
                        unsigned long frames )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_ReadStream called:\n" );
@@ -1778,7 +1778,7 @@ PaError Pa_WriteStream( PaStream* stream,
                         const void *buffer,
                         unsigned long frames )
 {
-    PaError result = ValidateStream( stream );
+    PaError result = PaUtil_ValidateStreamPointer( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_WriteStream called:\n" );
@@ -1808,7 +1808,7 @@ PaError Pa_WriteStream( PaStream* stream,
 
 signed long Pa_GetStreamReadAvailable( PaStream* stream )
 {
-    PaError error = ValidateStream( stream );
+    PaError error = PaUtil_ValidateStreamPointer( stream );
     signed long result;
 
 #ifdef PA_LOG_API_CALLS
@@ -1843,7 +1843,7 @@ signed long Pa_GetStreamReadAvailable( PaStream* stream )
 
 signed long Pa_GetStreamWriteAvailable( PaStream* stream )
 {
-    PaError error = ValidateStream( stream );
+    PaError error = PaUtil_ValidateStreamPointer( stream );
     signed long result;
 
 #ifdef PA_LOG_API_CALLS

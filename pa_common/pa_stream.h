@@ -165,6 +165,14 @@ void PaUtil_InitializeStreamRepresentation(
 void PaUtil_TerminateStreamRepresentation( PaUtilStreamRepresentation *streamRepresentation );
 
 
+/** Check that the stream pointer is valid.
+
+ @return Returns paNoError if the stream pointer appears to be OK, otherwise
+ returns an error indicating the cause of failure.
+*/
+PaError PaUtil_ValidateStreamPointer( PaStream *stream );
+
+
 /** Cast an opaque stream pointer into a pointer to a PaUtilStreamRepresentation.
 
  @see PaUtilStreamRepresentation
