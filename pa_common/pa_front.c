@@ -951,13 +951,13 @@ static PaError ValidateOpenStreamParameters(
     PaDeviceIndex *hostApiInputDevice,
     PaDeviceIndex *hostApiOutputDevice )
 {
-    int inputHostApiIndex, outputHostApiIndex;
+    int inputHostApiIndex  = -1, /* Surpress uninitialised var warnings: compiler does */
+        outputHostApiIndex = -1; /* not see that if inputParameters and outputParame-  */
+                                 /* ters are both nonzero, these indices are set.      */
 
     if( (inputParameters == NULL) && (outputParameters == NULL) )
     {
-
         return paInvalidDevice; /** @todo should be a new error code "invalid device parameters" or something */
-
     }
     else
     {
