@@ -54,6 +54,7 @@ TESTS = \
 	bin/patest_sine8 \
 	bin/patest_sine \
 	bin/patest_sine_formats \
+	bin/patest_sine_time \
 	bin/patest_start_stop \
 	bin/patest_stop \
 	bin/patest_sync \
