@@ -251,7 +251,7 @@ PaUtilConverterTable paConverters = {
 /* -------------------------------------------------------------------------- */
 
 #define PA_CLIP_( val, min, max )\
-    { val = ((val) < (min)) ? min : (((val) < (max)) ? (max) : (val)); }
+    { val = ((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)); }
 
 
 static const float const_1_div_128_ = 1.0f / 128.0f;
@@ -271,9 +271,10 @@ static void Float32_Int32(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
-
+        /* REVIEW */
+        double scaled = *src * 0x7FFFFFFF;
+        *dest = (signed long) scaled;
+        
         src += sourceStride;
         dest += destinationStride;
     }
@@ -288,12 +289,14 @@ static void Float32_Int32_Dither(
 {
     float *src = (float*)sourceBuffer;
     signed long *dest =  (signed long*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        /* REVIEW */
+        double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        double dithered = ((double)*src * (2147483646.0)) + dither;
+        *dest = (signed long) dithered;
 
         src += sourceStride;
         dest += destinationStride;
@@ -309,12 +312,13 @@ static void Float32_Int32_Clip(
 {
     float *src = (float*)sourceBuffer;
     signed long *dest =  (signed long*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        /* REVIEW */
+        double scaled = *src * 0x7FFFFFFF;
+        PA_CLIP_( scaled, -2147483648., 2147483647.  );
+        *dest = (signed long) scaled;
 
         src += sourceStride;
         dest += destinationStride;
@@ -334,8 +338,13 @@ static void Float32_Int32_DitherClip(
 
     while( count-- )
     {
+        /* REVIEW */
+        double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        double dithered = ((double)*src * (2147483646.0)) + dither;
+        PA_CLIP_( dithered, -2147483648., 2147483647.  );
+        *dest = (signed long) dithered;
 
-        /* IMPLEMENT ME */
 
         src += sourceStride;
         dest += destinationStride;
@@ -373,7 +382,6 @@ static void Float32_Int16_Dither(
 {
     float *src = (float*)sourceBuffer;
     signed short *dest = (signed short*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
     {
