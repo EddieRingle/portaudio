@@ -1556,9 +1556,9 @@ unsigned long PaUtil_CopyInput( PaUtilBufferProcessor* bp,
                     framesToCopy * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
         }
 
-        /* advance callers source point (buffer) */
-        destBytePtr += framesToCopy * bp->inputChannelCount * bp->bytesPerUserInputSample;
-        *buffer = destBytePtr;
+        /* advance callers dest pointer (buffer) */
+        *buffer = ((unsigned char *)*buffer) +
+                framesToCopy * bp->inputChannelCount * bp->bytesPerUserInputSample;
     }
     else
     {
@@ -1577,7 +1577,7 @@ unsigned long PaUtil_CopyInput( PaUtilBufferProcessor* bp,
                                 hostInputChannels[i].stride,
                                 framesToCopy, &bp->ditherGenerator );
 
-            /* advance callers source pointer (buffer) */
+            /* advance callers dest pointer (nonInterleavedDestPtrs[i]) */
             destBytePtr += bp->bytesPerUserInputSample * framesToCopy;
             nonInterleavedDestPtrs[i] = destBytePtr;
             
@@ -1628,8 +1628,9 @@ unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bp,
         }
 
         /* advance callers source pointer (buffer) */
-        srcBytePtr += framesToCopy * bp->outputChannelCount * bp->bytesPerUserOutputSample;
-        *buffer = srcBytePtr;
+        *buffer = ((unsigned char *)*buffer) +
+                framesToCopy * bp->outputChannelCount * bp->bytesPerUserOutputSample;
+
     }
     else
     {
@@ -1649,7 +1650,7 @@ unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bp,
                                     framesToCopy, &bp->ditherGenerator );
 
 
-            /* advance callers source pointer (buffer) */
+            /* advance callers source pointer (nonInterleavedSrcPtrs[i]) */
             srcBytePtr += bp->bytesPerUserOutputSample * framesToCopy;
             nonInterleavedSrcPtrs[i] = srcBytePtr;
             
