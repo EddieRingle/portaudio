@@ -305,7 +305,7 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
     int busy = 0;
     int devHandle = -1;
     int sr;
-    *maxChannelCount = 0.;  /* Default value in case this fails */
+    *maxChannelCount = 0;  /* Default value in case this fails */
 
     if ( (devHandle = open( deviceName, (mode == StreamMode_In ? O_RDONLY : O_WRONLY) | O_NONBLOCK ))  < 0 )
     {
@@ -1834,10 +1834,8 @@ static PaError ReadStream( PaStream* s,
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->capture->userChannelCount;
-        if( (userBuffer = alloca( numBytes )) == NULL )
-            return paInsufficientMemory;
-        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->capture->hostChannelCount );
+        userBuffer = stream->capture->userBuffers;
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->capture->userChannelCount );
     }
 
     while( frames )
