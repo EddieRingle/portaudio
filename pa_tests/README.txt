@@ -22,6 +22,7 @@ o- patest_many.c
 o- patest_maxsines.c
 o- patest_multi_sine.c
 o- patest_pink.c
+x- patest_prime.c
 x- patest_record.c
 x- patest_ringmix.c
 o- patest_saw.c
