@@ -572,7 +572,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
                 if( deviceInfoInitializationSucceeded ){
                     if( (*hostApi)->info.defaultInputDevice == paNoDevice )
-                        (*hostApi)->info.defaultInputDevice = i;
+                        (*hostApi)->info.defaultInputDevice = (*hostApi)->info.deviceCount;
 
                     winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = i;
                     (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
@@ -604,7 +604,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
                 if( deviceInfoInitializationSucceeded ){
                     if( (*hostApi)->info.defaultOutputDevice == paNoDevice )
-                        (*hostApi)->info.defaultOutputDevice = i;
+                        (*hostApi)->info.defaultOutputDevice = (*hostApi)->info.deviceCount;
 
                     winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = i;
                     (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
@@ -781,6 +781,62 @@ static PaError CalculateBufferSettings(
             /* don't forget that there will be one more buffer than the number required to achieve the requested latency */
             *framesPerHostInputBuffer = 4096;
             *numHostInputBuffers = 4;
+
+            /*
+                Need to determine the right heuristic for mapping latency in
+                seconds to buffer sizes and number of buffers.
+
+                - for output don't allocate less than 1+1 buffers
+                
+                - for input don't allocate less than 2+1 buffers
+                    (less than 1+1 if input only)
+
+                - don't allocate buffers smaller than framesPerBuffer
+
+                - if the client doesn't care about the buffer size use a power
+                    of two buffer size. otherwise use a multiple of the user
+                    buffer size. if the user buffer size is a power of 2, it
+                    might be wise to make the host buffer size a power of 2 too.
+
+                - there probably shouldn't be too many buffers ( 3 to 10 seems
+                    reasonable).
+
+                - aside from a limit on what constitutes a "reasonable" number
+                    of buffers, there should be as many buffers as possible,
+                    because this will place a less bursty load on CPU resources
+
+                - the host buffers should be as big as practical (ie multiple
+                    user buffers per host buffer).
+
+
+                . One way to achieve the above is to say: Try to have 8
+                    host buffers, and host buffers cannot be larger than 32k
+                    unless the user buffer size requires it"
+                    I say 32k because buffers larger than this are known to
+                    crash some drivers (Turtle Beach for example.)
+
+                just some idle rambling:
+                
+                if( framesPerBuffer == 0 ){
+                    // use a power of two buffer size
+
+                }else{
+                    latencySamples = ceil(requestedLatency * sampleRate)
+
+                    numBuffers = ceil(latencySamples / framesPerBuffer);
+
+                    bufferSize = framesPerBuffer;
+            
+                    minBuffers = ( inputChannelCount > 0 && outputChannelCount > 0 ) ? 2 : 1;
+
+                    if( numBuffers <= minBuffers ){
+                        numBuffers = minBuffers;
+                    }else{
+                        make buffer size a multiple of framesPerBuffer until numBuffers  is
+                        greater than 4 and less than 10.
+                    }
+                }
+            */
         }
     }
     else
