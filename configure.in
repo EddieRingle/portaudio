@@ -199,8 +199,6 @@ case "${host_os}" in
 	if [[ $have_alsa = "yes" ] && [ $with_alsa != "no" ]] ; then
                 LIBS="$LIBS -lasound"
 		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/pa_linux_alsa.o"
-		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/callback_thread.o"
-		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/blocking_calls.o"
                 AC_DEFINE(PA_USE_ALSA)
 	fi
 
