@@ -34,11 +34,13 @@
 /** @file
  @brief SGI IRIX AL implementation (according to V19 API version 2.0).
 
- @note Started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
+ @note This file started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
  Nothing to do with the old V18 pa_sgi version: using the newer AL calls now and 
- pthreads instead of sproc. A fresh start.
+ pthreads instead of sproc. A fresh start. 
  
- Tested: - pa_devs                ok, but where does that list of samplerates come from?
+ FunctionIsFormatSupported() ok now.
+ 
+ Tested: - pa_devs                ok.
          - pa_fuzz                ok
          - patest_sine            test has to be adapted: (usleep > 1000000)?
          - patest_leftright       ok
@@ -147,8 +149,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
     static const short          maxDevNameChars = 32;     /* Including the terminating null char.  */
     char                        devName[maxDevNameChars]; /* Too lazy for dynamic alloc.           */
 
-    DBUG(("PaSGI_Initialize() started.\n"));
-
+    /* DBUG(("PaSGI_Initialize() started.\n")); */
     SGIHostApi = (PaSGIHostApiRepresentation*)PaUtil_AllocateMemory(sizeof(PaSGIHostApiRepresentation));
     if( !SGIHostApi )
         {
@@ -331,8 +332,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
     PaSGIHostApiRepresentation *SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
 
-    DBUG(("Terminate() started.\n"));
-
+    /* DBUG(("Terminate() started.\n")); */
     /* Clean up any resources not handled by the allocation group. */
 
     if( SGIHostApi->allocations )
@@ -343,90 +343,106 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaUtil_FreeMemory( SGIHostApi );
 }
 
+/*
+    Check if samplerate is supported for this output device.
+*/
+static PaError sr_supported(int al_device, double sr)
+{
+    int         e;
+    PaError     result;
+    ALparamInfo pinfo;
+    long long   lsr = alDoubleToFixed(sr);
+    
+    if (alGetParamInfo(al_device, AL_RATE, &pinfo))
+        {
+        e = oserror();
+        DBUG(("alGetParamInfo(AL_RATE) failed: %s.\n", alGetErrorString(e)));
+        if (e == AL_BAD_RESOURCE)
+            result = paInvalidDevice;
+        else
+            result = paUnanticipatedHostError;
+        }
+    else
+        {    
+        if ((pinfo.min.ll <= lsr) && (lsr <= pinfo.max.ll))
+            result = paFormatIsSupported;
+        else
+            result = paInvalidSampleRate;
+        }
+    return result;
+}
 
+
+/*
+    See common/portaudio.h (suggestedLatency field is ignored).
+*/
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
-    int inputChannelCount, outputChannelCount;
+    PaSGIHostApiRepresentation* SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
+    int inputChannelCount, outputChannelCount, result;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     
     if( inputParameters )
     {
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
-
-        /* unless alternate device specification is supported, reject the use of
-            paUseHostApiSpecificDeviceSpecification */
-
+        /* Unless alternate device specification is supported, reject the use of
+           paUseHostApiSpecificDeviceSpecification. */
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
-
-        /* check that input device can support inputChannelCount */
+        /* Check that input device can support inputChannelCount. */
         if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
-
-        /* validate inputStreamInfo */
+        /* Validate inputStreamInfo. */
         if( inputParameters->hostApiSpecificStreamInfo )
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        /* Check if samplerate is supported for this input device. */
+        result = sr_supported(SGIHostApi->sgiDeviceIDs[inputParameters->device].i, sampleRate);
+        if (result)
+            return result;
     }
     else
     {
         inputChannelCount = 0;
     }
-
-    if( outputParameters )
+    if( outputParameters ) /* As with input above. */
     {
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        
-        /* unless alternate device specification is supported, reject the use of
-            paUseHostApiSpecificDeviceSpecification */
-
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
-
-        /* check that output device can support inputChannelCount */
         if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
-
-        /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        /* Check if samplerate is supported for this output device. */
+        result = sr_supported(SGIHostApi->sgiDeviceIDs[outputParameters->device].i, sampleRate);
+        if (result)
+            return result;
     }
     else
     {
         outputChannelCount = 0;
     }
-    
-    /*
-        IMPLEMENT ME:
-
-            - if a full duplex stream is requested, check that the combination
-                of input and output parameters is supported if necessary
-
-            - check that the device supports sampleRate
-
+    /*  IMPLEMENT ME:
         Because the buffer adapter handles conversion between all standard
         sample formats, the following checks are only required if paCustomFormat
         is implemented, or under some other unusual conditions.
 
             - check that input device can support inputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
+              we have the capability to convert from outputSampleFormat to
+              a native format
 
             - check that output device can support outputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
+              we have the capability to convert from outputSampleFormat to
+              a native format
     */
-
-
     /* suppress unused variable warnings */
-    (void) sampleRate;
     (void) inputSampleFormat;
     (void) outputSampleFormat;
-
     return paFormatIsSupported;
 }
 
@@ -446,9 +462,8 @@ typedef struct PaSGIStream      /* Stream data structure specifically for this i
     unsigned long               framesPerHostCallback;  /* Implementation specific data. */
     PaSGIportBuffer             portBuffIn,
                                 portBuffOut;
-    unsigned char               stopSoon,               /* RT flags. */
-                                stopNow,
-                                isActive;
+    unsigned char               stop,                   /* Realtime flags. */
+                                active;
     pthread_t                   thread;
 }
     PaSGIStream;
@@ -655,7 +670,8 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         outputChannelCount = 0;
         outputSampleFormat = hostOutputSampleFormat = 0; /* Surpress uninitialised warning. */
         }
-    /*
+    /*  It is guarenteed that inputParameters and outputParameters will never be both NULL.
+    
         IMPLEMENT ME:
         (Following two checks are taken care of by PaUtil_InitializeBufferProcessor() FIXME - checks needed?)
 
@@ -676,9 +692,8 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                 use default values where necessary
     */
 
-    /* validate platform specific flags */
-    if( (streamFlags & paPlatformSpecificFlags) != 0 )
-        return paInvalidFlag; /* unexpected platform specific flag */
+    if( (streamFlags & paPlatformSpecificFlags) != 0 )  /* Validate platform specific flags.  */
+        return paInvalidFlag;                           /* Unexpected platform specific flag. */
 
     stream = (PaSGIStream*)PaUtil_AllocateMemory( sizeof(PaSGIStream) );
     if (!stream)
@@ -704,7 +719,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             hostInputSampleFormat,      /* For alSetSampFmt and alSetWidth. */                            
                             alc,                        /* For AL calls. */
                             "r",                        /* Direction "r" for reading. */
-                            "portaudio input",          /* Name string. */
+                            "portaudio in",             /* Name string. */
                             framesPerHostBuffer,
                             &sr_in,                     /* Receive actual rate after setting it. */
                             &stream->portBuffIn);       /* Receive ALport and input host buffer. */
@@ -715,13 +730,13 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             hostOutputSampleFormat,
                             alc,
                             "w",                        /* "w" for reading. */
-                            "portaudio ouput",
+                            "portaudio out",
                             framesPerHostBuffer,
                             &sr_out,
                             &stream->portBuffOut);
     if (result != paNoError)
         goto cleanup;
-    if (fabs(sr_in - sr_out) > 0.01) /* Let us make sure both are the same. */
+    if (fabs(sr_in - sr_out) > 0.01) /* Make sure both are the same. */
         {
         DBUG(("Strange samplerate difference between input and output devices!\n"));
         result = paUnanticipatedHostError;
@@ -750,9 +765,8 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         { DBUG(("PaUtil_InitializeBufferProcessor()=%d!\n", result)); goto cleanup; }
 
     stream->framesPerHostCallback = framesPerHostBuffer;
-    stream->isActive = 0;
-    stream->stopSoon = 0;
-    stream->stopNow  = 0;
+    stream->active = 0;
+    stream->stop   = 0;
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
     if (alc)                    /* We no longer need configuration. */
@@ -769,14 +783,14 @@ cleanup:
 }
 
 /*
-    POSIX thread that performs i/o and calls client's callback, spawned by StartStream().
+    POSIX thread that performs the actual i/o and calls the client's callback, spawned by StartStream().
 */
 static void* PaSGIpthread(void *userData)
 {
     PaSGIStream* stream = (PaSGIStream*)userData;
    
-    stream->isActive = 1;
-    while (!(stream->stopNow | stream->stopSoon))
+    stream->active = 1;
+    while (!stream->stop)
         {
         PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
         int callbackResult;
@@ -784,8 +798,7 @@ static void* PaSGIpthread(void *userData)
         
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
         /* IMPLEMENT ME: - generate timing information
-                         - handle buffer slips
-        */
+                         - handle buffer slips      */
         /* If you need to byte swap or shift inputBuffer to convert it into a pa format, do it here. */
         PaUtil_BeginBufferProcessing(&stream->bufferProcessor, &timeInfo,
                                      0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */);
@@ -827,25 +840,25 @@ static void* PaSGIpthread(void *userData)
             }
         else if( callbackResult == paAbort )
             {
-            DBUG(("CallbackResult == paAbort (finish playback immediately).\n"));
+            /* DBUG(("CallbackResult == paAbort (finish playback immediately).\n")); */
             /* once finished, call the finished callback */
             if (stream->streamRepresentation.streamFinishedCallback != 0 )
                 stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
-            break;
+            break; /* Don't play the last buffer returned. */
             }
         else /* paComplete or some other non-zero value. */
             {
-            DBUG(("CallbackResult != 0 (finish playback after last buffer).\n"));
+            /* DBUG(("CallbackResult != 0 (finish playback after last buffer).\n")); */
             /* once finished, call the finished callback */
             if (stream->streamRepresentation.streamFinishedCallback != 0 )
                 stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-            stream->stopSoon = 1;
+            stream->stop = 1;
             }
         /* Write interleaved samples to SGI device (like unix_oss, AFTER checking callback result). */
         if (stream->portBuffOut.port)
             alWriteFrames(stream->portBuffOut.port, stream->portBuffOut.buffer, stream->framesPerHostCallback);
         }
-    stream->isActive = 0;
+    stream->active = 0;
     return NULL;
 }
 
@@ -895,7 +908,7 @@ static PaError StopStream( PaStream *s )
     PaError         result = paNoError;
     PaSGIStream*    stream = (PaSGIStream*)s;
 
-    stream->stopSoon = 1;
+    stream->stop = 1;
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         if (pthread_join(stream->thread, NULL))
@@ -904,7 +917,7 @@ static PaError StopStream( PaStream *s )
             result = paUnanticipatedHostError;
             }
         }
-    stream->stopSoon = 0;
+    stream->stop = 0;
     DBUG(("PaSGI StopStream().\n"));
     return result;
 }
@@ -915,7 +928,7 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    stream->stopNow = 1;
+    stream->stop = 1;
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         if (pthread_join(stream->thread, NULL))
@@ -924,7 +937,7 @@ static PaError AbortStream( PaStream *s )
             result = paUnanticipatedHostError;
             }
         }
-    stream->stopNow = 0;
+    stream->stop = 0;
     DBUG(("PaSGI StopStream().\n"));
     return result;
 }
@@ -933,14 +946,14 @@ static PaError AbortStream( PaStream *s )
 static PaError IsStreamStopped( PaStream *s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
-    return (!stream->isActive);
+    return (!stream->active);
 }
 
 
 static PaError IsStreamActive( PaStream *s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
-    return (stream->isActive);
+    return (stream->active);
 }
 
 
