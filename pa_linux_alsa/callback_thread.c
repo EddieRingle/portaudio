@@ -296,39 +296,45 @@ void *CallbackThread( void *userData )
             PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
         */
 
-        frames_avail = wait( stream );
-        //printf( "%d frames available\n", frames_avail );
+        framesProcessed = frames_avail = wait( stream );
 
-        /* Now we know the soundcard is ready to produce/receive at least
-         * one period.  We just need to get the buffers for the client
-         * to read/write. */
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+        while( frames_avail > 0 )
+        {
+            //printf( "%d frames available\n", frames_avail );
 
-        frames_got = setup_buffers( stream, frames_avail );
+            /* Now we know the soundcard is ready to produce/receive at least
+             * one period.  We just need to get the buffers for the client
+             * to read/write. */
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
-        if( frames_avail == frames_got )
-            ;//printf("good, they were both %d\n", frames_avail );
-        else
-            printf("damn, they were different: avail: %d, got: %d\n", frames_avail, frames_got );
+            frames_got = setup_buffers( stream, frames_avail );
 
-        /* this calls the callback */
 
-        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-        callbackResult = paContinue;
-        framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
-                                                      &callbackResult );
+            callbackResult = paContinue;
+
+            /* this calls the callback */
+
+            framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
+                                                          &callbackResult );
+
+
+            /* inform ALSA how many frames we wrote */
+
+            if( stream->pcm_capture )
+                snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, frames_got );
+
+            if( stream->pcm_playback )
+                snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames_got );
+
+            if( callbackResult != paContinue )
+                break;
+
+            frames_avail -= frames_got;
+        }
 
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-
-        /* inform ALSA how many frames we wrote */
-
-        if( stream->pcm_capture )
-            snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, frames_avail );
-
-        if( stream->pcm_playback )
-            snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames_avail );
-
 
         /*
             If you need to byte swap outputBuffer, you can do it here using

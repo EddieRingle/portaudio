@@ -70,6 +70,10 @@ PaAlsaHostApiRepresentation;
 
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
                            const PaStreamParameters *inputParameters,
@@ -102,36 +106,36 @@ extern void *CallbackThread( void *userData );
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
-    int i, deviceCount;
-    PaAlsaHostApiRepresentation *skeletonHostApi;
+    PaAlsaHostApiRepresentation *alsaHostApi;
 
-    skeletonHostApi = (PaAlsaHostApiRepresentation*)
+    alsaHostApi = (PaAlsaHostApiRepresentation*)
         PaUtil_AllocateMemory( sizeof(PaAlsaHostApiRepresentation) );
-    if( !skeletonHostApi )
+    if( !alsaHostApi )
     {
         result = paInsufficientMemory;
         goto error;
     }
 
-    skeletonHostApi->allocations = PaUtil_CreateAllocationGroup();
-    if( !skeletonHostApi->allocations )
+    alsaHostApi->allocations = PaUtil_CreateAllocationGroup();
+    if( !alsaHostApi->allocations )
     {
         result = paInsufficientMemory;
         goto error;
     }
 
-    skeletonHostApi->hostApiIndex = hostApiIndex;
-    *hostApi = (PaUtilHostApiRepresentation*)skeletonHostApi;
+    alsaHostApi->hostApiIndex = hostApiIndex;
+    *hostApi = (PaUtilHostApiRepresentation*)alsaHostApi;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paALSA;
     (*hostApi)->info.name = "ALSA implementation";
 
-    BuildDeviceList( skeletonHostApi );
+    BuildDeviceList( alsaHostApi );
 
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
+    (*hostApi)->IsFormatSupported = IsFormatSupported;
 
-    PaUtil_InitializeStreamInterface( &skeletonHostApi->callbackStreamInterface,
+    PaUtil_InitializeStreamInterface( &alsaHostApi->callbackStreamInterface,
                                       CloseStream, StartStream,
                                       StopStream, AbortStream,
                                       IsStreamStopped, IsStreamActive,
@@ -140,7 +144,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       PaUtil_DummyGetAvailable,
                                       PaUtil_DummyGetAvailable );
 
-    PaUtil_InitializeStreamInterface( &skeletonHostApi->blockingStreamInterface,
+    PaUtil_InitializeStreamInterface( &alsaHostApi->blockingStreamInterface,
                                       CloseStream, StartStream,
                                       StopStream, AbortStream,
                                       IsStreamStopped, IsStreamActive,
@@ -152,15 +156,15 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     return result;
 
 error:
-    if( skeletonHostApi )
+    if( alsaHostApi )
     {
-        if( skeletonHostApi->allocations )
+        if( alsaHostApi->allocations )
         {
-            PaUtil_FreeAllAllocations( skeletonHostApi->allocations );
-            PaUtil_DestroyAllocationGroup( skeletonHostApi->allocations );
+            PaUtil_FreeAllAllocations( alsaHostApi->allocations );
+            PaUtil_DestroyAllocationGroup( alsaHostApi->allocations );
         }
 
-        PaUtil_FreeMemory( skeletonHostApi );
+        PaUtil_FreeMemory( alsaHostApi );
     }
     return result;
 }
@@ -243,7 +247,6 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         {
             snd_pcm_t *pcm_handle;
             snd_pcm_hw_params_t *hw_params;
-            int dir;
 
             snd_pcm_hw_params_malloc( &hw_params );
 
@@ -257,12 +260,29 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
                 deviceInfo->maxInputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
-                /* TODO: I'm not really sure what to do here */
-                //deviceInfo->defaultLowInputLatency = snd_pcm_hw_params_get_period_size_min( hw_params, &dir );
-                //deviceInfo->defaultHighInputLatency = snd_pcm_hw_params_get_period_size_max( hw_params, &dir );
-                deviceInfo->defaultLowInputLatency = 128. / 44100;
-                deviceInfo->defaultHighInputLatency = 16384. / 44100;
                 snd_pcm_close( pcm_handle );
+
+                /* TWEAKME:
+                 *
+                 * Giving values for default min and max latency is not
+                 * straightforward.  Here are our objectives:
+                 *
+                 *         * for low latency, we want to give the lowest value
+                 *         that will work reliably.  This varies based on the
+                 *         sound card, kernel, CPU, etc.  I think it is better
+                 *         to give sub-optimal latency than to give a number
+                 *         too low and cause dropouts.  My conservative
+                 *         estimate at this point is to base it on 4096-sample
+                 *         latency at 44.1 kHz, which gives a latency of 23ms.
+                 *         * for high latency we want to give a large enough
+                 *         value that dropouts are basically impossible.  This
+                 *         doesn't really require as much tweaking, since
+                 *         providing too large a number will just cause us to
+                 *         select the nearest setting that will work at stream
+                 *         config time.
+                 */
+                deviceInfo->defaultLowInputLatency = 4096. / 44100;
+                deviceInfo->defaultHighInputLatency = 16384. / 44100;
             }
 
             /* get max channels for playback */
@@ -274,12 +294,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
                 deviceInfo->maxOutputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
-                /* TODO: I'm not really sure what to do here */
-                //deviceInfo->defaultLowOutputLatency = snd_pcm_hw_params_get_period_size_min( hw_params, &dir );
-                //deviceInfo->defaultHighOutputLatency = snd_pcm_hw_params_get_period_size_max( hw_params, &dir );
-                deviceInfo->defaultLowOutputLatency = 128. / 44100;
-                deviceInfo->defaultHighOutputLatency = 16384. / 44100;
                 snd_pcm_close( pcm_handle );
+
+                /* TWEAKME: see above */
+                deviceInfo->defaultLowOutputLatency = 4096. / 44100;
+                deviceInfo->defaultHighOutputLatency = 16384. / 44100;
             }
 
             snd_pcm_hw_params_free( hw_params );
@@ -298,21 +317,96 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
-    PaAlsaHostApiRepresentation *skeletonHostApi;
-    skeletonHostApi = (PaAlsaHostApiRepresentation*)hostApi;
+    PaAlsaHostApiRepresentation *alsaHostApi;
+    alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
 
     /*
         IMPLEMENT ME:
             - clean up any resourced not handled by the allocation group
     */
 
-    if( skeletonHostApi->allocations )
+    if( alsaHostApi->allocations )
     {
-        PaUtil_FreeAllAllocations( skeletonHostApi->allocations );
-        PaUtil_DestroyAllocationGroup( skeletonHostApi->allocations );
+        PaUtil_FreeAllAllocations( alsaHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( alsaHostApi->allocations );
     }
 
-    PaUtil_FreeMemory( skeletonHostApi );
+    PaUtil_FreeMemory( alsaHostApi );
+}
+
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
+{
+    int inputChannelCount, outputChannelCount;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+
+    if( inputParameters )
+    {
+        inputChannelCount = inputParameters->channelCount;
+        inputSampleFormat = inputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        inputChannelCount = 0;
+    }
+
+    if( outputParameters )
+    {
+        outputChannelCount = outputParameters->channelCount;
+        outputSampleFormat = outputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        outputChannelCount = 0;
+    }
+
+    /*
+        IMPLEMENT ME:
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported
+
+            - check that the device supports sampleRate
+    */
+
+    return paFormatIsSupported;
 }
 
 
@@ -351,7 +445,8 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *stream )
 
 static PaError ConfigureStream( snd_pcm_t *stream, int channels,
                                 int interleaved, unsigned long rate,
-                                PaSampleFormat pa_format, int framesPerBuffer )
+                                PaSampleFormat pa_format, int framesPerBuffer,
+                                float latency)
 {
 #define ENSURE(functioncall)   \
     if( (functioncall) < 0 ) { \
@@ -364,6 +459,16 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
 
     snd_pcm_access_t access_mode;
     snd_pcm_format_t alsa_format;
+    int numPeriods;
+
+    if( getenv("PA_NUMPERIODS") != NULL )
+        numPeriods = atoi( getenv("PA_NUMPERIODS") );
+    else
+        numPeriods = ( (latency*rate) / framesPerBuffer ) + 1;
+
+    printf("latency: %f, rate: %ld, framesPerBuffer: %d\n", latency, rate, framesPerBuffer);
+    if( numPeriods <= 1 )
+        numPeriods = 2;
 
     /* configuration consists of setting all of ALSA's parameters.
      * These parameters come in two flavors: hardware parameters
@@ -372,7 +477,6 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
      * affect the way ALSA interacts with me, the user-level client. */
 
     snd_pcm_hw_params_t *hw_params;
-    snd_pcm_sw_params_t *sw_params;
 
     snd_pcm_hw_params_alloca( &hw_params );
 
@@ -415,7 +519,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
             break;
 
         default:
-            printf("Unknown PortAudio format %d\n", pa_format );
+            printf("Unknown PortAudio format %ld\n", pa_format );
             return 1;
     }
     //printf("PortAudio format: %d\n", pa_format);
@@ -428,23 +532,23 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     /* ... set the number of channels */
     ENSURE( snd_pcm_hw_params_set_channels( stream, hw_params, channels ) );
 
-    /* ... set the number of periods to 2, which is essentially double buffering.
-     * this makes the latency the number of samples per buffer, which is the best
-     * it can be */
-    ENSURE( snd_pcm_hw_params_set_periods ( stream, hw_params, 2, 0 ) );
-
     /* ... set the period size, which is essentially the hardware buffer size */
-    if( framesPerBuffer != 0 )
-    {
-        ENSURE( snd_pcm_hw_params_set_period_size( stream, hw_params, 
-                                                   framesPerBuffer, 0 ) );
-    }
-    else
-    {
-        ENSURE( snd_pcm_hw_params_set_period_size( stream, hw_params, 
-                                                   2048, 0 ) );
-    }
+    ENSURE( snd_pcm_hw_params_set_period_size( stream, hw_params, 
+                                               framesPerBuffer, 0 ) );
 
+    printf("numperiods: %d\n", numPeriods);
+    if( snd_pcm_hw_params_set_periods ( stream, hw_params, numPeriods, 0 ) < 0 )
+    {
+        int i;
+        for( i = numPeriods; i >= 2; i-- )
+        {
+            if( snd_pcm_hw_params_set_periods( stream, hw_params, i, 0 ) >= 0 )
+            {
+                printf("settled on %d periods\n", i);
+                break;
+            }
+        }
+    }
 
     /* Set the parameters! */
     ENSURE( snd_pcm_hw_params( stream, hw_params ) );
@@ -464,19 +568,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            void *userData )
 {
     PaError result = paNoError;
-    PaAlsaHostApiRepresentation *skeletonHostApi =
+    PaAlsaHostApiRepresentation *alsaHostApi =
         (PaAlsaHostApiRepresentation*)hostApi;
     PaAlsaStream *stream = 0;
-    PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    PaSampleFormat hostInputSampleFormat = 0, hostOutputSampleFormat = 0;
     int numInputChannels, numOutputChannels;
-    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer;
-
-    if( framesPerHostBuffer == paFramesPerBufferUnspecified )
-    {
-        // TODO: have some reason
-        framesPerHostBuffer = 2048;
-    }
 
     if( inputParameters )
     {
@@ -538,7 +636,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) );
     if( !stream )
     {
-        printf("memory point 2\n");
         result = paInsufficientMemory;
         goto error;
     }
@@ -551,13 +648,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( callback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &skeletonHostApi->callbackStreamInterface,
+                                               &alsaHostApi->callbackStreamInterface,
                                                callback, userData );
     }
     else
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &skeletonHostApi->blockingStreamInterface,
+                                               &alsaHostApi->blockingStreamInterface,
                                                callback, userData );
     }
 
@@ -602,6 +699,106 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
 
+    /* If the number of frames per buffer is unspecified, we have to come up with
+     * one.  This is both a blessing and a curse: a blessing because we can optimize
+     * the number to best meet the requirements, but a curse because that's really
+     * hard to do well.  For this reason we also support an interface where the user
+     * specifies these by setting environment variables. */
+    if( framesPerBuffer == paFramesPerBufferUnspecified )
+    {
+        if( getenv("PA_PERIODSIZE") != NULL )
+            framesPerHostBuffer = atoi( getenv("PA_PERIODSIZE") );
+        else
+        {
+            /* We need to determine how many frames per host buffer to use.  Our
+             * goals are to provide the best possible performance, but also to
+             * most closely honor the requested latency settings.  Therefore this
+             * decision is based on:
+             *
+             *   - the period sizes that playback and/or capture support.  The
+             *     host buffer size has to be one of these.
+             *   - the number of periods that playback and/or capture support.
+             *
+             * We want to make period_size*(num_periods-1) to be as close as possible
+             * to latency*rate for both playback and capture.
+             *
+             * This is one of those blocks of code that will just take a lot of
+             * refinement to be any good.
+             */
+
+            int reasonablePeriodSizes[] = { 256, 512, 1024, 2048, 4096, 8192, 16384, 128, 0 };
+            int i;
+#define ENSURE(x) \
+            if ( (x) < 0 ) \
+            { \
+                printf("failed at line %d\n", __LINE__); \
+                continue; \
+            }
+
+            if( stream->pcm_capture && stream->pcm_playback )
+            {
+                /* TODO */
+            }
+            else
+            {
+                /* half-duplex is a slightly simpler case */
+                int desiredLatency, channels;
+                snd_pcm_t *pcm_handle;
+                snd_pcm_hw_params_t *hw_params;
+                snd_pcm_hw_params_alloca( &hw_params );
+
+                framesPerHostBuffer = paFramesPerBufferUnspecified;
+
+                if( stream->pcm_capture )
+                {
+                    pcm_handle = stream->pcm_capture;
+                    desiredLatency = inputParameters->suggestedLatency * sampleRate;
+                    channels = inputParameters->channelCount;
+                }
+                else
+                {
+                    pcm_handle = stream->pcm_playback;
+                    desiredLatency = outputParameters->suggestedLatency * sampleRate;
+                    channels = outputParameters->channelCount;
+                }
+
+
+                for( i = 0; reasonablePeriodSizes[i] != 0; i++ )
+                {
+                    int periodSize = reasonablePeriodSizes[i];
+                    int numPeriods = ( desiredLatency / periodSize ) + 1;
+                    if( numPeriods <= 1 )
+                        numPeriods = 2;
+
+                    printf("trying periodSize=%d, numPeriods=%d, sampleRate=%f, channels=%d\n", periodSize, numPeriods, sampleRate, channels);
+                    ENSURE( snd_pcm_hw_params_any( pcm_handle, hw_params ) );
+                    ENSURE( snd_pcm_hw_params_set_rate( pcm_handle, hw_params, sampleRate, 0 ) );
+                    ENSURE( snd_pcm_hw_params_set_channels( pcm_handle, hw_params, channels ) );
+                    ENSURE( snd_pcm_hw_params_set_period_size( pcm_handle, hw_params, periodSize, 0 ) );
+                    ENSURE( snd_pcm_hw_params_set_periods( pcm_handle, hw_params, numPeriods, 0 ) );
+
+                    /* if we made it this far, we have a winner. */
+                    framesPerHostBuffer = periodSize;
+                    printf("I came up with %ld frames per host buffer.\n", framesPerHostBuffer);
+                    break;
+                }
+
+                /* if we didn't find an acceptable host buffer size 
+                 * (this should be extremely rare) */
+                if( framesPerHostBuffer == paFramesPerBufferUnspecified )
+                {
+                    result = paBadIODeviceCombination;
+                    goto error;
+                }
+            }
+        }
+    }
+    else
+    {
+        framesPerHostBuffer = framesPerBuffer;
+    }
+#undef ENSURE
+
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
@@ -624,7 +821,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             interleaved = 1;
 
         if( ConfigureStream( stream->pcm_capture, numInputChannels, interleaved,
-                             sampleRate, plain_format, framesPerHostBuffer ) != 0 )
+                             sampleRate, plain_format, framesPerHostBuffer,
+                             inputParameters->suggestedLatency) != 0 )
         {
             result = paBadIODeviceCombination;
             goto error;
@@ -644,7 +842,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             interleaved = 1;
 
         if( ConfigureStream( stream->pcm_playback, numOutputChannels, interleaved,
-                             sampleRate, plain_format, framesPerHostBuffer ) != 0 )
+                             sampleRate, plain_format, framesPerHostBuffer,
+                             outputParameters->suggestedLatency) != 0 )
         {
             result = paBadIODeviceCombination;
             goto error;
@@ -663,13 +862,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
 
     /* TODO: free this properly */
-    printf("trying to allocate %d bytes of memory\n", (stream->capture_nfds + stream->playback_nfds + 1) * sizeof(struct pollfd) );
     stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture_nfds +
                                                            stream->playback_nfds + 1) *
                                                            sizeof(struct pollfd) );
     if( !stream->pfds )
     {
-        printf("bad memory point 1\n");
         result = paInsufficientMemory;
         goto error;
     }
@@ -751,7 +948,7 @@ static PaError StartStream( PaStream *s )
         printf("Sample size: %d\n", sample_size );
         ENSURE( snd_pcm_prepare( stream->pcm_playback ) );
         frames = snd_pcm_avail_update( stream->pcm_playback );
-        printf("frames: %d\n", frames );
+        printf("frames: %ld\n", frames );
         printf("channels: %d\n", stream->playback_channels );
 
         snd_pcm_mmap_begin( stream->pcm_playback, &playback_areas, &offset, &frames );
@@ -954,7 +1151,6 @@ static PaTime GetStreamTime( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
-    snd_output_t *output;
     snd_timestamp_t timestamp;
     snd_pcm_status_t *status;
     snd_pcm_status_alloca( &status );
