@@ -79,7 +79,9 @@ typedef enum PaErrorCode
     paStreamIsStopped,
     paStreamIsNotStopped,
     paInputOverflowed,
-    paOutputUnderflowed
+    paOutputUnderflowed,
+    paHostApiNotFound,
+    paInvalidHostApi
 } PaErrorCode;
 
 
@@ -178,8 +180,9 @@ PaHostApiIndex Pa_GetHostApiCount( void );
  the lowest common denominator host API on the current platform and is
  unlikely to provide the best performance.
 
- @return A non-negative value indicating the default host API index. Returns a
- negative PaErrorCode if PortAudio is not initialized or an error is encountered.
+ @return A non-negative value ranging from 0 to (Pa_GetHostApiCount()-1)
+ indicating the default host API index, or a negative PaErrorCode if
+ an error is encountered.
 */
 PaHostApiIndex Pa_GetDefaultHostApi( void );
 
@@ -266,7 +269,9 @@ const PaHostApiInfo * Pa_GetHostApiInfo( PaHostApiIndex hostApi );
  enumeration.
 
  @return A valid PaHostApiIndex ranging from 0 to (Pa_GetHostApiCount()-1), or
- -1 if the host API specified by the type parameter is not available.
+ a negative PaErrorCode if PortAudio is not initialized or an error is
+ encountered. The paHostApiNotFound error code indicates that the host API
+ specified by the type parameter is not available.
 
  @see PaHostApiTypeId
 */
@@ -282,6 +287,13 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
  @param hostApiDeviceIndex A valid per-host device index in the range
  0 to (Pa_GetHostApiInfo(hostApi)->deviceCount-1)
 
+ @return A non-negative PaDeviceIndex ranging from 0 to (Pa_GetDeviceCount()-1),
+ or a negative PaErrorCode if an error is encountered.
+ A paInvalidHostApi error code indicates that the host API index
+ specified by the hostApi parameter is out of range.
+ A paInvalidDevice error code indicates that the hostApiDeviceIndex parameter
+ is out of range.
+ 
  @see PaHostApiInfo
 */
 PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi,
@@ -317,9 +329,12 @@ const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void );
 
 /* Device enumeration and capabilities */
 
-/** Retrieve the number of available devices.
- @return The number of available devices. May return 0 if PortAudio is
- not initialized or an error has occured.
+/** Retrieve the number of available devices. The number of available devices
+    may be zero.
+
+    @return A non-negative value indicating the number of available devices,
+    or a negative PaErrorCode if PortAudio is not initialized or an error
+    is encountered.
 */
 PaDeviceIndex Pa_GetDeviceCount( void );
 

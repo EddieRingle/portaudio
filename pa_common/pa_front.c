@@ -73,7 +73,7 @@ include:
 
 
 
-/* #define PA_LOG_API_CALLS  */
+/* #define PA_LOG_API_CALLS */
 
 /*
     The basic format for log messages is as follows:
@@ -439,18 +439,11 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
 
     if( !PA_IS_INITIALISED_ )
     {
-
-        result = -1;
-        
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex returned:\n" );
-        PaUtil_DebugPrint("\tPaHostApiIndex: -1 [ PortAudio not initialized ]\n\n" );
-#endif
-
+        result = paNotInitialized;
     }
     else
     {
-        result = -1;
+        result = paHostApiNotFound;
         
         for( i=0; i < hostApisCount_; ++i )
         {
@@ -460,12 +453,15 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
                 break;
             }         
         }
+    }
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex returned:\n" );
+    PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex returned:\n" );
+    if( result < 0 )
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+    else
         PaUtil_DebugPrint("\tPaHostApiIndex: %d\n\n", result );
 #endif
-    }
 
     return result;
 }
@@ -533,24 +529,21 @@ PaHostApiIndex Pa_GetHostApiCount( void )
     if( !PA_IS_INITIALISED_ )
     {
         result = paNotInitialized;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetHostApiCount returned:\n" );
-        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
-#endif
-
-        return result;
     }
     else
     {
+        result = hostApisCount_;
+    }
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetHostApiCount returned:\n" );
-        PaUtil_DebugPrint("\tPaHostApiIndex %d\n\n", hostApisCount_ );
+    PaUtil_DebugPrint("Pa_GetHostApiCount returned:\n" );
+    if( result < 0 )
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+    else
+        PaUtil_DebugPrint("\tPaHostApiIndex %d\n\n", result );
 #endif
 
-        return hostApisCount_;
-    }
+    return result;
 }
 
 
@@ -565,13 +558,6 @@ PaHostApiIndex Pa_GetDefaultHostApi( void )
     if( !PA_IS_INITIALISED_ )
     {
         result = paNotInitialized;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
-        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
-#endif
-
-        return result;
     }
     else
     {
@@ -583,22 +569,18 @@ PaHostApiIndex Pa_GetDefaultHostApi( void )
         if( result < 0 || result >= hostApisCount_ )
         {
             result = paInternalError;
-            
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
-        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
-#endif
         }
-        else
-        {
+    }
+
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
+    PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
+    if( result < 0 )
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+    else
         PaUtil_DebugPrint("\tPaHostApiIndex %d\n\n", result );
 #endif
-        }
 
-        return result;
-    }
+    return result;
 }
 
 
@@ -661,53 +643,37 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int ho
     PaUtil_DebugPrint("\tint hostApiDeviceIndex: %d\n", hostApiDeviceIndex );
 #endif
 
-
     if( !PA_IS_INITIALISED_ )
     {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ PortAudio not initialized ]\n\n" );
-#endif
-
+        result = paNotInitialized;
     }
     else
     {
         if( hostApi < 0 || hostApi >= hostApisCount_ )
         {
-            result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApi out of range ]\n\n" );
-#endif
-
+            result = paInvalidHostApi;
         }
         else
         {
             if( hostApiDeviceIndex < 0 ||
                     hostApiDeviceIndex >= hostApis_[hostApi]->info.deviceCount )
             {
-                result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApiDeviceIndex out of range ]\n\n" );
-#endif
-
+                result = paInvalidDevice;
             }
             else
             {
                 result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex + hostApiDeviceIndex;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
-#endif
             }
         }
     }
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
+    if( result < 0 )
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+    else
+        PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
+#endif
 
     return result;
 }
@@ -723,24 +689,20 @@ PaDeviceIndex Pa_GetDeviceCount( void )
 
     if( !PA_IS_INITIALISED_ )
     {
-        result = 0;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetDeviceCount returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: 0 [ PortAudio not initialized ]\n\n" );
-#endif
-
+        result = paNotInitialized;
     }
     else
     {
         result = deviceCount_;
+    }
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetDeviceCount returned:\n" );
+    PaUtil_DebugPrint("Pa_GetDeviceCount returned:\n" );
+    if( result < 0 )
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+    else
         PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
 #endif
-
-    }
 
     return result;
 }
