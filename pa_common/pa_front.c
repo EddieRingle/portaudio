@@ -1077,7 +1077,7 @@ static PaError ValidateOpenStreamParameters(
 
             *hostApi = hostApis_[inputHostApiIndex];
 
-            if( inputParameters->numChannels <= 0 )
+            if( inputParameters->numberOfChannels <= 0 )
                 return paInvalidChannelCount;
 
             if( !SampleFormatIsValid( inputParameters->sampleFormat ) )
@@ -1128,7 +1128,7 @@ static PaError ValidateOpenStreamParameters(
 
             *hostApi = hostApis_[outputHostApiIndex];
 
-            if( outputParameters->numChannels <= 0 )
+            if( outputParameters->numberOfChannels <= 0 )
                 return paInvalidChannelCount;
 
             if( !SampleFormatIsValid( outputParameters->sampleFormat ) )
@@ -1230,7 +1230,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     if( inputParameters )
     {
         hostApiInputParameters.device = hostApiInputDevice;
-        hostApiInputParameters.numChannels = inputParameters->numChannels;
+        hostApiInputParameters.numberOfChannels = inputParameters->numberOfChannels;
         hostApiInputParameters.sampleFormat = inputParameters->sampleFormat;
         hostApiInputParameters.suggestedLatency = inputParameters->suggestedLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1244,7 +1244,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     if( outputParameters )
     {
         hostApiOutputParameters.device = hostApiOutputDevice;
-        hostApiOutputParameters.numChannels = outputParameters->numChannels;
+        hostApiOutputParameters.numberOfChannels = outputParameters->numberOfChannels;
         hostApiOutputParameters.sampleFormat = outputParameters->sampleFormat;
         hostApiOutputParameters.suggestedLatency = outputParameters->suggestedLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1366,7 +1366,7 @@ PaError Pa_OpenStream( PaStream** stream,
     if( inputParameters )
     {
         hostApiInputParameters.device = hostApiInputDevice;
-        hostApiInputParameters.numChannels = inputParameters->numChannels;
+        hostApiInputParameters.numberOfChannels = inputParameters->numberOfChannels;
         hostApiInputParameters.sampleFormat = inputParameters->sampleFormat;
         hostApiInputParameters.suggestedLatency = inputParameters->suggestedLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1380,7 +1380,7 @@ PaError Pa_OpenStream( PaStream** stream,
     if( outputParameters )
     {
         hostApiOutputParameters.device = hostApiOutputDevice;
-        hostApiOutputParameters.numChannels = outputParameters->numChannels;
+        hostApiOutputParameters.numberOfChannels = outputParameters->numberOfChannels;
         hostApiOutputParameters.sampleFormat = outputParameters->sampleFormat;
         hostApiOutputParameters.suggestedLatency = outputParameters->suggestedLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1438,7 +1438,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     if( numInputChannels > 0 )
     {
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
-        hostApiInputParameters.numChannels = numInputChannels;
+        hostApiInputParameters.numberOfChannels = numInputChannels;
         hostApiInputParameters.sampleFormat = sampleFormat;
         hostApiInputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiInputParameters.device )->defaultHighInputLatency;
@@ -1453,7 +1453,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     if( numOutputChannels > 0 )
     {
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
-        hostApiOutputParameters.numChannels = numOutputChannels;
+        hostApiOutputParameters.numberOfChannels = numOutputChannels;
         hostApiOutputParameters.sampleFormat = sampleFormat;
         hostApiOutputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiOutputParameters.device )->defaultHighOutputLatency;

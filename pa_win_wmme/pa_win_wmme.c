@@ -628,7 +628,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numChannels;
+        numInputChannels = inputParameters->numberOfChannels;
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
@@ -652,7 +652,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numChannels;
+        numOutputChannels = outputParameters->numberOfChannels;
         outputSampleFormat = outputParameters->sampleFormat;
         
         /* unless alternate device specification is supported, reject the use of
@@ -998,7 +998,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numChannels;
+        numInputChannels = inputParameters->numberOfChannels;
         inputSampleFormat = inputParameters->sampleFormat;
         suggestedInputLatency = inputParameters->suggestedLatency;
         
@@ -1080,7 +1080,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numChannels;
+        numOutputChannels = outputParameters->numberOfChannels;
         outputSampleFormat = outputParameters->sampleFormat;
         suggestedOutputLatency = outputParameters->suggestedLatency;
         

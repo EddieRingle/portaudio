@@ -75,7 +75,7 @@ typedef enum PaErrorNum
     paTimedOut,
     paInternalError,
     paDeviceUnavailable,
-    paIncompatibleStreamInfo,
+    paIncompatibleHostApiSpecificStreamInfo,
     paStreamIsStopped,
     paStreamIsNotStopped,
     paInputOverflowed,
@@ -459,7 +459,7 @@ typedef struct PaStreamParameters
      It can range from 1 to the value of maxInputChannels in the
      PaDeviceInfo record for the device specified by the device parameter.
     */
-    int numChannels;
+    int numberOfChannels;
 
     /** The sample format of the buffer provided to the stream callback,
      a_ReadStream() or Pa_WriteStream(). It may be any of the formats described
