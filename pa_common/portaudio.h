@@ -523,7 +523,13 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
 
 /**
  A single PaStream can provide multiple channels of real-time
- streaming audio input and output to a client application.
+ streaming audio input and output to a client application. A stream
+ provides access to audio hardware represented by one or more
+ PaDevices. Depending on the underlying Host API, it may be possible 
+ to open multiple streams using the same device, however this behavior 
+ is implementation defined. Portable applications should assume that 
+ a PaDevice may be simultaneously used by at most one PaStream.
+
  Pointers to PaStream objects are passed between PortAudio functions that
  operate on streams.
 
