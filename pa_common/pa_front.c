@@ -1466,10 +1466,13 @@ PaError Pa_CloseStream( PaStream* stream )
     if( result == paNoError )
     {
         interface = PA_STREAM_INTERFACE(stream);
-        if( !interface->IsStopped( stream ) )
-        {
+
+        /* abort the stream if it isn't stopped */
+        result = interface->IsStopped( stream );
+        if( result == 1 )
+            result = paNoError;
+        else if( result == 0 )
             result = interface->Abort( stream );
-        }
 
         if( result == paNoError )                 /** @todo REVIEW: shouldn't we close anyway? */
             result = interface->Close( stream );
@@ -1496,13 +1499,15 @@ PaError Pa_SetStreamFinishedCallback( PaStream *stream, PaStreamFinishedCallback
 
     if( result == paNoError )
     {
-        if( !PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
+        result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+        if( result == 0 )
         {
             result = paStreamIsNotStopped ;
         }
-        else
+        if( result == 1 )
         {
             PA_STREAM_REP( stream )->streamFinishedCallback = streamFinishedCallback;
+            result = paNoError;
         }
     }
 
@@ -1527,11 +1532,12 @@ PaError Pa_StartStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( !PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
+        result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+        if( result == 0 )
         {
             result = paStreamIsNotStopped ;
         }
-        else
+        else if( result == 1 )
         {
             result = PA_STREAM_INTERFACE(stream)->Start( stream );
         }
@@ -1557,13 +1563,14 @@ PaError Pa_StopStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
-        {
-            result = paStreamIsStopped;
-        }
-        else
+        result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+        if( result == 0 )
         {
             result = PA_STREAM_INTERFACE(stream)->Stop( stream );
+        }
+        else if( result == 1 )
+        {
+            result = paStreamIsStopped;
         }
     }
 
@@ -1587,13 +1594,14 @@ PaError Pa_AbortStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
-        {
-            result = paStreamIsStopped;
-        }
-        else
+        result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+        if( result == 0 )
         {
             result = PA_STREAM_INTERFACE(stream)->Abort( stream );
+        }
+        else if( result == 1 )
+        {
+            result = paStreamIsStopped;
         }
     }
 
@@ -1772,17 +1780,28 @@ PaError Pa_ReadStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    if( frames == 0 )
+    if( result == paNoError )
     {
-        result = paInternalError; /** @todo should return a different error code */
-    }
-    else if( buffer == 0 )
-    {
-        result = paInternalError; /** @todo should return a different error code */
-    }
-    else
-    {
-        result = PA_STREAM_INTERFACE(stream)->Read( stream, buffer, frames );
+        if( frames == 0 )
+        {
+            result = paInternalError; /** @todo should return a different error code */
+        }
+        else if( buffer == 0 )
+        {
+            result = paInternalError; /** @todo should return a different error code */
+        }
+        else
+        {
+            result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+            if( result == 0 )
+            {
+                result = PA_STREAM_INTERFACE(stream)->Read( stream, buffer, frames );
+            }
+            else if( result == 1 )
+            {
+                result = paStreamIsStopped;
+            }
+        }
     }
 
 #ifdef PA_LOG_API_CALLS
@@ -1805,17 +1824,28 @@ PaError Pa_WriteStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    if( frames == 0 )
+    if( result == paNoError )
     {
-        result = paInternalError; /** @todo should return a different error code */
-    }
-    else if( buffer == 0 )
-    {
-        result = paInternalError; /** @todo should return a different error code */
-    }
-    else
-    {
-        result = PA_STREAM_INTERFACE(stream)->Write( stream, buffer, frames );
+        if( frames == 0 )
+        {
+            result = paInternalError; /** @todo should return a different error code */
+        }
+        else if( buffer == 0 )
+        {
+            result = paInternalError; /** @todo should return a different error code */
+        }
+        else
+        {
+            result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+            if( result == 0 )
+            {
+                result = PA_STREAM_INTERFACE(stream)->Write( stream, buffer, frames );
+            }
+            else if( result == 1 )
+            {
+                result = paStreamIsStopped;
+            }  
+        }
     }
 
 #ifdef PA_LOG_API_CALLS
