@@ -878,7 +878,7 @@ static void Int32_To_Float32(
 
     while( count-- )
     {
-        *dest = (double)*src * const_1_div_2147483648_;
+        *dest = (float) ((double)*src * const_1_div_2147483648_);
 
         src += sourceStride;
         dest += destinationStride;
@@ -972,7 +972,7 @@ static void Int32_To_Int8(
 
     while( count-- )
     {
-        *dest = (signed short) ((*src) >> 24);
+        *dest = (signed char) ((*src) >> 24);
 
         src += sourceStride;
         dest += destinationStride;
@@ -994,7 +994,7 @@ static void Int32_To_Int8_Dither(
     {
         /* REVIEW */
         dither = PaUtil_Generate16BitTriangularDither( ditherGenerator );
-        *dest = (signed short) ((((*src)>>1) + dither) >> 23);
+        *dest = (signed char) ((((*src)>>1) + dither) >> 23);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1069,7 +1069,7 @@ static void Int24_To_Float32(
         temp = temp | (((long)src[2]) << 8);
 #endif
 
-        *dest = (double)temp * const_1_div_2147483648_;
+        *dest = (float) ((double)temp * const_1_div_2147483648_);
 
         src += sourceStride * 3;
         dest += destinationStride;
