@@ -1263,8 +1263,10 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     /* Silence buffer in the case of underrun */
     if( !primeBuffers ) /* XXX: Make sense? */
     {
+        snd_pcm_uframes_t boundary;
+        ENSURE( snd_pcm_sw_params_get_boundary( swParams, &boundary ), paUnanticipatedHostError );
         ENSURE( snd_pcm_sw_params_set_silence_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
-        ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, INT_MAX ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, boundary ), paUnanticipatedHostError );
     }
         
     ENSURE( snd_pcm_sw_params_set_avail_min( pcm, swParams, framesPerBuffer ), paUnanticipatedHostError );
