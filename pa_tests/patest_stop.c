@@ -267,7 +267,7 @@ int TestStopMode( paTestData *data )
         {
             /*printf("outTime = %g, note# = %d, repeat# = %d\n", data->outTime,
              data->noteCounter, data->repeatCounter  );
-            fflush(stdout); /**/
+            fflush(stdout); */
             Pa_Sleep( SLEEP_DUR );
         }
     }
@@ -277,7 +277,7 @@ int TestStopMode( paTestData *data )
         {
             /*printf("outTime = %g, note# = %d, repeat# = %d\n", data->outTime,
              data->noteCounter, data->repeatCounter  );
-            fflush(stdout); /**/
+            fflush(stdout); */
             Pa_Sleep( SLEEP_DUR );
         }
     }
