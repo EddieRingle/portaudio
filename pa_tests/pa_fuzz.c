@@ -51,7 +51,7 @@ float CubicAmplifier( float input );
 static int fuzzCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
-                         unsigned long statusFlags,
+                         PaStreamCallbackFlags statusFlags,
                          void *userData );
 
 /* Non-linear amplifier with soft distortion curve. */
@@ -81,7 +81,7 @@ static int gNumNoInputs = 0;
 static int fuzzCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
-                         unsigned long statusFlags,
+                         PaStreamCallbackFlags statusFlags,
                          void *userData )
 {
     SAMPLE *out = (SAMPLE*)outputBuffer;

@@ -63,7 +63,7 @@ paTestData;
 static int patestCallback(  void *inputBuffer, void *outputBuffer,
                             unsigned long framesPerBuffer,
                             const PaStreamCallbackTimeInfo* timeInfo,
-                            unsigned long statusFlags,
+                            PaStreamCallbackFlags statusFlags,
                             void *userData )
 {
     paTestData *data = (paTestData*)userData;
