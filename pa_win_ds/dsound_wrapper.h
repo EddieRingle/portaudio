@@ -45,10 +45,6 @@
 #endif
 
 #include <DSound.h>
-#if !defined(BOOL)
-#define BOOL short
-#endif
-
 
 #ifdef __cplusplus
 extern "C"
