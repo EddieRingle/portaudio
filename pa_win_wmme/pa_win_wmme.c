@@ -2982,10 +2982,11 @@ static PaError StopStream( PaStream *s )
 {
     PaError result = paNoError;
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
-    int timeout, waitCount;
+    int timeout;
     DWORD waitResult;
     MMRESULT mmresult;
-    unsigned int i;
+    signed int hostOutputBufferIndex;
+    unsigned int channel, waitCount, i;                  
     
     /*
         FIXME: the error checking in this function needs review. the basic
@@ -3031,6 +3032,35 @@ static PaError StopStream( PaStream *s )
 
         if( PA_IS_OUTPUT_STREAM_(stream) )
         {
+            if( stream->output.framesUsedInCurrentBuffer > 0 )
+            {
+                /* there are still unqueued frames in the current buffer, so flush them */
+
+                hostOutputBufferIndex = stream->output.currentBufferIndex;
+
+                PaUtil_SetOutputFrameCount( &stream->bufferProcessor,
+                        stream->output.framesPerBuffer - stream->output.framesUsedInCurrentBuffer );
+                
+                channel = 0;
+                for( i=0; i<stream->output.deviceCount; ++i )
+                {
+                    /* we have stored the number of channels in the buffer in dwUser */
+                    int channelCount = stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
+
+                    PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
+                            stream->output.waveHeaders[i][ hostOutputBufferIndex ].lpData +
+                                stream->output.framesUsedInCurrentBuffer * channelCount *
+                                stream->bufferProcessor.bytesPerHostOutputSample,
+                            channelCount );
+
+                    channel += channelCount;
+                }
+
+                PaUtil_ZeroOutput( &stream->bufferProcessor );
+                AdvanceToNextOutputBuffer( stream );
+            }
+            
+
             timeout = (stream->allBuffersDurationMs / stream->output.bufferCount) + 1;
             if( timeout < PA_MME_MIN_TIMEOUT_MSEC_ )
                 timeout = PA_MME_MIN_TIMEOUT_MSEC_;
