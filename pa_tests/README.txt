@@ -9,7 +9,7 @@ compile.
 Feel free to fix some more of them, most simply require adjusting to the new API.
 
 x- paqa_devs.c 
-o- paqa_errs.c 
+x- paqa_errs.c 
 x- patest1.c
 x- patest_buffer.c
 x- patest_callbackstop.c
