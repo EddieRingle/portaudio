@@ -1,12 +1,17 @@
-#ifndef PA_TRACE_H
-#define PA_TRACE_H
+#ifndef PA_WIN_WMME_H
+#define PA_WIN_WMME_H
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
+
 /*
- * $Id$
- * Portable Audio I/O Library Trace Facility
- * Store trace information in real-time for later printing.
  *
- * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2000 Phil Burk
+ * PortAudio Portable Real-Time Audio Library
+ * MME specific extensions
+ *
+ * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -30,35 +35,31 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
  */
 
 
-#define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
-#define PA_MAX_TRACE_RECORDS      (2048)
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
+#include "portaudio.h"
 
 
-#if PA_TRACE_REALTIME_EVENTS
+#define paWinMmePassMultipleInterleavedBuffers 0x01 /* a flag */
 
-void PaUtil_ResetTraceMessages();
-void PaUtil_AddTraceMessage( const char *msg, int data );
-void PaUtil_DumpTraceMessages();
-    
-#else
+typedef struct{
+    PaDeviceIndex device;
+    int numChannels;
+}PaWinMmeDeviceAndNumChannels;
 
-#define PaUtil_ResetTraceMessages() /* noop */
-#define PaUtil_AddTraceMessage(msg,data) /* noop */
-#define PaUtil_DumpTraceMessages() /* noop */
 
-#endif
+typedef struct{
+    PaHostApiSpecificStreamInfo header;
+    PaWinMmeDeviceAndNumChannels *devices;
+    unsigned long numDevices;
+    unsigned long flags;
+}PaWinMmeStreamInfo;
 
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
-#endif /* PA_TRACE_H */
+#endif /* PA_WIN_WMME_H */

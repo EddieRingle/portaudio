@@ -1,12 +1,9 @@
-#ifndef PA_TRACE_H
-#define PA_TRACE_H
 /*
- * $Id$
- * Portable Audio I/O Library Trace Facility
- * Store trace information in real-time for later printing.
+ *
+ * Portable Audio I/O Library Windows initialization table
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2000 Phil Burk
+ * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -33,32 +30,36 @@
  */
 
 
-#define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
-#define PA_MAX_TRACE_RECORDS      (2048)
+#include "pa_hostapi.h"
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
+PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 
-#if PA_TRACE_REALTIME_EVENTS
+const PaUtilHostApiInitializer *paHostApiInitializers[] =
+    {
 
-void PaUtil_ResetTraceMessages();
-void PaUtil_AddTraceMessage( const char *msg, int data );
-void PaUtil_DumpTraceMessages();
-    
-#else
-
-#define PaUtil_ResetTraceMessages() /* noop */
-#define PaUtil_AddTraceMessage(msg,data) /* noop */
-#define PaUtil_DumpTraceMessages() /* noop */
-
+#ifndef PA_NO_WMME
+        PaWinMme_Initialize,
 #endif
 
+#ifndef PA_NO_DS
+        //PaWinDs_Initialize,
+#endif
 
-#ifdef __cplusplus
+#ifndef PA_NO_ASIO
+        //PaAsio_Initialize,
+#endif
+
+        PaSkeleton_Initialize, /* just for testing */
+
+        0   /* NULL terminated array */
+    };
+
+
+PaHostApiIndex Pa_GetDefaultHostApi( void )
+{
+    return 0;
 }
-#endif /* __cplusplus */
-
-#endif /* PA_TRACE_H */

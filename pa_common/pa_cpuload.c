@@ -1,12 +1,10 @@
-#ifndef PA_TRACE_H
-#define PA_TRACE_H
 /*
- * $Id$
- * Portable Audio I/O Library Trace Facility
- * Store trace information in real-time for later printing.
+ * 
+ * Portable Audio I/O Library CPU Load measurement functions
+ * Portable CPU load measurement facility.
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2000 Phil Burk
+ * Copyright (c) 2002 Ross Bencina
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -32,33 +30,41 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "pa_cpuload.h"
 
-#define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
-#define PA_MAX_TRACE_RECORDS      (2048)
+#include <assert.h>
 
-#ifdef __cplusplus
-extern "C"
+#include "pa_util.h"   /* for PaUtil_MicrosecondTime() */
+
+
+void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* tracker, double microsecondsFor100Percent )
 {
-#endif /* __cplusplus */
-
-
-#if PA_TRACE_REALTIME_EVENTS
-
-void PaUtil_ResetTraceMessages();
-void PaUtil_AddTraceMessage( const char *msg, int data );
-void PaUtil_DumpTraceMessages();
-    
-#else
-
-#define PaUtil_ResetTraceMessages() /* noop */
-#define PaUtil_AddTraceMessage(msg,data) /* noop */
-#define PaUtil_DumpTraceMessages() /* noop */
-
-#endif
-
-
-#ifdef __cplusplus
+    assert( microsecondsFor100Percent > 0. );
+    tracker->inverseMicrosecondsFor100Percent = 1. / microsecondsFor100Percent;
 }
-#endif /* __cplusplus */
 
-#endif /* PA_TRACE_H */
+
+void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* tracker )
+{
+    tracker->measurementStartTime = PaUtil_MicrosecondTime();
+}
+
+
+void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* tracker )
+{
+    double measurementEndTime = PaUtil_MicrosecondTime();
+    double measuredLoad =
+        (measurementEndTime - tracker->measurementStartTime) * tracker->inverseMicrosecondsFor100Percent;
+
+#define LOWPASS_COEFFICIENT_0   (0.9)
+#define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
+
+    tracker->averageLoad = (LOWPASS_COEFFICIENT_0 * tracker->averageLoad) +
+                           (LOWPASS_COEFFICIENT_1 * measuredLoad);
+}
+
+
+double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* tracker )
+{
+    return tracker->averageLoad;
+}

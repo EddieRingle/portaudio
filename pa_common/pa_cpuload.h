@@ -1,12 +1,12 @@
-#ifndef PA_TRACE_H
-#define PA_TRACE_H
+#ifndef PA_CPULOAD_H
+#define PA_CPULOAD_H
 /*
- * $Id$
- * Portable Audio I/O Library Trace Facility
- * Store trace information in real-time for later printing.
+ * 
+ * Portable Audio I/O Library CPU Load measurement functions
+ * Portable CPU load measurement facility.
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2000 Phil Burk
+ * Copyright (c) 2002 Ross Bencina
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -31,34 +31,26 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-
-
-#define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
-#define PA_MAX_TRACE_RECORDS      (2048)
-
+ 
 #ifdef __cplusplus
 extern "C"
 {
 #endif /* __cplusplus */
 
 
-#if PA_TRACE_REALTIME_EVENTS
+typedef struct {
+    double inverseMicrosecondsFor100Percent;
+    double measurementStartTime;
+    double averageLoad;
+} PaUtilCpuLoadMeasurer; /* FIXME: need better name than measurer */
 
-void PaUtil_ResetTraceMessages();
-void PaUtil_AddTraceMessage( const char *msg, int data );
-void PaUtil_DumpTraceMessages();
-    
-#else
-
-#define PaUtil_ResetTraceMessages() /* noop */
-#define PaUtil_AddTraceMessage(msg,data) /* noop */
-#define PaUtil_DumpTraceMessages() /* noop */
-
-#endif
+void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* measurer, double microsecondsFor100Percent );
+void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );
+void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );
+double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* measurer );
 
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* PA_TRACE_H */
+#endif /* PA_CPULOAD_H */

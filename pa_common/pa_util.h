@@ -1,12 +1,12 @@
-#ifndef PA_TRACE_H
-#define PA_TRACE_H
+#ifndef PA_UTIL_H
+#define PA_UTIL_H
 /*
- * $Id$
- * Portable Audio I/O Library Trace Facility
- * Store trace information in real-time for later printing.
+ *
+ * Portable Audio I/O Library implementation utilities header
+ * common implementation utilities and interfaces
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2000 Phil Burk
+ * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -32,9 +32,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-
-#define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
-#define PA_MAX_TRACE_RECORDS      (2048)
+#include "portaudio.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -42,23 +40,42 @@ extern "C"
 #endif /* __cplusplus */
 
 
-#if PA_TRACE_REALTIME_EVENTS
+void PaUtil_SetHostError( long error ); /* deprecated */
 
-void PaUtil_ResetTraceMessages();
-void PaUtil_AddTraceMessage( const char *msg, int data );
-void PaUtil_DumpTraceMessages();
-    
+
+/*
+PA_DEBUG() provides a simple debug message printing facility. The macro
+passes it's argument to a printf-like function called PaUtil_DebugPrint()
+which prints to stderr and always flushes the stream after printing.
+Because preprocessor macros cannot directly accept variable length argument
+lists, calls to the macro must include an additional set of parenthesis, eg:
+PA_DEBUG(("errorno: %d", 1001 ));
+*/
+
+void PaUtil_DebugPrint( const char *format, ... );
+
+#if (0) /* set to 1 to print debug messages */
+#define PA_DEBUG(x) PaUtil_DebugPrint x ;
 #else
-
-#define PaUtil_ResetTraceMessages() /* noop */
-#define PaUtil_AddTraceMessage(msg,data) /* noop */
-#define PaUtil_DumpTraceMessages() /* noop */
-
+#define PA_DEBUG(x)
 #endif
+
+
+/* the following functions are implemented in a per-platform .c file */
+
+void *PaUtil_AllocateMemory( long size );
+void PaUtil_FreeMemory( void *block );
+
+int PaUtil_CountMemoryLeaks( void ); /* PA_TRACK_MEMORY must be defined for this to work */
+
+void PaUtil_InitializeMicrosecondClock( void );
+double PaUtil_MicrosecondTime( void ); /* used to implement CPU load functions */
+
+/* void Pa_Sleep( long msec );  must also be implemented in per-platform .c file */
+
 
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* PA_TRACE_H */
+#endif /* PA_UTIL_H */

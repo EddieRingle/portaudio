@@ -35,7 +35,7 @@
 #include <string.h>
 #include "pa_trace.h"
 
-#if TRACE_REALTIME_EVENTS
+#if PA_TRACE_REALTIME_EVENTS
 
 static char *traceTextArray[MAX_TRACE_RECORDS];
 static int traceIntArray[MAX_TRACE_RECORDS];
@@ -43,16 +43,16 @@ static int traceIndex = 0;
 static int traceBlock = 0;
 
 /*********************************************************************/
-void ResetTraceMessages()
+void PaUtil_ResetTraceMessages()
 {
     traceIndex = 0;
 }
 
 /*********************************************************************/
-void DumpTraceMessages()
+void PaUtil_DumpTraceMessages()
 {
     int i;
-    int numDump = (traceIndex < MAX_TRACE_RECORDS) ? traceIndex : MAX_TRACE_RECORDS;
+    int numDump = (traceIndex < PA_MAX_TRACE_RECORDS) ? traceIndex : PA_MAX_TRACE_RECORDS;
 
     printf("DumpTraceMessages: traceIndex = %d\n", traceIndex );
     for( i=0; i<numDump; i++ )
@@ -65,14 +65,14 @@ void DumpTraceMessages()
 }
 
 /*********************************************************************/
-void AddTraceMessage( char *msg, int data )
+void PaUtil_AddTraceMessage( const char *msg, int data )
 {
-    if( (traceIndex == MAX_TRACE_RECORDS) && (traceBlock == 0) )
+    if( (traceIndex == PA_MAX_TRACE_RECORDS) && (traceBlock == 0) )
     {
         traceBlock = 1;
-        /*  DumpTraceMessages(); */
+        /*  PaUtil_DumpTraceMessages(); */
     }
-    else if( traceIndex < MAX_TRACE_RECORDS )
+    else if( traceIndex < PA_MAX_TRACE_RECORDS )
     {
         traceTextArray[traceIndex] = msg;
         traceIntArray[traceIndex] = data;
@@ -80,4 +80,4 @@ void AddTraceMessage( char *msg, int data )
     }
 }
 
-#endif
+#endif /* TRACE_REALTIME_EVENTS */
