@@ -215,7 +215,7 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto done;
 
-    inputParameters.device = 2; //Pa_GetDefaultInputDevice(); /* default input device */
+    inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
     inputParameters.channelCount = 2;                    /* stereo input */
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
