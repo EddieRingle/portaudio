@@ -224,7 +224,7 @@ typedef enum {
  call to the buffer processor. This is the only mode where
  PaUtil_EndBufferProcessing() may not consume the whole buffer.
 */
-    paUtilVariableHostBufferSizePartialUsageAllowed,   
+    paUtilVariableHostBufferSizePartialUsageAllowed
 }PaUtilHostBufferSizeMode;
 
 
