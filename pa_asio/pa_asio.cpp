@@ -91,6 +91,8 @@
     @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
 
     @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
+
+    @todo implement IsFormatSupported
 */
 
 
@@ -154,6 +156,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStreamFlags streamFlags,
                            PaStreamCallback *streamCallback,
                            void *userData );
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
 static PaError StopStream( PaStream *stream );
@@ -899,9 +905,10 @@ error:
 }
 
 
-#define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
-static ASIOSampleRate possibleSampleRates_[]
-    = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
+#define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_     13   /* must be the same number of elements as in the array below */
+static ASIOSampleRate defaultSampleRateSearchOrder_[]
+     = {44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0,
+        192000.0, 16000.0, 12000.0, 11025.0, 96000.0, 8000.0 };
 
 
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
@@ -1019,45 +1026,27 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
                 deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */  
 
+                deviceInfo->defaultSampleRate = 0.;
+                for( int j=0; j < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++j )
+                {
+                    ASIOError asioError = ASIOCanSampleRate( defaultSampleRateSearchOrder_[j] );
+                    if( asioError != ASE_NoClock && asioError != ASE_NotPresent ){
+                        deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[j];
+                        break;
+                    }
+                }
 
                 asioDeviceInfo->minBufferSize = paAsioDriverInfo.bufferMinSize;
                 asioDeviceInfo->maxBufferSize = paAsioDriverInfo.bufferMaxSize;
                 asioDeviceInfo->preferredBufferSize = paAsioDriverInfo.bufferPreferredSize;
                 asioDeviceInfo->bufferGranularity = paAsioDriverInfo.bufferGranularity;
 
-                deviceInfo->numSampleRates = 0;
-
-                /* allocate space for all possible sample rates */
-                sampleRates = (double*)PaUtil_GroupAllocateMemory(
-                        asioHostApi->allocations, PA_NUM_POSSIBLESAMPLINGRATES_ * sizeof(double) );
-                if( !sampleRates )
-                {
-                    ASIOExit();
-                    result = paInsufficientMemory;
-                    goto error;
-                }
-
-                deviceInfo->sampleRates = sampleRates;
-                deviceInfo->numSampleRates = 0;
-
-                /* Loop through the possible sampling rates and check each to see if the device supports it. */
-                for( j = 0; j < PA_NUM_POSSIBLESAMPLINGRATES_; ++j )
-                {
-                    if( ASIOCanSampleRate(possibleSampleRates_[j]) != ASE_NoClock ){  /* FIXME, is that really the best comparison? */
-                        PA_DEBUG(("PaAsio_Initialize : %s, possible sample rate = %d\n", names[i], (long)possibleSampleRates_[j]));
-                        *sampleRates = possibleSampleRates_[j];
-                        sampleRates++;
-                        deviceInfo->numSampleRates += 1;
-                    }
-                }
-
                     
                 /* We assume that all channels have the same SampleType, so check the first, FIXME, probably shouldn't assume that */
                 asioChannelInfo.channel = 0;
                 asioChannelInfo.isInput = 1;
                 ASIOGetChannelInfo( &asioChannelInfo );  /* FIXME, check return code */
-                    
-                deviceInfo->nativeSampleFormats = AsioSampleTypeToPaNativeSampleFormat( asioChannelInfo.type );
+
 
                 /* unload the driver */
                 ASIOExit();
@@ -1082,7 +1071,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
-
+    (*hostApi)->IsFormatSupported = IsFormatSupported;
 
     PaUtil_InitializeStreamInterface( &asioHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
@@ -1128,6 +1117,83 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     PaUtil_FreeMemory( asioHostApi );
 }
+
+
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
+{
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numInputChannels = 0;
+    }
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numOutputChannels = 0;
+    }
+    
+    /*
+        IMPLEMENT ME:
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported
+
+            - check that the device supports sampleRate
+    */
+
+    return paFormatIsSupported;
+}
+
 
 
 /* PaAsioStream - a stream data structure specifically for this implementation */
