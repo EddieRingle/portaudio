@@ -38,7 +38,7 @@
 #include <math.h>
 #include "portaudio.h"
 
-#define NUM_SECONDS        (20)
+#define NUM_SECONDS        (10)
 #define SAMPLE_RATE        (44100)
 #define FRAMES_PER_BUFFER  (512)
 #define LEFT_FREQ          (SAMPLE_RATE/256.0)  /* So we hit 1.0 */
@@ -142,7 +142,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     paTestData data;
     int totalSamps;
@@ -160,14 +160,15 @@ int main(void)
               paNoDevice,/* default input device */
               0,              /* no input */
               TEST_FORMAT,
+              0, /* default latency */
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,          /* stereo output */
               TEST_FORMAT,
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              0,              /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
@@ -177,7 +178,7 @@ int main(void)
     if( err != paNoError ) goto error;
 
     printf("Waiting %d seconds for sound to finish.\n", NUM_SECONDS );
-    while( Pa_StreamActive( stream ) ) Pa_Sleep(10);
+    while( Pa_IsStreamActive( stream ) ) Pa_Sleep(10);
 
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;

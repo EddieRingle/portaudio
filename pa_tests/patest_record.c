@@ -47,11 +47,11 @@
 #define DITHER_FLAG     (0) /**/
 
 /* Select sample format. */
-#if 0
+#if 1
 #define PA_SAMPLE_TYPE  paFloat32
 typedef float SAMPLE;
 #define SAMPLE_SILENCE  (0.0f)
-#elif 0
+#elif 1
 #define PA_SAMPLE_TYPE  paInt16
 typedef short SAMPLE;
 #define SAMPLE_SILENCE  (0)
@@ -73,6 +73,7 @@ typedef struct
     SAMPLE      *recordedSamples;
 }
 paTestData;
+
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may be called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
@@ -95,13 +96,14 @@ static int recordCallback( void *inputBuffer, void *outputBuffer,
     if( framesLeft < framesPerBuffer )
     {
         framesToCalc = framesLeft;
-        finished = 1;
+        finished = paComplete;
     }
     else
     {
         framesToCalc = framesPerBuffer;
-        finished = 0;
+        finished = paContinue;
     }
+
     if( inputBuffer == NULL )
     {
         for( i=0; i<framesToCalc; i++ )
@@ -153,7 +155,7 @@ static int playCallback( void *inputBuffer, void *outputBuffer,
             if( NUM_CHANNELS == 2 ) *wptr++ = 0;  /* right */
         }
         data->frameIndex += framesLeft;
-        finished = 1;
+        finished = paComplete;
     }
     else
     {
@@ -163,7 +165,7 @@ static int playCallback( void *inputBuffer, void *outputBuffer,
             if( NUM_CHANNELS == 2 ) *wptr++ = *rptr++;  /* right */
         }
         data->frameIndex += framesPerBuffer;
-        finished = 0;
+        finished = paContinue;
     }
     return finished;
 }
@@ -172,7 +174,7 @@ static int playCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError    err;
     paTestData data;
     int        i;
@@ -201,17 +203,18 @@ int main(void)
     /* Record some audio. -------------------------------------------- */
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDeviceID(),
+              Pa_GetDefaultInputDevice(),
               NUM_CHANNELS,               /* stereo input */
               PA_SAMPLE_TYPE,
+              0, /* default latency */
               NULL,
               paNoDevice,
               0,
               PA_SAMPLE_TYPE,
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               1024,            /* frames per buffer */
-              0,               /* number of buffers, if zero then use default minimum */
               0, //paDitherOff,    /* flags */
               recordCallback,
               &data );
@@ -221,7 +224,7 @@ int main(void)
     if( err != paNoError ) goto error;
     printf("Now recording!!\n"); fflush(stdout);
 
-    while( Pa_StreamActive( stream ) )
+    while( Pa_IsStreamActive( stream ) )
     {
         Pa_Sleep(1000);
         printf("index = %d\n", data.frameIndex ); fflush(stdout);
@@ -283,14 +286,15 @@ int main(void)
               paNoDevice,
               0,               /* NO input */
               PA_SAMPLE_TYPE,
+              0, /* default latency */
               NULL,
-              Pa_GetDefaultOutputDeviceID(),
+              Pa_GetDefaultOutputDevice(),
               NUM_CHANNELS,               /* stereo output */
               PA_SAMPLE_TYPE,
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               1024,            /* frames per buffer */
-              0,               /* number of buffers, if zero then use default minimum */
               paClipOff,       /* we won't output out of range samples so don't bother clipping them */
               playCallback,
               &data );
@@ -302,7 +306,7 @@ int main(void)
         if( err != paNoError ) goto error;
         printf("Waiting for playback to finish.\n"); fflush(stdout);
 
-        while( Pa_StreamActive( stream ) ) Pa_Sleep(100);
+        while( Pa_IsStreamActive( stream ) ) Pa_Sleep(100);
 
         err = Pa_CloseStream( stream );
         if( err != paNoError ) goto error;
