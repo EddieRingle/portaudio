@@ -56,9 +56,6 @@
 */
 
 /** @file
-
-	@todo Handle case where user supplied full duplex buffer sizes are not compatible
-         (must be common multiples)
 	
 	@todo Fix buffer catch up code, can sometimes get stuck (perhaps fixed now,
             needs to be reviewed and tested.)
@@ -73,8 +70,6 @@
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
     @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification
-    
-    @todo Fix fixmes
 */
 
 /*
@@ -1256,6 +1251,50 @@ static PaError CalculateBufferSettings(
 
             *framesPerHostOutputBuffer = outputStreamInfo->framesPerBuffer;
             *hostOutputBufferCount = outputStreamInfo->bufferCount;
+
+            
+            if( inputChannelCount > 0 ) /* full duplex */
+            {
+                if( *framesPerHostInputBuffer != *framesPerHostOutputBuffer )
+                {
+                    if( inputStreamInfo
+                            && ( inputStreamInfo->flags & paWinMmeUseLowLevelLatencyParameters ) )
+                    { 
+                        /* a custom StreamInfo was used for specifying both input
+                            and output buffer sizes, the larger buffer size
+                            must be a multiple of the smaller buffer size */
+
+                        if( *framesPerHostInputBuffer < *framesPerHostOutputBuffer )
+                        {
+                            if( *framesPerHostOutputBuffer % *framesPerHostInputBuffer != 0 )
+                            {
+                                result = paIncompatibleHostApiSpecificStreamInfo;
+                                goto error;
+                            }
+                        }
+                        else
+                        {
+                            assert( *framesPerHostInputBuffer > *framesPerHostOutputBuffer );
+                            if( *framesPerHostInputBuffer % *framesPerHostOutputBuffer != 0 )
+                            {
+                                result = paIncompatibleHostApiSpecificStreamInfo;
+                                goto error;
+                            }
+                        }                        
+                    }
+                    else
+                    {
+                        /* a custom StreamInfo was not used for specifying the input buffer size,
+                            so use the output buffer size, and approximately the same latency. */
+
+                        *framesPerHostInputBuffer = *framesPerHostOutputBuffer;
+                        *hostInputBufferCount = (((unsigned long)(suggestedInputLatency * sampleRate)) / *framesPerHostInputBuffer) + 1;
+
+                        if( *hostInputBufferCount < PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_ )
+                            *hostInputBufferCount = PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_;
+                    }
+                }
+            }
         }
         else
         {
@@ -1919,7 +1958,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 		result = ValidateInputChannelCounts( hostApi, inputDevices, inputDeviceCount );
 		if( result != paNoError ) return result;
 
-		/* FIXME: establish which host formats are available */
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
 	}
@@ -1958,8 +1996,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 		result = ValidateOutputChannelCounts( hostApi, outputDevices, outputDeviceCount );
 		if( result != paNoError ) return result;
-        
-        /* FIXME: establish which host formats are available */
+
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
     }
@@ -2021,22 +2058,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputParameters && outputParameters ) /* full duplex */
     {
-        /*
-            either host input and output buffers must be the same size, or the
-            larger one must be an integer multiple of the smaller one.
-            FIXME: should this return an error if the host specific latency
-            settings don't fulfill these constraints? rb: probably
-        */
-
         if( framesPerHostInputBuffer < framesPerHostOutputBuffer )
         {
-            assert( (framesPerHostOutputBuffer % framesPerHostInputBuffer) == 0 );
+            assert( (framesPerHostOutputBuffer % framesPerHostInputBuffer) == 0 ); /* CalculateBufferSettings() should guarantee this condition */
 
             framesPerBufferProcessorCall = framesPerHostInputBuffer;
         }
         else
         {
-            assert( (framesPerHostInputBuffer % framesPerHostOutputBuffer) == 0 );
+            assert( (framesPerHostInputBuffer % framesPerHostOutputBuffer) == 0 ); /* CalculateBufferSettings() should guarantee this condition */
             
             framesPerBufferProcessorCall = framesPerHostOutputBuffer;
         }
@@ -2395,7 +2425,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         if( waitResult == WAIT_FAILED )
         {
             result = paUnanticipatedHostError;
-            /* FIXME/REVIEW: can't return host error info from an asyncronous thread */
+            /** @todo FIXME/REVIEW: can't return host error info from an asyncronous thread */
             done = 1;
         }
         else if( waitResult == WAIT_TIMEOUT )
@@ -2444,7 +2474,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     {
                         if( NoBuffersAreQueued( &stream->input ) )
                         {
-                            /* if all of the other buffers are also ready then
+                            /** @todo
+                               if all of the other buffers are also ready then
                                we discard all but the most recent. This is an
                                input buffer overflow. FIXME: these buffers should
                                be passed to the callback in a paNeverDropInput
@@ -2607,7 +2638,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     {
                         stream->abortProcessing = 1;
                         done = 1;
-                        /* FIXME: should probably do a reset here */
+                        /** @todo FIXME: should probably reset the output device immediately once the callback returns paAbort */
                         result = paNoError;
                     }
                     else
@@ -2758,7 +2789,7 @@ static PaError CloseStream( PaStream* s )
     PaUtil_FreeMemory( stream );
 
 error:
-    /* FIXME: consider how to best clean up on failure */
+    /** @todo REVIEW: what is the best way to clean up a stream if an error is detected? */
     return result;
 }
 
@@ -2846,7 +2877,7 @@ static PaError StartStream( PaStream *s )
 
                     if( callbackResult != paContinue )
                     {
-                        /** @todo: fix this, what do we do if callback result is non-zero during stream
+                        /** @todo fix this, what do we do if callback result is non-zero during stream
                             priming?
 
                             for complete: play out primed waveHeaders as usual
@@ -2988,7 +3019,7 @@ static PaError StartStream( PaStream *s )
     return result;
 
 error:
-    /* FIXME: implement recovery as best we can
+    /** @todo FIXME: implement recovery as best we can
     This should involve rolling back to a state as-if this function had never been called
     */
     return result;
@@ -3005,8 +3036,8 @@ static PaError StopStream( PaStream *s )
     signed int hostOutputBufferIndex;
     unsigned int channel, waitCount, i;                  
     
-    /*
-        FIXME: the error checking in this function needs review. the basic
+    /** @todo
+        REVIEW: the error checking in this function needs review. the basic
         idea is to return from this function in a known state - for example
         there is no point avoiding calling waveInReset just because
         the thread times out.
@@ -3149,8 +3180,8 @@ static PaError AbortStream( PaStream *s )
     MMRESULT mmresult;
     unsigned int i;
     
-    /*
-        FIXME: the error checking in this function needs review. the basic
+    /** @todo
+        REVIEW: the error checking in this function needs review. the basic
         idea is to return from this function in a known state - for example
         there is no point avoiding calling waveInReset just because
         the thread times out.

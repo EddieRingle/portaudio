@@ -83,6 +83,13 @@ typedef struct PaWinMmeStreamInfo{
         to set latency. They will be used instead of the generic parameters
         to Pa_OpenStream() if flags contains the PaWinMmeUseLowLevelLatencyParameters
         flag.
+
+        If PaWinMmeStreamInfo structures with PaWinMmeUseLowLevelLatencyParameters
+        are supplied for both input and output in a full duplex stream, then the
+        input and output framesPerBuffer must be the same, or the larger of the
+        two must be a multiple of the smaller, otherwise a
+        paIncompatibleHostApiSpecificStreamInfo error will be returned from
+        Pa_OpenStream().
     */
     unsigned long framesPerBuffer;
     unsigned long bufferCount;  /* formerly numBuffers */ 
