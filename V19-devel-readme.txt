@@ -1,13 +1,14 @@
 STATUS:
 
-Only an MME implementation is available, it's still not finished.
+MME, DirectSound and ASIO versions are more-or-less working. See FIXMEs @todos
+and the proposals matrix at portaudio.com for further status.
 
-    The following tests run:
+    The following tests might run if you're lucky:
     tests/pa_devs.c
     tests/patest_sine.c
     tests/pa_fuzz.c
 
-    tests/patest1.c compiles but returns an error here
+    tests/patest1.c 
 
 The PaUtil support code is finished enough for other implementations to be
 ported. No changes are expected to be made to the definition of the PaUtil
@@ -141,6 +142,8 @@ will be logged to stderr along with parameter and return values.
 
 
 TODO:
+    (this list is totally out of date)
+    
     finish coding converter functions in pa_converters.c (anyone?)
 
     implement block adaption in pa_process.c (phil?)
@@ -169,7 +172,8 @@ TODO:
     
     
 DESIGN ISSUES:
-
+    (this list is totally out of date)
+    
     consider removing Pa_ConvertHostApiDeviceIndexToGlobalDeviceIndex() from the API
 
     switch to new latency parameter mechanism now (?)
