@@ -45,6 +45,9 @@
     @todo implement IsFormatSupported
 
     @todo implement PaDeviceInfo.defaultSampleRate;
+
+    @todo check that CoInitialize() CoUninitialize() are always correctly
+        paired, even in error cases.
 */
 
 #include <stdio.h>
@@ -377,7 +380,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     /* Create a DirectSound object for the specified GUID
         Note that using CoCreateInstance doesn't work on windows CE.
     */
-    /* hr = dswDSoundEntryPoints.DirectSoundCreate(  lpGUID, &lpDirectSound,   NULL );  */
+    /* hr = dswDSoundEntryPoints.DirectSoundCreate( lpGUID, &lpDirectSound, NULL );  */
 
     /* try using CoCreateInstance because DirectSoundCreate was hanging under
         some circumstances. */
@@ -386,10 +389,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     if( hr == S_OK )
     {
         hr = IDirectSound_Initialize( lpDirectSound, lpGUID );
-    }else{
-        hr = 0;
     }
-
     
     if( hr != DS_OK )
     {
@@ -479,12 +479,14 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
-    /*
-    hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
-    */
     
+    hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
+
+
+    /*
     hr = CoCreateInstance( &CLSID_DirectSoundCapture, NULL, CLSCTX_INPROC_SERVER,
             &IID_IDirectSoundCapture, (void**)&lpDirectSoundCapture );
+    */
     if( hr != DS_OK )
     {
         DBUG(("Cannot create Capture for %s. Result = 0x%x\n", name, hr ));
