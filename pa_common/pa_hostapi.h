@@ -189,7 +189,7 @@ typedef PaError PaUtilHostApiInitializer( PaUtilHostApiRepresentation**, PaHostA
  each platform has a file which defines hostApiInitializers for that platform.
  see pa_win_init.c for example.
 */
-extern const PaUtilHostApiInitializer *paHostApiInitializers[];
+extern PaUtilHostApiInitializer *paHostApiInitializers[];
 
 
 #ifdef __cplusplus
