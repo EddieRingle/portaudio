@@ -1316,7 +1316,7 @@ static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags 
     stream->pollTimeout = 0;
     stream->pcmsSynced = 0;
     stream->useBlockAdaption = 0;
-    stream->alignFrames = 0;
+    stream->alignFrames = callback ? 1 : 0; /* Only align in case of callback */
     stream->callbackAbort = 0;
     stream->callbackStop = 0;
     stream->isActive = 0;
@@ -1654,7 +1654,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* If the user expects a certain number of frames per callback we will either have to rely on block adaption
      * (framesPerHostBuffer is not an integer multiple of framesPerBuffer) or we can simply align the number
      * of host buffer frames with what the user specified */
-    if( framesPerBuffer != paFramesPerBufferUnspecified )
+    if( stream->callback_mode && framesPerBuffer != paFramesPerBufferUnspecified )
     {
         /* Unless the ratio between number of host and user buffer frames is an integer we will have to rely
          * on block adaption */
@@ -1695,6 +1695,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             snd_pcm_link( stream->capture.pcm, stream->playback.pcm ) >= 0 )
             stream->pcmsSynced = 1;
 
+    assert( stream->capture.nfds || stream->playback.nfds );
     UNLESS( stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture.nfds +
                     stream->playback.nfds) * sizeof(struct pollfd) ), paInsufficientMemory );
 
