@@ -848,7 +848,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     const double jackSr = jack_get_sample_rate( jackHostApi->jack_client );
     PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0;
     int bpInitialized = 0, srInitialized = 0;   /* Initialized buffer processor and stream representation? */
-    unsigned long off;
+    unsigned long ofs;
 
     if( !streamCallback )
     {
@@ -939,20 +939,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* Register a unique set of ports for this stream
      * TODO: Robust allocation of new port names */
 
-    off = jackHostApi->inputBase;
+    ofs = jackHostApi->inputBase;
     for( i = 0; i < inputChannelCount; i++ )
     {
-        snprintf( port_string, jack_port_name_size(), "in_%lu", off + i );
+        snprintf( port_string, jack_port_name_size(), "in_%lu", ofs + i );
         UNLESS( stream->local_input_ports[i] = jack_port_register(
               jackHostApi->jack_client, port_string,
               JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0 ), paInsufficientMemory );
     }
     jackHostApi->inputBase += inputChannelCount;
 
-    off = jackHostApi->outputBase;
+    ofs = jackHostApi->outputBase;
     for( i = 0; i < outputChannelCount; i++ )
     {
-        snprintf( port_string, jack_port_name_size(), "out_%lu", off + i );
+        snprintf( port_string, jack_port_name_size(), "out_%lu", ofs + i );
         UNLESS( stream->local_output_ports[i] = jack_port_register(
              jackHostApi->jack_client, port_string,
              JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0 ), paInsufficientMemory );
@@ -966,7 +966,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( inputChannelCount > 0 )
     {
         int err = 0;
-        UNLESS( !(inputSampleFormat & paNonInterleaved), paSampleFormatNotSupported );
         
         /* ... remote output ports (that we input from) */
         snprintf( regex_pattern, regexSz, "%s:.*", hostApi->deviceInfos[ inputParameters->device ]->name );
@@ -991,7 +990,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( outputChannelCount > 0 )
     {
         int err = 0;
-        UNLESS( !(outputSampleFormat & paNonInterleaved), paSampleFormatNotSupported );
 
         /* ... remote input ports (that we output to) */
         snprintf( regex_pattern, regexSz, "%s:.*", hostApi->deviceInfos[ outputParameters->device ]->name );
@@ -1092,7 +1090,7 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
 
         goto end;
     }
-    
+
     timeInfo.currentTime = (jack_frame_time( stream->jack_client ) - stream->t0) / sr;
     if( stream->num_incoming_connections > 0 )
         timeInfo.inputBufferAdcTime = timeInfo.currentTime - jack_port_get_latency( stream->remote_output_ports[0] )
@@ -1111,6 +1109,11 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
     }
     PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
             cbFlags );
+
+    if( stream->num_incoming_connections > 0 )
+        PaUtil_SetInputFrameCount( &stream->bufferProcessor, frames );
+    if( stream->num_outgoing_connections > 0 )
+        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, frames );
 
     for( chn = 0; chn < stream->num_incoming_connections; chn++ )
     {
@@ -1133,11 +1136,6 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
                 chn,
                 channel_buf );
     }
-
-    if( stream->num_incoming_connections > 0 )
-        PaUtil_SetInputFrameCount( &stream->bufferProcessor, frames );
-    if( stream->num_outgoing_connections > 0 )
-        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, frames );
 
     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
             &stream->callbackResult );
@@ -1283,7 +1281,7 @@ static int JackCallback( jack_nframes_t frames, void *userData )
 
             /* Silence buffer after entering inactive state */
             PA_DEBUG(( "Silencing the output\n" ));
-            for ( i = 0; i < stream->num_outgoing_connections; ++i )
+            for( i = 0; i < stream->num_outgoing_connections; ++i )
             {
                 jack_default_audio_sample_t *buffer = jack_port_get_buffer( stream->local_output_ports[i], frames );
                 memset( buffer, 0, sizeof (jack_default_audio_sample_t) * frames );
@@ -1452,8 +1450,7 @@ static PaTime GetStreamTime( PaStream *s )
 {
     PaJackStream *stream = (PaJackStream*)s;
 
-    /* A: Is this relevant??
-    * TODO: what if we're recording-only? */
+    /* A: Is this relevant?? --> TODO: what if we're recording-only? */
     return (jack_frame_time( stream->jack_client ) - stream->t0) / (PaTime)jack_get_sample_rate( stream->jack_client );
 }
 
