@@ -38,7 +38,7 @@
 #include <math.h>
 #include "portaudio.h"
 
-#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice()
+#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice())
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (256)
 #define FREQ_INCR           (300.0 / SAMPLE_RATE)
