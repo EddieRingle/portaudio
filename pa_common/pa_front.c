@@ -1110,11 +1110,6 @@ PaError Pa_CloseStream( PaStream* stream )
 
     if( result == paNoError )
     {
-        /* always remove the open stream from our list, even if this function
-            eventually returns an error. Otherwise CloseOpenStreams() will
-            get stuck in an infinite loop */
-        RemoveOpenStream( stream );
-
         interface = PA_STREAM_INTERFACE(stream);
         if( !interface->IsStopped( stream ) )
         {
@@ -1124,6 +1119,11 @@ PaError Pa_CloseStream( PaStream* stream )
         if( result == paNoError )                 /* REVIEW: shouldn't we close anyway? */
             result = interface->Close( stream );
     }
+
+    /* always remove the open stream from our list, even if this function
+        eventually returns an error. Otherwise CloseOpenStreams() will
+        get stuck in an infinite loop */
+    RemoveOpenStream( stream );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_CloseStream returned:\n" );
@@ -1145,7 +1145,7 @@ PaError Pa_StartStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        if( !PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
         {
             result = paStreamIsNotStopped ;
         }
@@ -1175,7 +1175,7 @@ PaError Pa_StopStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        if( PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
         {
             result = paStreamIsStopped;
         }
@@ -1205,7 +1205,7 @@ PaError Pa_AbortStream( PaStream *stream )
 
     if( result == paNoError )
     {
-        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        if( PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
         {
             result = paStreamIsStopped;
         }

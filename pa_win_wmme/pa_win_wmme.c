@@ -924,15 +924,28 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         numHostOutputBuffers = 4;
     }
 
-    framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
-            ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
+    if( inputDevice != paNoDevice && outputDevice != paNoDevice )
+    {
+        framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
+                    ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
+    }
+    else if( inputDevice != paNoDevice )
+    {
+        framesPerBufferProcessorCall = framesPerHostInputBuffer;
+    }
+    else if( outputDevice != paNoDevice )
+    {
+        framesPerBufferProcessorCall = framesPerHostOutputBuffer;
+    }
 
-
+     
     if( inputDevice != paNoDevice && outputDevice != paNoDevice )
     {
         /*
             either input and output buffers must be the same size, or the
             larger one must be an integer multiple of the smaller one.
+
+            FIXME: this won't be needed later
         */
         assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
         assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
@@ -1671,7 +1684,7 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
-    return ( stream->processingThread != NULL );
+    return ( stream->processingThread == NULL );
 }
 
 
