@@ -16,6 +16,25 @@ functions.
 Note that it's not yet 100% clear how the current support functions
 will interact with blocking read/write streams.
 
+BUILD INSTRUCTIONS
+
+to build tests/patest_sine.c you will need to compile and link the following
+files (MME)
+pa_common\pa_process.c
+pa_common\pa_skeleton.c
+pa_common\pa_stream.c
+pa_common\pa_trace.c
+pa_common\pa_byteswappers.c
+pa_common\pa_converters.c
+pa_common\pa_cpuload.c
+pa_common\pa_dither.c
+pa_common\pa_front.c
+pa_win\pa_win.c
+pa_win\pa_win_hostapis.c
+pa_win_wmme\pa_win_wmme.c
+
+see below for a description of these files.
+               
 
 FILES:
 
@@ -118,10 +137,6 @@ will be logged to stderr along with parameter and return values.
 
 
 TODO:
-    run astyle or something to convert 1 tab to 4 spaces
-
-    put this code into CVS
-
     finish coding converter functions in pa_converters.c
 
     implement block adaption in pa_process.c
