@@ -80,6 +80,8 @@
 
     @todo review CalculateBufferSettings() and friends - try to honour
         PA_MAX_MSEC_PER_HOST_BUFFER_
+
+    @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification
     
     @todo Fix fixmes
 */
@@ -923,11 +925,10 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputSampleFormat & paCustomFormat )
             return paSampleFormatNotSupported;
 
-        /* unless alternate device specification is supported, reject the use of
-            paUseHostApiSpecificDeviceSpecification */
+        /** @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification */
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
-            return paInvalidDevice;
+            return paInternalError;
 
         /* check that input device can support inputChannelCount */
         if( inputChannelCount > inputDeviceInfo->maxInputChannels )
@@ -964,11 +965,10 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputSampleFormat & paCustomFormat )
             return paSampleFormatNotSupported;
 
-        /* unless alternate device specification is supported, reject the use of
-            paUseHostApiSpecificDeviceSpecification */
+        /** @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
-            return paInvalidDevice;
+            return paInternalError;
 
         /* check that output device can support outputChannelCount */
         if( outputChannelCount > outputDeviceInfo->maxOutputChannels )
