@@ -576,12 +576,12 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
+                                      GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -2450,22 +2450,6 @@ static PaError UpdateStreamTime( PaWinMmeStream *stream )
     LeaveCriticalSection( &stream->lock );
 
     return paNoError;
-}
-
-
-static PaTime GetStreamInputLatency( PaStream *s )
-{
-    PaWinMmeStream *stream = (PaWinMmeStream*)s;
-
-    return stream->inputLatency;
-}
-
-
-static PaTime GetStreamOutputLatency( PaStream *s )
-{
-    PaWinMmeStream *stream = (PaWinMmeStream*)s;
-
-    return stream->outputLatency;
 }
 
 
