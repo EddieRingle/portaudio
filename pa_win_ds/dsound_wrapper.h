@@ -44,6 +44,11 @@
 #endif
 #endif
 
+/*
+  We are only using DX3 in here, no need to polute the namespace - davidv
+*/
+#define DIRECTSOUND_VERSION 0x0300
+
 #include <DSound.h>
 
 #ifdef __cplusplus
