@@ -52,12 +52,14 @@
 
     @todo need to provide a way for clients to drain the adaption buffer
         if the stream callback returns paComplete, but there is data left in the
-        tempOutputBuffer when PaUtil_EndBufferProcessing() returns.
+        tempOutputBuffer when PaUtil_EndBufferProcessing() returns. (check that this is implemented, i think it is)
         
     @todo implement timeInfo->currentTime
 
     @todo implement the streamFlags callback parameter, currently it is
     always zero. It needs to be passed from the host layer somehow.
+
+	@todo provide support for priming the buffers with data from the callback.
 
 
     @todo rename the following variables in the adaptor functions for improved clarity:
