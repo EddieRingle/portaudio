@@ -146,8 +146,7 @@
 static const char constInputMapperSuffix_[] = " - Input";
 static const char constOutputMapperSuffix_[] = " - Output";
 
-
-typedef struct PaWinMmeStream PaWinMmeStream;     /* forward reference */
+typedef struct PaWinMmeStream PaWinMmeStream;     /* forward declaration */
 
 /* prototypes for functions declared in this file */
 
@@ -1145,8 +1144,8 @@ static void TerminateBufferSet( WAVEHDR * *bufferSet, unsigned int numBuffers, i
 
 
 /* PaWinMmeStream - a stream data structure specifically for this implementation */
-
-typedef struct PaWinMmeStream
+/* note that struct PaWinMmeStream is typedeffed to PaWinMmeStream above. */
+struct PaWinMmeStream
 {
     PaUtilStreamRepresentation streamRepresentation;
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
@@ -1198,8 +1197,7 @@ typedef struct PaWinMmeStream
 
     PaTime streamPosition;
     long previousStreamPosition;                /* used to track frames played. */
-}
-PaWinMmeStream;
+};
 
 
 /* the following macros are intended to improve the readability of the following code */
