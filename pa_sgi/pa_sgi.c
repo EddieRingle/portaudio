@@ -44,17 +44,17 @@
         + pa_fuzz                ok.
         + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
                                      for usleeps above 999999 microseconds).
+        + patest_prime           seems ok.
         + patest_leftright       ok.
         + patest_record          ok.
         - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
         - patest_start_stop      seems ok.
-        - patest_stop            seems ok.
-        - patest_write_sine      sounds ok but messages error at closing.
+        - patest_stop            seems ok (stops a bit too early?).
+        - patest_write_sine      ok.
         - patest_callbackstop    COREDUMPS !!!!!
+        - patest_read_record     COREDUMPS !!!!!  
 
- Todo:
-        - Set queue sizes and latencies.
-        - Implement blocking i/o properly.
+ Todo: Set queue sizes and latencies.
 */
 
 #include <string.h>         /* strlen() */
@@ -340,7 +340,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /* DBUG(("Terminate() started.\n")); */
     /* Clean up any resources not handled by the allocation group. */
-
     if( SGIHostApi->allocations )
     {
         PaUtil_FreeAllAllocations( SGIHostApi->allocations );
@@ -454,27 +453,36 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 }
 
 
-typedef struct PaSGIportBuffer  /* Auxilary struct, used for inputs as well as outputs. */
+typedef struct PaSGIhostPortBuffer  /* Auxilary struct, used for inputs as well as outputs. */
 {
-    ALport  port;               /* NULL means AL port closed. */
-    void*   buffer;             /* NULL means not allocated.  */
+    ALport  port;                   /* NULL means AL port closed. */
+    void*   buffer;                 /* NULL means not allocated.  */
 }
-    PaSGIportBuffer;
+    PaSGIhostPortBuffer;
 
 typedef struct PaSGIStream      /* Stream data structure specifically for this implementation. */
 {
     PaUtilStreamRepresentation  streamRepresentation;
     PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
     PaUtilBufferProcessor       bufferProcessor;
-    unsigned long               framesPerHostCallback;  /* Implementation specific data. */
-    PaSGIportBuffer             portBuffIn,
-                                portBuffOut;
-    unsigned char               stop,                   /* Realtime flags. */
-                                active;
+    unsigned long               framesPerHostCallback;
+    PaSGIhostPortBuffer         hostPortBuffIn,         /* Host buffers and AL ports. */
+                                hostPortBuffOut;
+                                
+    unsigned char               state,  /* State may be 0, 1 or 2, but never 3! */
+                                stop;   /* Request to stop. */
     pthread_t                   thread;
 }
     PaSGIStream;
 
+/*
+    Stream can be in one of the following three states: stopped (1), active (2), or
+    callback finshed (0). State 3 should never occur! Read and write the state field atomically.
+*/
+#define PA_SGI_STREAM_FLAG_FINISHED_ (0) /* After callback finished or cancelled queued buffers. */
+#define PA_SGI_STREAM_FLAG_STOPPED_  (1) /* Set by OpenStream(), StopStream() and AbortStream(). */
+#define PA_SGI_STREAM_FLAG_ACTIVE_   (2) /* Set by StartStream. Reset by OpenStream(),           */
+                                         /* StopStream() and AbortStream().                      */
 
 /*
     Called by OpenStream() once or twice. Argument alc should point to an already allocated 
@@ -490,7 +498,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
                               char*                     name,
                               long                      framesPerHostBuffer,
                               double*                   samplerate,     /* Also write back here.  */
-                              PaSGIportBuffer*          portBuff)       /* Receive pointers here. */
+                              PaSGIhostPortBuffer*      hostPortBuff)       /* Receive pointers here. */
 {
     int     bytesPerFrame, sgiDevice;
     ALpv    pvs[2];
@@ -553,11 +561,11 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
         else return paSampleFormatNotSupported;
         }
     
-    /*----------------------- ALLOCATE HOST BUFFER: -----------------------------------*/
-    portBuff->buffer = PaUtil_AllocateMemory((long)bytesPerFrame * framesPerHostBuffer);
-    if (!portBuff->buffer)                         /* Caller is responsible for clean- */
-        return paInsufficientMemory;               /* up and closing after failures!   */
-    /*----------------------- BIND CONFIGURATION TO DEVICE: ---------------------------*/
+    /*----------------------- ALLOCATE HOST BUFFER: ------------------------------------*/
+    hostPortBuff->buffer = PaUtil_AllocateMemory((long)bytesPerFrame * framesPerHostBuffer);
+    if (!hostPortBuff->buffer)                      /* Caller is responsible for clean- */
+        return paInsufficientMemory;                /* up and closing after failures!   */
+    /*----------------------- BIND CONFIGURATION TO DEVICE: ----------------------------*/
     sgiDevice = sgiDeviceIDs[pa_params->device].i;
     if (alSetDevice(alc, sgiDevice)) /* Try to switch the hardware. */
         {
@@ -567,8 +575,8 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
         return paUnanticipatedHostError;
         }
     /*----------------------- OPEN PORT: ----------------------------------------------*/
-    portBuff->port = alOpenPort(name, direction, alc);
-    if (!portBuff->port)
+    hostPortBuff->port = alOpenPort(name, direction, alc);
+    if (!hostPortBuff->port)
         {
         DBUG(("alOpenPort(r) failed: %s.\n", alGetErrorString(oserror())));
         return paUnanticipatedHostError;
@@ -604,10 +612,10 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
 */
 static void streamCleanupAndClose(PaSGIStream* stream)
 {
-    if (stream->portBuffIn.port)          alClosePort(stream->portBuffIn.port);   /* Close AL ports.  */
-    if (stream->portBuffIn.buffer)  PaUtil_FreeMemory(stream->portBuffIn.buffer); /* Release buffers. */
-    if (stream->portBuffOut.port)         alClosePort(stream->portBuffOut.port);
-    if (stream->portBuffOut.buffer) PaUtil_FreeMemory(stream->portBuffOut.buffer);
+    if (stream->hostPortBuffIn.port)    alClosePort(stream->hostPortBuffIn.port);         /* Close AL ports.  */
+    if (stream->hostPortBuffIn.buffer)  PaUtil_FreeMemory(stream->hostPortBuffIn.buffer); /* Release buffers. */
+    if (stream->hostPortBuffOut.port)   alClosePort(stream->hostPortBuffOut.port);
+    if (stream->hostPortBuffOut.buffer) PaUtil_FreeMemory(stream->hostPortBuffOut.buffer);
 }
 
 
@@ -705,10 +713,10 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     stream = (PaSGIStream*)PaUtil_AllocateMemory( sizeof(PaSGIStream) );
     if (!stream)
         { result = paInsufficientMemory; goto cleanup; }
-    stream->portBuffIn.port    = (ALport)NULL;       /* Ports closed.   */
-    stream->portBuffIn.buffer  =         NULL;       /* No buffers yet. */
-    stream->portBuffOut.port   = (ALport)NULL;
-    stream->portBuffOut.buffer =         NULL;
+    stream->hostPortBuffIn.port    = (ALport)NULL;       /* Ports closed.   */
+    stream->hostPortBuffIn.buffer  =         NULL;       /* No buffers yet. */
+    stream->hostPortBuffOut.port   = (ALport)NULL;
+    stream->hostPortBuffOut.buffer =         NULL;
 
     if (streamCallback)
         PaUtil_InitializeStreamRepresentation(&stream->streamRepresentation,
@@ -729,7 +737,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             "portaudio in",             /* Name string. */
                             framesPerHostBuffer,
                             &sr_in,                     /* Receive actual rate after setting it. */
-                            &stream->portBuffIn);       /* Receive ALport and input host buffer. */
+                            &stream->hostPortBuffIn);   /* Receive ALport and input host buffer. */
     if (result != paNoError)
         goto cleanup;
     result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
@@ -740,7 +748,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             "portaudio out",
                             framesPerHostBuffer,
                             &sr_out,
-                            &stream->portBuffOut);
+                            &stream->hostPortBuffOut);
     if (result != paNoError)
         goto cleanup;
     if (fabs(sr_in - sr_out) > 0.01) /* Make sure both are the same. */
@@ -772,8 +780,8 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         { DBUG(("PaUtil_InitializeBufferProcessor()=%d!\n", result)); goto cleanup; }
 
     stream->framesPerHostCallback = framesPerHostBuffer;
-    stream->active = 0;
-    stream->stop   = 0;
+    stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  /* After opening the stream is in the Stopped state. */
+    stream->stop  = 0;
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
     if (alc)                    /* We no longer need configuration. */
@@ -795,11 +803,12 @@ cleanup:
 static void* PaSGIpthread(void *userData)
 {
     PaSGIStream* stream = (PaSGIStream*)userData;
-    stream->active = 1;     /* Parent thread also sets active, but we make no assumption */
-    while (!stream->stop)   /* about who does it first (probably the parent thread).     */
+    int          callbackResult = paContinue;
+
+    stream->state = PA_SGI_STREAM_FLAG_ACTIVE_;  /* Parent thread also sets active, but we make no assumption */
+    while (!stream->stop)                        /* about who does it first (probably the parent thread).     */
         {
         PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
-        int callbackResult;
         unsigned long framesProcessed;
         
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
@@ -809,22 +818,22 @@ static void* PaSGIpthread(void *userData)
         PaUtil_BeginBufferProcessing(&stream->bufferProcessor, &timeInfo,
                                      0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */);
                                      
-        if (stream->portBuffIn.port)                        /* Equivalent to (inputChannelCount > 0) */
+        if (stream->hostPortBuffIn.port)                    /* Equivalent to (inputChannelCount > 0) */
             {                /* We are sure about the amount to transfer (PaUtil_Set before alRead). */
             PaUtil_SetInputFrameCount(&stream->bufferProcessor, 0 /* 0 means take host buffer size */);
             PaUtil_SetInterleavedInputChannels(&stream->bufferProcessor,
                     0, /* first channel of inputBuffer is channel 0 */
-                    stream->portBuffIn.buffer,
+                    stream->hostPortBuffIn.buffer,
                     0 ); /* 0 - use inputChannelCount passed to init buffer processor */
             /* Read interleaved samples from ALport (alReadFrames() may block the first time?). */
-            alReadFrames(stream->portBuffIn.port, stream->portBuffIn.buffer, stream->framesPerHostCallback);
+            alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback);
             }
-        if (stream->portBuffOut.port)
+        if (stream->hostPortBuffOut.port)
             {
             PaUtil_SetOutputFrameCount(&stream->bufferProcessor, 0 /* 0 means take host buffer size */);
             PaUtil_SetInterleavedOutputChannels(&stream->bufferProcessor,
                     0, /* first channel of outputBuffer is channel 0 */
-                    stream->portBuffOut.buffer,
+                    stream->hostPortBuffOut.buffer,
                     0 ); /* 0 - use outputChannelCount passed to init buffer processor */
             }
         /*
@@ -834,64 +843,59 @@ static void* PaSGIpthread(void *userData)
             You can check whether the buffer processor's output buffer is empty
             using PaUtil_IsBufferProcessorOuputEmpty( bufferProcessor )
         */
-        callbackResult = paContinue;
+        
         framesProcessed = PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
         /*
             If you need to byte swap or shift outputBuffer to convert it to host format, do it here.
         */
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-        if( callbackResult == paContinue )
+        if (callbackResult != paContinue)
             {
-            /* nothing special to do */
-            }
-        else if( callbackResult == paAbort )
-            {
-            /* DBUG(("CallbackResult == paAbort (finish playback immediately).\n")); */
-            /* once finished, call the finished callback */
-            if (stream->streamRepresentation.streamFinishedCallback != 0 )
+            if (stream->streamRepresentation.streamFinishedCallback != 0 ) /* once finished, call the finished callback */
                 stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
-            break; /* Don't play the last buffer returned. */
-            }
-        else /* paComplete or some other non-zero value. */
-            {
-            /* DBUG(("CallbackResult != 0 (finish playback after last buffer).\n")); */
-            /* once finished, call the finished callback */
-            if (stream->streamRepresentation.streamFinishedCallback != 0 )
-                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-            stream->stop = 1;
+            if (callbackResult == paAbort)
+                {
+                /* DBUG(("CallbackResult == paAbort (finish playback immediately).\n")); */
+                break; /* Don't play the last buffer returned. */
+                }
+            else /* paComplete or some other non-zero value. */
+                {
+                /* DBUG(("CallbackResult != 0 (finish playback after last buffer).\n")); */
+                stream->stop = 1;
+                }
             }
         /* Write interleaved samples to SGI device (like unix_oss, AFTER checking callback result). */
-        if (stream->portBuffOut.port)
-            alWriteFrames(stream->portBuffOut.port, stream->portBuffOut.buffer, stream->framesPerHostCallback);
+        if (stream->hostPortBuffOut.port)
+            alWriteFrames(stream->hostPortBuffOut.port, stream->hostPortBuffOut.buffer, stream->framesPerHostCallback);
         }
-    stream->active = 0;
+    if (callbackResult != paContinue)
+        stream->state = PA_SGI_STREAM_FLAG_FINISHED_;
     return NULL;
 }
 
 
 /*
-    When CloseStream() is called, the multi-api layer ensures that
-    the stream has already been stopped or aborted.
+    When CloseStream() is called, the multi-api layer ensures
+    that the stream has already been stopped or aborted.
 */
 static PaError CloseStream(PaStream* s)
 {
     PaError       result = paNoError;
     PaSGIStream*  stream = (PaSGIStream*)s;
 
-    streamCleanupAndClose(stream); /* Frees i/o buffers and closes AL ports. */
-    
+    /* DBUG(("SGI CloseStream() started.\n")); */
+    streamCleanupAndClose(stream); /* Releases i/o buffers and closes AL ports. */
     PaUtil_TerminateBufferProcessor(&stream->bufferProcessor);
-    PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation);
+    PaUtil_TerminateStreamRepresentation(&stream->streamRepresentation);
     PaUtil_FreeMemory(stream);
-
     return result;
 }
 
 
 static PaError StartStream(PaStream *s)
 {
-    PaError         result = paNoError;
-    PaSGIStream*    stream = (PaSGIStream*)s;
+    PaError       result = paNoError;
+    PaSGIStream*  stream = (PaSGIStream*)s;
 
     PaUtil_ResetBufferProcessor(&stream->bufferProcessor); /* See pa_common/pa_process.h. */
     if (stream->bufferProcessor.streamCallback)
@@ -905,9 +909,11 @@ static PaError StartStream(PaStream *s)
             result = paUnanticipatedHostError;
             }
         else
-            stream->active = 1; /* Set active before returning from this function. */
+            stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Set active before returning from this function. */
         }
-    return result;
+    else
+        stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Apparently, setting active for blocking i/o is */
+    return result;                                  /* necessary (for patest_write_sine for example). */
 }
 
 
@@ -915,17 +921,22 @@ static PaError StopStream( PaStream *s )
 {
     PaError         result = paNoError;
     PaSGIStream*    stream = (PaSGIStream*)s;
-
-    stream->stop = 1;
+    
+    /* DBUG(("SGI StopStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
-        if (pthread_join(stream->thread, NULL)) /* When succesful, guarentees */
-            {                                   /* that stream->active = 0;   */
+        stream->stop = 1;
+        if (pthread_join(stream->thread, NULL)) /* When succesful, stream->state */
+            {                                   /* is still ACTIVE, or FINISHED. */
             DBUG(("pthread_join() failed!\n"));
             result = paUnanticipatedHostError;
             }
-        }        
-    stream->stop = 0;    
+        else  /* Transition from ACTIVE or FINISHED to STOPPED. */
+            stream->state = PA_SGI_STREAM_FLAG_STOPPED_;
+        stream->stop = 0;
+        }
+/*  else
+        stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  Is this necessary for blocking i/o? */
     return result;
 }
 
@@ -935,32 +946,36 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    stream->stop = 1;
+    /* DBUG(("SGI AbortStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
+        stream->stop = 1;
         if (pthread_join(stream->thread, NULL))
             {
             DBUG(("pthread_join() failed!\n"));
             result = paUnanticipatedHostError;
             }
+        else  /* Transition from ACTIVE or FINISHED to STOPPED. */
+            stream->state = PA_SGI_STREAM_FLAG_STOPPED_;
+        stream->stop = 0;
         }
-    stream->stop = 0;
-    DBUG(("PaSGI StopStream().\n"));
+/*  else
+        stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  Is this necessary for blocking i/o? */
     return result;
 }
 
 
-static PaError IsStreamStopped( PaStream *s )
-{
-    PaSGIStream *stream = (PaSGIStream*)s;
-    return (!stream->active);
+static PaError IsStreamStopped( PaStream *s )   /* Not just the opposite of stream->active! */
+{                                               /* In the 'callback finished' state, it     */
+    PaSGIStream *stream = (PaSGIStream*)s;      /* should return zero instead of nonzero!   */
+    return (stream->state & PA_SGI_STREAM_FLAG_STOPPED_);
 }
 
 
 static PaError IsStreamActive( PaStream *s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
-    return (stream->active);
+    return (stream->state & PA_SGI_STREAM_FLAG_ACTIVE_);
 }
 
 
@@ -995,11 +1010,29 @@ static PaError ReadStream( PaStream* s,
                            void *buffer,
                            unsigned long frames )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-
-    /* Byte swapping and conversion?......   */
-    /* Read interleaved samples from device. */
-    alReadFrames(stream->portBuffIn.port, buffer, frames);
+    PaSGIStream*    stream = (PaSGIStream*)s;
+    int             n;
+    while (frames)
+        {
+        if (frames > stream->framesPerHostCallback) n = stream->framesPerHostCallback;
+        else                                        n = frames;
+        /* Read interleaved samples from SGI device. */
+        alReadFrames(stream->hostPortBuffIn.port,           /* Port already opened by OpenStream(). */
+                     stream->hostPortBuffIn.buffer, n);     /* Already allocated by OpenStream().   */
+                                                            /* alReadFrames() always returns 0.     */
+        PaUtil_SetInputFrameCount(&stream->bufferProcessor, 0); /* 0 means take host buffer size */
+        PaUtil_SetInterleavedInputChannels(&stream->bufferProcessor,
+                                           0,   /* first channel of inputBuffer is channel 0 */
+                                           stream->hostPortBuffIn.buffer,
+                                           0 ); /* 0 means use inputChannelCount passed at init. */
+        /* Copy samples from host input channels set up by the PaUtil_SetInterleavedInputChannels 
+           to a user supplied buffer. */
+printf("frames=%ld, buffer=%ld\n", frames, (long)buffer);
+fflush(stdout);
+        PaUtil_CopyInput(&stream->bufferProcessor, &buffer, n);
+        frames -= n;
+        }
+printf("DONE: frames=%ld, buffer=%ld\n", frames, (long)buffer);
     return paNoError;
 }
 
@@ -1008,12 +1041,24 @@ static PaError WriteStream( PaStream* s,
                             const void *buffer,
                             unsigned long frames )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-
-    /* Write interleaved samples to device. */
-    alWriteFrames(stream->portBuffOut.port, (void*)buffer, frames);
-    /* Byte swapping and conversion?......  */
-    
+    PaSGIStream*    stream = (PaSGIStream*)s;
+    unsigned long   n;
+    while (frames)
+        {
+        PaUtil_SetOutputFrameCount(&stream->bufferProcessor, 0); /* 0 means take host buffer size */
+        PaUtil_SetInterleavedOutputChannels(&stream->bufferProcessor,
+                                            0,   /* first channel of inputBuffer is channel 0 */
+                                            stream->hostPortBuffOut.buffer,
+                                            0 ); /* 0 means use inputChannelCount passed at init. */
+        /* Copy samples from user supplied buffer to host input channels set up by
+           PaUtil_SetInterleavedOutputChannels. Copies the minimum of the number of user frames 
+           (specified by the frameCount parameter) and the number of host frames (specified in 
+           a previous call to SetOutputFrameCount()). */
+        n = PaUtil_CopyOutput(&stream->bufferProcessor, &buffer, frames);
+        /* Write interleaved samples to SGI device. */
+        alWriteFrames(stream->hostPortBuffOut.port, stream->hostPortBuffOut.buffer, n);
+        frames -= n;                                           /* alWriteFrames always returns 0. */
+        }
     return paNoError;
 }
 
@@ -1022,7 +1067,7 @@ static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    return (signed long)alGetFilled(stream->portBuffIn.port);
+    return (signed long)alGetFilled(stream->hostPortBuffIn.port);
 }
 
 
@@ -1030,7 +1075,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    return (signed long)alGetFillable(stream->portBuffOut.port);
+    return (signed long)alGetFillable(stream->hostPortBuffOut.port);
 }
 
 /* CVS reminder:
