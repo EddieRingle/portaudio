@@ -47,7 +47,7 @@
 
 #include "pa_linux_alsa.h"
 
-pthread_mutex_t mtx;    /* Used for synchronizing access to SetLastHostErrorInfo */
+pthread_mutex_t gmtx;    /* Used for synchronizing access to SetLastHostErrorInfo */
 
 /* PaAlsaHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -161,7 +161,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       GetStreamWriteAvailable );
 
     BuildDeviceList( alsaHostApi );
-    pthread_mutex_init( &mtx, NULL );
+    pthread_mutex_init( &gmtx, NULL );
 
     return result;
 
@@ -386,7 +386,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     PaUtil_FreeMemory( alsaHostApi );
-    pthread_mutex_destroy( &mtx );
+    pthread_mutex_destroy( &gmtx );
 }
 
 
@@ -1038,7 +1038,6 @@ static PaError StartStream( PaStream *s )
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
     int tries = 4;
-    (void) tries;
 
     /* Ready the processor */
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
@@ -1067,7 +1066,7 @@ static PaError StartStream( PaStream *s )
      *
      * I don't like this one bit.
      */
-    while( !IsStreamActive( stream ) )
+    while( !IsStreamActive( stream ) && tries-- )
     {
         PA_DEBUG(( "Waiting for stream to start\n" ));
         Pa_Sleep( 25 );
@@ -1158,23 +1157,31 @@ static PaError AbortStream( PaStream *s )
 static PaError IsStreamStopped( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
+    int res;
 
     /* callback_finished indicates we need to join callback thread (ie. in Abort/StopStream) */
-    return !(IsStreamActive(s) || stream->callback_finished);
+    res = !(IsStreamActive(s) || stream->callback_finished);
+
+    return res;
 }
 
 
 static PaError IsStreamActive( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
+    PaError result = 0;
 
+    pthread_mutex_lock( &stream->mtx );
     if( stream->pcm_capture )
     {
         snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
 
         if( capture_state == SND_PCM_STATE_RUNNING /*||
             capture_state == SND_PCM_STATE_PREPARED*/ )
-            return 1;
+        {
+            result = 1;
+            goto end;
+        }
     }
 
     if( stream->pcm_playback )
@@ -1183,10 +1190,15 @@ static PaError IsStreamActive( PaStream *s )
 
         if( playback_state == SND_PCM_STATE_RUNNING /*||
             playback_state == SND_PCM_STATE_PREPARED*/ )
-            return 1;
+        {
+            result = 1;
+            goto end;
+        }
     }
 
-    return 0;
+end:
+    pthread_mutex_unlock( &stream->mtx );
+    return result;
 }
 
 
@@ -1240,6 +1252,8 @@ void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamF
     stream->pcmsSynced = 0;
     stream->callbackAbort = 0;
     stream->startThreshold = 0;
+    pthread_mutex_init( &stream->mtx, NULL );
+    stream->neverDropInput = 0;
 }
 
 /*!
@@ -1259,9 +1273,9 @@ void CleanUpStream( PaAlsaStream *stream )
     {
         snd_pcm_close( stream->pcm_playback );
     }
-
     if ( stream->pfds )
         PaUtil_FreeMemory( stream->pfds );
+    pthread_mutex_destroy( &stream->mtx );
 
     PaUtil_FreeMemory( stream );
 }
@@ -1305,10 +1319,11 @@ int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
     return err;
 }
 
-void SilenceBuffer( PaAlsaStream *stream )
+static void SilenceBuffer( PaAlsaStream *stream )
 {
     const snd_pcm_channel_area_t *areas;
     snd_pcm_sframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
+
 
     snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
     snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
@@ -1331,8 +1346,7 @@ PaError AlsaStart( PaAlsaStream *stream, int priming )
     }
     if( stream->pcm_capture && !stream->pcmsSynced )
     {
-        if( snd_pcm_state( stream->pcm_capture ) != SND_PCM_STATE_PREPARED )
-            ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
         ENSURE( snd_pcm_start( stream->pcm_capture ), paUnanticipatedHostError );
     }
 

@@ -7,6 +7,26 @@
 void OnExit( void *data );
 unsigned char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
 
+/* Atomic restart of stream (we don't want the intermediate state visible) */
+static PaError AlsaRestart( PaAlsaStream *stream )
+{
+    PaError result = paNoError;
+
+    PA_DEBUG(( "Restarting audio\n" ));
+
+    pthread_mutex_lock( &stream->mtx );
+    PA_ENSURE( AlsaStop( stream, 0 ) );
+    PA_ENSURE( AlsaStart( stream, 0 ) );
+
+    PA_DEBUG(( "Restarted audio\n" ));
+
+end:
+    pthread_mutex_unlock( &stream->mtx );
+    return result;
+error:
+   goto end;
+}
+
 /* Report xrun/restart audio */
 static void HandleXrun( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun )
 {
@@ -35,23 +55,21 @@ static void HandleXrun( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun 
         }
     }
 
-    /* PA_DEBUG(( "Stopping stream due to xrun\n" )); */
-    AlsaStop( stream, 0 );
-    AlsaStart( stream, 0 );
-    /* PA_DEBUG(( "Restarted stream due to xrun\n" )); */
+    AlsaRestart( stream );
 }
 
 /*!
   \brief Poll on I/O filedescriptors
 
-  We keep polling untill both all filedescriptors are ready (possibly both in and out), if either the capture
-  or playback fd gets ready before the other we take it out of the equation
+  Poll till we've determined there's data for read or write, doing it simple for now.
+  We might go on with output even if we're starved for input etc, so don't hang around
+  forever waiting for both read and write.
   */
 static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun )
 {
     PaError result = paNoError;
-    int needCapture = 0, needPlayback = 0;
-    snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
+    int doPoll = 1; // needCapture = 0, needPlayback = 0;
+    snd_pcm_sframes_t captureAvail = 0, playbackAvail = 0, commonAvail;
     struct pollfd *pfds = stream->pfds;
     int totalFds = stream->capture_nfds + stream->playback_nfds;
     int xrun = 0;   /* Under/overrun? */
@@ -60,57 +78,58 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *o
 
     *underrun = *overrun = 0.0;
 
+    /*
     if( stream->pcm_capture )
         needCapture = 1;
 
     if( stream->pcm_playback )
         needPlayback = 1;
+    */
 
-    while( needCapture || needPlayback )
+    int cnt = 0;
+    while( doPoll )
     {
+        ++cnt;
 	unsigned short revents;
 
         /* if the main thread has requested that we stop, do so now */
         pthread_testcancel();
 
-        /*PA_DEBUG(( "still polling...\n" ));
-        if( needCapture )
-            PA_DEBUG(( "need capture.\n" ));
-        if( needPlayback )
-            PA_DEBUG(( "need playback.\n" )); */
-
         /* now poll on the combination of playback and capture fds. */
         ENSURE( poll( pfds, totalFds, 1000 ), paInternalError );
 
         /* check the return status of our pfds */
-        if( needCapture )
+        if( stream->pcm_capture )
         {
             ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_capture, stream->pfds,
                         stream->capture_nfds, &revents ), paUnanticipatedHostError );
             if( revents & POLLERR )
                 xrun = 1;
-            if( revents & POLLIN )
+            if( revents )
             {
-                needCapture = 0;
+                doPoll = 0;
                 /* No need to keep polling on capture fd(s) */
+                /*
                 pfds += stream->capture_nfds;
                 totalFds -= stream->capture_nfds;
+                */
             }
         }
 
-        if( needPlayback )
+        if( stream->pcm_playback )
         {
             unsigned short revents;
             ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_playback, stream->pfds +
                         stream->capture_nfds, stream->playback_nfds, &revents ), paUnanticipatedHostError );
             if( revents & POLLERR )
                 xrun = 1;
-            if( revents & POLLOUT )
+            if( revents )
             {
-                needPlayback = 0;
+                doPoll = 0;
                 /* No need to keep polling on playback fd(s) */
-                totalFds -= stream->playback_nfds;
+                /*totalFds -= stream->playback_nfds;*/
             }
+                PA_DEBUG(("Poll timed out for the %dst time\n\n", cnt ));
         }
     }
 
@@ -140,8 +159,10 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *o
         return 0;
     }
 
-    commonAvail = MIN(captureAvail, playbackAvail);
+    commonAvail = MAX(captureAvail, playbackAvail); /* Will get rid of all data, somehow */
     commonAvail -= commonAvail % stream->frames_per_period;
+
+    PA_DEBUG(( "Wait: captureAvail: %d, playbackAvail: %d, commonAvail: %d\n", captureAvail, playbackAvail, commonAvail ));
 
     return commonAvail;
 
@@ -149,19 +170,22 @@ error:
     return result;
 }
 
-snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t framesAvail )
+/* Get buffers from ALSA for read/write, and determine the amount of frames available.
+   Underflow/underflow complicates matters
+   */
+static snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream )
 {
     PaError result = paNoError;
     int i;
     snd_pcm_uframes_t captureFrames = INT_MAX, playbackFrames = INT_MAX, commonFrames;
     const snd_pcm_channel_area_t *areas, *area;
     unsigned char *buffer;
+    snd_pcm_sframes_t retVal;
 
     assert( stream );
 
     if( stream->pcm_capture )
     {
-        captureFrames = framesAvail;
         ENSURE( snd_pcm_mmap_begin( stream->pcm_capture, &areas, &stream->capture_offset, &captureFrames ),
                 paUnanticipatedHostError );
 
@@ -211,24 +235,61 @@ snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t framesAv
             }
     }
 
+
+    playbackFrames -= (playbackFrames % stream->frames_per_period);
+    captureFrames -= (captureFrames % stream->frames_per_period);
+
+    /* Will be used to set PortAudio buffer size */
     commonFrames = MIN(captureFrames, playbackFrames);
-    commonFrames -= commonFrames % stream->frames_per_period;
-    /*
-    printf( "%d capture frames available\n", capture_framesAvail );
-    printf( "%d frames playback available\n", playback_framesAvail );
-    printf( "%d frames available\n", common_framesAvail );
-    */
+    retVal = commonFrames;
 
+    if( stream->pcm_playback && stream->pcm_capture )
+    {
+        /* Full-duplex, but we are starved for data in either end
+           If we're out of input, go on. Input buffer will be zeroed.
+           In the case of output underflow, drop input frames unless stream->neverDropInput.
+           If we're starved for output, while keeping input, we need to pass a dummy pointer
+           to the callback.
+       */
+        if( !commonFrames ) 
+        {
+            retVal = MAX( playbackFrames, captureFrames );
+
+            if( !captureFrames )    /* Input underflow */
+                commonFrames = playbackFrames;  /* We still want output */
+            else                    /* Output underflow */
+                if( stream->neverDropInput )    /* Output underflow, but do not drop input */
+                    commonFrames = captureFrames;
+        }
+        else    /* Safe to commit commonFrames for both */
+            playbackFrames = captureFrames = commonFrames;
+    }
+    
     if( stream->pcm_capture )
-        PaUtil_SetInputFrameCount( &stream->bufferProcessor, commonFrames );
-
+    {
+        if( captureFrames || !commonFrames )
+            PaUtil_SetInputFrameCount( &stream->bufferProcessor, commonFrames );
+        else    /* We have input underflow */
+            PaUtil_SetNoInput( &stream->bufferProcessor );
+    }
     if( stream->pcm_playback )
-        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, commonFrames );
+    {
+        if( playbackFrames || !commonFrames )
+            PaUtil_SetOutputFrameCount( &stream->bufferProcessor, commonFrames );
+        /*
+        else    // We have output underflow, but keeping input data
+            PaUtil_SetNoOutput( &stream->bufferProcessor ); // XXX
+        */
+    }
 
-    return (snd_pcm_sframes_t) commonFrames;
+    // PA_DEBUG(( "SetUpBuffers: captureAvail: %d, playbackAvail: %d, commonFrames: %d\n\n", captureFrames, playbackFrames, commonFrames ));
+    stream->playbackAvail = playbackFrames;
+    stream->captureAvail = captureFrames;
+
+    return retVal;
 
 error:
-    return result;
+    return (snd_pcm_sframes_t) result;
 }
 
 void *CallbackThread( void *userData )
@@ -332,20 +393,40 @@ void *CallbackThread( void *userData )
 
             /* Priming output */
             if( stream->startThreshold > 0 )
+            {
+                PA_DEBUG(( "Priming\n" ));
+                cbFlags |= paPrimingOutput;
                 framesAvail = MIN( framesAvail, stream->startThreshold );
+            }
 
-            /* If we have a stream underrun, ignore callback and write silence */
             /* now we know the soundcard is ready to produce/receive at least
              * one period.  we just need to get the buffers for the client
              * to read/write. */
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
-            framesGot = SetUpBuffers( stream, framesAvail );
+            framesGot = SetUpBuffers( stream );
             ENSURE( framesGot, framesGot );             /* framesGot might contain an error (negative) */
-            if( stream->startThreshold > 0 && stream->pcm_capture )
+            /* Check for underflow/overflow */
+            if( stream->pcm_playback && stream->pcm_capture )
             {
-                PaUtil_SetNoInput( &stream->bufferProcessor );
-                cbFlags |= paInputUnderflow;
+                if( !stream->captureAvail )
+                {
+                    cbFlags |= paInputUnderflow;
+                    PA_DEBUG(( "Input underflow\n" ));
+                }
+                if( !stream->playbackAvail )
+                {
+                    if( !framesGot )    /* The normal case, dropping input */
+                    {
+                        cbFlags |= paInputOverflow;
+                        PA_DEBUG(( "Input overflow\n" ));
+                    }
+                    else                /* Keeping input */
+                    {
+                        cbFlags |= paOutputOverflow;
+                        PA_DEBUG(( "Output overflow\n" ));
+                    }
+                }
             }
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
@@ -355,14 +436,18 @@ void *CallbackThread( void *userData )
             /* this calls the callback */
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
-
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
-            /* inform ALSA how many frames we wrote */
+            /* Inform ALSA how many frames we read/wrote
+               Now, this number may differ between capture and playback, due to under/overflow.
+               If we're dropping input frames, we effectively sink them here.
+             */
             if( stream->pcm_capture )
-                ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, framesGot ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, stream->captureAvail ),
+                        paUnanticipatedHostError );
             if( stream->pcm_playback )
-                ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, framesGot ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, stream->playbackAvail ),
+                        paUnanticipatedHostError );
 
             /* If threshold for starting stream specified (priming buffer), decrement and compare */
             if( stream->startThreshold > 0 )
@@ -387,9 +472,7 @@ void *CallbackThread( void *userData )
 
         if( callbackResult != paContinue )
         {
-            stream->callback_finished = 1;
             stream->callbackAbort = (callbackResult == paAbort);
-
             goto end;
             
         }
@@ -417,6 +500,8 @@ void OnExit( void *data )
     PaAlsaStream *stream = (PaAlsaStream *) data;
 
     assert( data );
+
+    stream->callback_finished = 1;  /* Let the outside world know stream was stopped in callback */
 
     AlsaStop( stream, stream->callbackAbort );
     if( stream->callbackAbort )

@@ -15,8 +15,9 @@
 #include "pa_stream.h"
 
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
+#define MAX(x,y) ( (x) > (y) ? (x) : (y) )
 
-extern pthread_mutex_t mtx;
+extern pthread_mutex_t gmtx;    /* Global mutex */
 
 #define STRINGIZE_HELPER(exp) #exp
 #define STRINGIZE(exp) STRINGIZE_HELPER(exp)
@@ -27,16 +28,16 @@ extern pthread_mutex_t mtx;
     { \
         if( (code) == paUnanticipatedHostError ) \
         { \
-            pthread_mutex_lock( &mtx ); \
+            pthread_mutex_lock( &gmtx ); \
             PaUtil_SetLastHostErrorInfo( paALSA, result, snd_strerror( result ) ); \
-            pthread_mutex_unlock( &mtx ); \
+            pthread_mutex_unlock( &gmtx ); \
         } \
         PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
         goto error; \
     }
 
-/* Check return value of Portaudio function */
+/* Check PaError */
 #define PA_ENSURE(exp) \
     if( (result = (exp)) != paNoError ) \
     { \
@@ -88,6 +89,12 @@ typedef struct PaAlsaStream
     int pcmsSynced;	        /* Have we successfully synced pcms */
     int callbackAbort;		/* Drop frames? */
     snd_pcm_uframes_t startThreshold;
+    pthread_mutex_t mtx;        /* Used to synchronize access to stream state */
+
+    /* Used by callback thread for underflow/overflow handling */
+    snd_pcm_sframes_t playbackAvail;
+    snd_pcm_sframes_t captureAvail;
+    int neverDropInput;
 }
 PaAlsaStream;
 
