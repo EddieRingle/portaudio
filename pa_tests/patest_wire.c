@@ -55,8 +55,10 @@ typedef struct WireConfig_s
 #define USE_FLOAT_INPUT        (1)
 #define USE_FLOAT_OUTPUT       (1)
 
+#define INPUT_LATENCY_MSEC     (0)
+#define INPUT_LATENCY_FRAMES   ((INPUT_LATENCY_MSEC * SAMPLE_RATE) / 1000)
 #define OUTPUT_LATENCY_MSEC    (0)
-#define OUTPUT_LATENCY_FRAMES  (OUTPUT_LATENCY_MSEC * SAMPLE_RATE / 1000)
+#define OUTPUT_LATENCY_FRAMES  ((OUTPUT_LATENCY_MSEC * SAMPLE_RATE) / 1000)
 
 
 #if USE_FLOAT_INPUT
@@ -195,13 +197,20 @@ int main(void)
                         printf("-----------------------------------------------\n" );
                         printf("Configuration #%d\n", configIndex++ );
                         err = TestConfiguration( config );
-                        if( err != paNoError ) goto error;
+                    // give user a chance to bail out
+                        if( err == 1 )
+                        {
+                            err = paNoError;
+                            goto done;
+                        }
+                        else if( err != paNoError ) goto error;
                     }
                }
             }
         }
     }
 
+done:
     Pa_Terminate();
     
     printf("Full duplex sound test complete.\n"); fflush(stdout);
@@ -223,6 +232,7 @@ error:
 
 static PaError TestConfiguration( WireConfig_t *config )
 {
+    int c;
     PaError err;
     PaStream *stream;
     printf("input %sinterleaved!\n", (config->isInputInterleaved ? " " : "NOT ") );
@@ -236,7 +246,7 @@ static PaError TestConfiguration( WireConfig_t *config )
               INPUT_DEVICE,
               config->numInputChannels,
               INPUT_FORMAT | (config->isInputInterleaved ? 0 : paNonInterleaved),
-              0,               /* input latency */
+              INPUT_LATENCY_FRAMES,    /* input latency */
               NULL,
               OUTPUT_DEVICE,
               config->numOutputChannels,
@@ -253,11 +263,15 @@ static PaError TestConfiguration( WireConfig_t *config )
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
     
-    printf("Hit ENTER for next configuration.\n");  fflush(stdout);
-    getchar();
+    printf("Hit ENTER for next configuration, or 'q' to quit.\n");  fflush(stdout);
+    c = getchar();
     
     printf("Closing stream.\n");
     err = Pa_CloseStream( stream );
+    if( err != paNoError ) goto error;
+
+    if( c == 'q' ) return 1;
+
 error:
     return err;
 }
