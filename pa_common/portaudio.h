@@ -623,11 +623,14 @@ PaError Pa_IsStreamActive( PaStream *stream );
 /**< @return Returns one (1) when the stream is active (ie playing
  or recording audio), zero (0) when not playing, or a negative error number
  if the stream is invalid.
-     
- The stream is active between calls to Pa_StartStream() and Pa_StopStream(),
- but may also become inactive if the callback returns a non-zero value.
- In the latter case, the stream is considered inactive after the last
- buffer has finished playing.
+
+ A stream is active after a successful call to Pa_StartStream(), until it
+ becomes inactive either as a result of a call to Pa_StopStream() or
+ Pa_AbortStream(), or as a result of a non-zero return value from the
+ user callback. In the latter case, the stream is considered inactive after
+ the last buffer has finished playing.
+
+ @see Pa_StopStream, Pa_AbortStream
 */
 
 
