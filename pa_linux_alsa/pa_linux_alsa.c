@@ -757,7 +757,6 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     PaError result = paNoError;
     snd_pcm_access_t accessMode, alternateAccessMode;
     snd_pcm_format_t alsaFormat;
-    unsigned int bufTime;
     unsigned int numPeriods;
 
     snd_pcm_hw_params_alloca( &hwParams );
@@ -785,7 +784,8 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     }
 
     /* set the format based on what the user selected */
-    assert( (alsaFormat = Pa2AlsaFormat( paFormat )) != SND_PCM_FORMAT_UNKNOWN );
+    alsaFormat = Pa2AlsaFormat( paFormat );
+    assert( alsaFormat != SND_PCM_FORMAT_UNKNOWN );
     ENSURE( snd_pcm_hw_params_set_format( pcm, hwParams, alsaFormat ), paUnanticipatedHostError );
 
     /* ... set the sample rate */
@@ -825,10 +825,8 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     ENSURE( snd_pcm_hw_params( pcm, hwParams ), paUnanticipatedHostError );
     ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, bufferSize ), paUnanticipatedHostError );
 
-    /* Obtain correct latency */
-    ENSURE( snd_pcm_hw_params_get_buffer_time( hwParams, &bufTime, NULL ), paUnanticipatedHostError );
-    bufTime -= bufTime / numPeriods;    /* One period is not counted as latency */
-    *latency = (PaTime) bufTime / 1000000; /* Latency in seconds */
+    /* Latency in seconds, one period is not counted as latency */
+    *latency = (numPeriods - 1) * framesPerBuffer / *sampleRate;
 
     /* Now software parameters... */
     ENSURE( snd_pcm_sw_params_current( pcm, swParams ), paUnanticipatedHostError );
