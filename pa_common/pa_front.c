@@ -887,9 +887,9 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
     SampleFormatIsValid() returns 1 if sampleFormat is a sample format
     defined in portaudio.h, or 0 otherwise.
 */
-static int SampleFormatIsValid( PaSampleFormat sampleFormat )
+static int SampleFormatIsValid( PaSampleFormat format )
 {
-    switch( sampleFormat & ~paNonInterleaved )
+    switch( format & ~paNonInterleaved )
     {
     case paFloat32: return 1;
     case paInt16: return 1;
@@ -1602,7 +1602,7 @@ PaError Pa_GetSampleSize( PaSampleFormat format )
     PaUtil_DebugPrint("\tPaSampleFormat format: %d\n", format );
 #endif
 
-    switch(format )
+    switch( format & ~paNonInterleaved )
     {
 
     case paUInt8:
