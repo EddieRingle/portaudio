@@ -60,13 +60,9 @@
         12-06-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
         18-06-02 Added pa_asio.h, PaAsio_GetAvailableLatencyValues() : Ross B.
         21-06-02 Added SelectHostBufferSize() which selects host buffer size based on user latency parameters : Ross Bencina
-        
+        ** NOTE  maintanance history is now stored in CVS **
+
         TO DO :
-
-        - improve the code which calculates the delta between timeGetTime and
-            the global portaudio time base.
-
-        - implement GetStreamTime
 
         - work out how to implement stream stoppage from callback and
             implement IsStreamActive properly
@@ -163,7 +159,9 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTimestamp GetStreamTime( PaStream *stream );
+static PaTime GetStreamInputLatency( PaStream *stream );
+static PaTime GetStreamOutputLatency( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -185,7 +183,7 @@ static ASIOCallbacks asioCallbacks_ =
 
 typedef struct
 {
-    PaUtilHostApiRepresentation commonHostApiRep;
+    PaUtilHostApiRepresentation inheritedHostApiRep;
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
@@ -197,7 +195,6 @@ typedef struct
         driver is already open.
     */
     int driverOpen;
-    double timeBaseOffset;
 }
 PaAsioHostApiRepresentation;
 
@@ -778,7 +775,7 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
     PaError result;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-
+    
     result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
 
     if( result == paNoError )
@@ -873,49 +870,6 @@ error:
 }
 
 
-static double MeasureTimebaseOffset()
-{
-    DWORD t1, t2;
-    t1 = timeGetTime();
-    do{
-        t2 = timeGetTime();
-    } while( t2 == t1 ); /* wait until the millisecond ticks over */
-    double t3 = PaUtil_GetTime();
-
-    return  t3 - ((double)t2 *.001);
-}
-
-
-static double CalculateTimeBaseOffset()
-{
-    double result = 0.;
-#if MAC
-
-    /* IMPLEMENT ME if necessary, (perhaps asio and Pa will use the same timebase on mac? */
-
-#elif WINDOWS
-#define PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_    100
-    int i;
-    double sum = 0;
-    /* determine the difference between the portaudio time base (PaUtil_GetTime() and
-        the ASIO time base (timeGetTime() on windows) */
-
-    timeBeginPeriod(1);
-
-    // FIXME: should probably do something a little more complex that
-    // a simple average since we know there will be outliers due to scheduling interruptions
-    for( i = 0; i< PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_; ++i )
-        sum += MeasureTimebaseOffset();
-
-    timeEndPeriod(1);
-    
-    result = sum / (double)(PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_ );
-#endif
-
-    return result;
-}
-
-
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
 static ASIOSampleRate possibleSampleRates_[]
     = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
@@ -929,6 +883,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     PaAsioDeviceInfo *deviceInfoArray;
     char **names;
     PaAsioDriverInfo paAsioDriverInfo;
+    ASIOError asioError;
     ASIODriverInfo asioDriverInfo;
     ASIOChannelInfo asioChannelInfo;
     double *sampleRates;
@@ -950,7 +905,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     asioHostApi->driverOpen = 0;
 
-    *hostApi = &asioHostApi->commonHostApiRep;
+    *hostApi = &asioHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
 
     (*hostApi)->info.type = paASIO;
@@ -1093,15 +1048,16 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
 
+
     PaUtil_InitializeStreamInterface( &asioHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &asioHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
-
-    asioHostApi->timeBaseOffset = CalculateTimeBaseOffset();
 
     return result;
 
@@ -1156,8 +1112,8 @@ typedef struct PaAsioStream
 
     ASIOBufferInfo *asioBufferInfos;
     ASIOChannelInfo *asioChannelInfos;
-    long inputLatency, outputLatency;
-    double outputLatencySeconds;
+    long inputLatency, outputLatency; // actual latencies returned by asio
+    double inputLatencySeconds, outputLatencySeconds; // ditto
     
     long numInputChannels, numOutputChannels;
     bool postOutput;
@@ -1306,11 +1262,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputDevice != paNoDevice )
     {
-        driverName = asioHostApi->commonHostApiRep.deviceInfos[ inputDevice ]->name;
+        driverName = asioHostApi->inheritedHostApiRep.deviceInfos[ inputDevice ]->name;
     }
     else
     {
-        driverName = asioHostApi->commonHostApiRep.deviceInfos[ outputDevice ]->name;
+        driverName = asioHostApi->inheritedHostApiRep.deviceInfos[ outputDevice ]->name;
     }
 
     /* NOTE: we load the driver and use its current settings
@@ -1500,6 +1456,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
 
+    stream->inputLatencySeconds = (double)stream->inputLatency / sampleRate;
     stream->outputLatencySeconds = (double)stream->outputLatency / sampleRate;
 
 
@@ -1713,15 +1670,17 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     else
     {
         int i;
+        
         PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 
-        PaTimestamp outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
-                theAsioStream->asioHostApi->timeBaseOffset +
+        // asio systemTime is supposed to be measured according to the same
+        // clock as timeGetTime
+        PaTime outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
                 theAsioStream->outputLatencySeconds;
 
         if( theAsioStream->inputBufferConverter )
         {
-            for( int i=0; i<theAsioStream->numInputChannels; i++ )
+            for( i=0; i<theAsioStream->numInputChannels; i++ )
             {
                 theAsioStream->inputBufferConverter( theAsioStream->inputBufferPtrs[index][i],
                         theAsioStream->inputShift, theAsioStream->framesPerHostCallback );
@@ -1743,7 +1702,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         
         if( theAsioStream->outputBufferConverter )
         {
-            for( int i=0; i<theAsioStream->numOutputChannels; i++ )
+            for( i=0; i<theAsioStream->numOutputChannels; i++ )
             {
                 theAsioStream->outputBufferConverter( theAsioStream->outputBufferPtrs[index][i],
                         theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
@@ -1931,7 +1890,7 @@ static PaError AbortStream( PaStream *s )
 
 static PaError IsStreamStopped( PaStream *s )
 {
-    PaAsioStream *stream = (PaAsioStream*)s;
+    //PaAsioStream *stream = (PaAsioStream*)s;
 
     return theAsioStream == 0;
 }
@@ -1939,19 +1898,33 @@ static PaError IsStreamStopped( PaStream *s )
 
 static PaError IsStreamActive( PaStream *s )
 {
-    PaAsioStream *stream = (PaAsioStream*)s;
+    //PaAsioStream *stream = (PaAsioStream*)s;
 
     return theAsioStream != 0; /* FIXME: currently there is no way to stop the stream from the callback */
 }
 
 
-static PaTimestamp GetStreamTime( PaStream *s )
+static PaTime GetStreamInputLatency( PaStream *s )
 {
     PaAsioStream *stream = (PaAsioStream*)s;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
+    // FIXME: should return 0 if this is an ouput-only stream
+    return stream->outputLatencySeconds;;
+}
 
-    return 0;
+
+static PaTime GetStreamOutputLatency( PaStream *s )
+{
+    PaAsioStream *stream = (PaAsioStream*)s;
+
+    // FIXME: should return 0 if this is an input-only stream
+    return stream->inputLatencySeconds;
+}
+
+
+static PaTime GetStreamTime( PaStream *s )
+{
+    return (double)timeGetTime() * .001;
 }
 
 
