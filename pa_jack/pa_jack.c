@@ -82,7 +82,7 @@ static double GetStreamCpuLoad( PaStream* stream );
 
 /*
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
+static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
 static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 */
@@ -364,7 +364,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
                                       StopStream, AbortStream,
                                       IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
-                                      PaUtil_DummyReadWrite, PaUtil_DummyReadWrite,
+                                      PaUtil_DummyRead, PaUtil_DummyWrite,
                                       PaUtil_DummyGetAvailable,
                                       PaUtil_DummyGetAvailable );
 

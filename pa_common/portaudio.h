@@ -708,7 +708,7 @@ typedef enum PaStreamCallbackResult
  PortAudio API functions from within the stream callback.
 */
 typedef int PaStreamCallback(
-    void *input, void *output,
+    const void *input, void *output,
     unsigned long frameCount,
     const PaStreamCallbackTimeInfo* timeInfo,
     PaStreamCallbackFlags statusFlags,
@@ -1036,7 +1036,7 @@ PaError Pa_ReadStream( PaStream* stream,
  call.
 */
 PaError Pa_WriteStream( PaStream* stream,
-                        void *buffer,
+                        const void *buffer,
                         unsigned long frames );
 
 

@@ -116,7 +116,7 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
+static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
 static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 
@@ -703,7 +703,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     PaUtil_InitializeStreamInterface( &winDsHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
-                                      PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
+                                      PaUtil_DummyRead, PaUtil_DummyWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
@@ -1600,7 +1600,7 @@ static PaError ReadStream( PaStream* s,
 
 /***********************************************************************************/
 static PaError WriteStream( PaStream* s,
-                            void *buffer,
+                            const void *buffer,
                             unsigned long frames )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;

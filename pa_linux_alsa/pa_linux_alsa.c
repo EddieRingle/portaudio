@@ -104,7 +104,7 @@ void CleanUpStream( PaAlsaStream *stream );
 
 /* blocking calls are in blocking_calls.c */
 extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-extern PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
+extern PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
 extern signed long GetStreamReadAvailable( PaStream* stream );
 extern signed long GetStreamWriteAvailable( PaStream* stream );
 
@@ -149,7 +149,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       StopStream, AbortStream,
                                       IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
-                                      PaUtil_DummyReadWrite, PaUtil_DummyReadWrite,
+                                      PaUtil_DummyRead, PaUtil_DummyWrite,
                                       PaUtil_DummyGetAvailable,
                                       PaUtil_DummyGetAvailable );
 

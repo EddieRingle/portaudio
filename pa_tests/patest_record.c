@@ -78,14 +78,14 @@ paTestData;
 ** It may be called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int recordCallback( void *inputBuffer, void *outputBuffer,
+static int recordCallback( const void *inputBuffer, void *outputBuffer,
                            unsigned long framesPerBuffer,
                            const PaStreamCallbackTimeInfo* timeInfo,
                            PaStreamCallbackFlags statusFlags,
                            void *userData )
 {
     paTestData *data = (paTestData*)userData;
-    SAMPLE *rptr = (SAMPLE*)inputBuffer;
+    const SAMPLE *rptr = (const SAMPLE*)inputBuffer;
     SAMPLE *wptr = &data->recordedSamples[data->frameIndex * NUM_CHANNELS];
     long framesToCalc;
     long i;
@@ -132,7 +132,7 @@ static int recordCallback( void *inputBuffer, void *outputBuffer,
 ** It may be called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int playCallback( void *inputBuffer, void *outputBuffer,
+static int playCallback( const void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
                          PaStreamCallbackFlags statusFlags,

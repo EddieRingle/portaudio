@@ -107,7 +107,7 @@ float LookupWaveform( paTestData *data, float phase )
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patestCallback(  void *inputBuffer, void *outputBuffer,
+static int patestCallback( const void *inputBuffer, void *outputBuffer,
                             unsigned long framesPerBuffer,
                             const PaStreamCallbackTimeInfo* timeInfo,
                             PaStreamCallbackFlags statusFlags,

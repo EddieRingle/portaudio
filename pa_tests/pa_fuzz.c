@@ -48,7 +48,7 @@
 typedef float SAMPLE;
 
 float CubicAmplifier( float input );
-static int fuzzCallback( void *inputBuffer, void *outputBuffer,
+static int fuzzCallback( const void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
                          PaStreamCallbackFlags statusFlags,
@@ -78,14 +78,14 @@ static int gNumNoInputs = 0;
 ** It may be called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int fuzzCallback( void *inputBuffer, void *outputBuffer,
+static int fuzzCallback( const void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
                          const PaStreamCallbackTimeInfo* timeInfo,
                          PaStreamCallbackFlags statusFlags,
                          void *userData )
 {
     SAMPLE *out = (SAMPLE*)outputBuffer;
-    SAMPLE *in = (SAMPLE*)inputBuffer;
+    const SAMPLE *in = (const SAMPLE*)inputBuffer;
     unsigned int i;
     (void) timeInfo; /* Prevent unused variable warnings. */
     (void) statusFlags;

@@ -64,7 +64,7 @@ TestData;
    It may be called at interrupt level on some machines so don't do anything
    that could mess up the system like calling malloc() or free().
 */
-static int TestCallback(  void *input, void *output,
+static int TestCallback( const void *input, void *output,
                             unsigned long frameCount,
                             const PaStreamCallbackTimeInfo* timeInfo,
                             PaStreamCallbackFlags statusFlags,

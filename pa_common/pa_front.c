@@ -1706,7 +1706,7 @@ PaError Pa_ReadStream( PaStream* stream,
 
 
 PaError Pa_WriteStream( PaStream* stream,
-                        void *buffer,
+                        const void *buffer,
                         unsigned long frames )
 {
     PaError result = ValidateStream( stream );

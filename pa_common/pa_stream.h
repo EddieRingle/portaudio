@@ -60,7 +60,7 @@ typedef struct {
     PaTime (*GetTime)( PaStream *stream );
     double (*GetCpuLoad)( PaStream* stream );
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames );
-    PaError (*Write)( PaStream* stream, void *buffer, unsigned long frames );
+    PaError (*Write)( PaStream* stream, const void *buffer, unsigned long frames );
     signed long (*GetReadAvailable)( PaStream* stream );
     signed long (*GetWriteAvailable)( PaStream* stream );
 } PaUtilStreamInterface;
@@ -76,16 +76,20 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     PaTime (*GetTime)( PaStream* ),
     double (*GetCpuLoad)( PaStream* ),
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames ),
-    PaError (*Write)( PaStream* stream, void *buffer, unsigned long frames ),
+    PaError (*Write)( PaStream* stream, const void *buffer, unsigned long frames ),
     signed long (*GetReadAvailable)( PaStream* stream ),
     signed long (*GetWriteAvailable)( PaStream* stream ) );
 
 
-/** Use PaUtil_DummyReadWrite and PaUtil_DummyGetAvailable for
+/** Use PaUtil_DummyRead and PaUtil_DummyWrite and PaUtil_DummyGetAvailable for
  callback based streams.
 */
-PaError PaUtil_DummyReadWrite( PaStream* stream,
+PaError PaUtil_DummyRead( PaStream* stream,
                        void *buffer,
+                       unsigned long frames );
+
+PaError PaUtil_DummyWrite( PaStream* stream,
+                       const void *buffer,
                        unsigned long frames );
 
                        

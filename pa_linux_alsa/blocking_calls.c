@@ -25,7 +25,7 @@ PaError ReadStream( PaStream* s,
 
 
 PaError WriteStream( PaStream* s,
-                            void *buffer,
+                            const void *buffer,
                             unsigned long frames )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;

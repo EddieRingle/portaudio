@@ -42,7 +42,7 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
                                        PaTime (*GetTime)( PaStream* ),
                                        double (*GetCpuLoad)( PaStream* ),
                                        PaError (*Read)( PaStream*, void *, unsigned long ),
-                                       PaError (*Write)( PaStream*, void *, unsigned long ),
+                                       PaError (*Write)( PaStream*, const void *, unsigned long ),
                                        signed long (*GetReadAvailable)( PaStream* ),
                                        signed long (*GetWriteAvailable)( PaStream* )  )
 {
@@ -86,8 +86,20 @@ void PaUtil_TerminateStreamRepresentation( PaUtilStreamRepresentation *streamRep
 }
 
 
-PaError PaUtil_DummyReadWrite( PaStream* stream,
+PaError PaUtil_DummyRead( PaStream* stream,
                                void *buffer,
+                               unsigned long frames )
+{
+    (void)stream; /* unused parameter */
+    (void)buffer; /* unused parameter */
+    (void)frames; /* unused parameter */
+
+    return paNoError; /* @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
+}
+
+
+PaError PaUtil_DummyWrite( PaStream* stream,
+                               const void *buffer,
                                unsigned long frames )
 {
     (void)stream; /* unused parameter */
