@@ -718,6 +718,8 @@ typedef struct
     char *alsaName;
     char *name;
     int isPlug;
+    int hasPlayback;
+    int hasCapture;
 } DeviceNames;
 
 static PaError PaAlsa_StrDup( PaAlsaHostApiRepresentation *alsaApi,
@@ -790,20 +792,31 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             char *alsaDeviceName, *deviceName;
             size_t len;
             char buf[50];
-            int err;
+            int hasPlayback = 0, hasCapture = 0;
             snprintf( buf, sizeof (buf), "%s:%d,%d", "hw", cardIdx, devIdx );
 
             /* Obtain info about this particular device */
             snd_pcm_info_set_device( pcmInfo, devIdx );
             snd_pcm_info_set_subdevice( pcmInfo, 0 );
+            snd_pcm_info_set_stream( pcmInfo, SND_PCM_STREAM_CAPTURE );
+            if( snd_ctl_pcm_info( ctl, pcmInfo ) >= 0 )
+                hasCapture = 1;
+            
             snd_pcm_info_set_stream( pcmInfo, SND_PCM_STREAM_PLAYBACK );
-            if( (err = snd_ctl_pcm_info( ctl, pcmInfo )) < 0 )
-                continue;   /* Error */
+            if( snd_ctl_pcm_info( ctl, pcmInfo ) >= 0 )
+                hasPlayback = 1;
 
-            len = strlen( cardName ) + strlen( snd_pcm_info_get_name( pcmInfo ) ) + 3;
+            if( !hasPlayback && !hasCapture )
+            {
+                continue;   /* Error */
+            }
+
+            /* The length of the string written by snprintf plus terminating 0 */
+            len = snprintf( NULL, 0, "%s: %s (%s)", cardName, snd_pcm_info_get_name( pcmInfo ), buf ) + 1;
             UNLESS( deviceName = (char *)PaUtil_GroupAllocateMemory( alsaApi->allocations, len ),
                     paInsufficientMemory );
-            snprintf( deviceName, len, "%s: %s", cardName, snd_pcm_info_get_name( pcmInfo ) );
+            snprintf( deviceName, len, "%s: %s (%s)", cardName,
+                    snd_pcm_info_get_name( pcmInfo ), buf );
 
             ++numDeviceNames;
             if( !deviceNames || numDeviceNames > maxDeviceNames )
@@ -818,6 +831,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
             deviceNames[ numDeviceNames - 1 ].name = deviceName;
             deviceNames[ numDeviceNames - 1 ].isPlug = 0;
+            deviceNames[ numDeviceNames - 1 ].hasPlayback = hasPlayback;
+            deviceNames[ numDeviceNames - 1 ].hasCapture = hasCapture;
         }
         snd_ctl_close( ctl );
     }
@@ -866,6 +881,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             deviceNames[numDeviceNames - 1].alsaName = alsaDeviceName;
             deviceNames[numDeviceNames - 1].name = deviceName;
             deviceNames[numDeviceNames - 1].isPlug = 1;
+            deviceNames[numDeviceNames - 1].hasPlayback = 1;
+            deviceNames[numDeviceNames - 1].hasCapture = 1;
         }
     }
     else
@@ -896,7 +913,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
          * hardware parameter configuration space */
 
         /* Query capture */
-        if( snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
+        if( deviceNames[i].hasCapture &&
+                snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &deviceInfo->minInputChannels, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
@@ -905,7 +923,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         }
 
         /* Query playback */
-        if( snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
+        if( deviceNames[i].hasPlayback &&
+                snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
@@ -1346,6 +1365,172 @@ static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags 
     InitializeThreading( &stream->threading, &stream->cpuLoadMeasurer );
 }
 
+/* We need to determine how many frames per host buffer to use.  Our
+ * goals are to provide the best possible performance, but also to
+ * most closely honor the requested latency settings.  Therefore this
+ * decision is based on:
+ *
+ *   - the period sizes that playback and/or capture support.  The
+ *     host buffer size has to be one of these.
+ *   - the number of periods that playback and/or capture support.
+ *
+ * We want to make period_size*(num_periods-1) to be as close as possible
+ * to latency*rate for both playback and capture.
+ *
+ * This is one of those blocks of code that will just take a lot of
+ * refinement to be any good.
+ */
+static PaError DetermineFramesPerBuffer( const PaAlsaStream *stream, double sampleRate, const PaStreamParameters *inputParameters,
+        const PaStreamParameters *outputParameters, unsigned long *determinedFrames )
+{
+    PaError result = paNoError;
+    unsigned long framesPerBuffer = 0;
+
+    if( stream->pcm_capture && stream->pcm_playback )
+    {
+        snd_pcm_uframes_t desiredLatency, e;
+        snd_pcm_uframes_t minPeriodSize, minPlayback, minCapture, maxPeriodSize, maxPlayback, maxCapture,
+                          optimalPeriodSize, periodSize;
+        int dir;
+
+        snd_pcm_t *pcm;
+        snd_pcm_hw_params_t *hwParamsPlayback, *hwParamsCapture;
+
+        snd_pcm_hw_params_alloca( &hwParamsPlayback );
+        snd_pcm_hw_params_alloca( &hwParamsCapture );
+
+        /* Come up with a common desired latency */
+        pcm = stream->pcm_playback;
+        snd_pcm_hw_params_any( pcm, hwParamsPlayback );
+        ENSURE( SetApproximateSampleRate( pcm, hwParamsPlayback, sampleRate ), paBadIODeviceCombination );
+        ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsPlayback, outputParameters->channelCount ),
+                paBadIODeviceCombination );
+
+        ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsPlayback, &minPlayback, &dir ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsPlayback, &maxPlayback, &dir ), paUnanticipatedHostError );
+
+        pcm = stream->pcm_capture;
+        ENSURE( snd_pcm_hw_params_any( pcm, hwParamsCapture ), paUnanticipatedHostError );
+        ENSURE( SetApproximateSampleRate( pcm, hwParamsCapture, sampleRate ), paBadIODeviceCombination );
+        ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsCapture, inputParameters->channelCount ),
+                paBadIODeviceCombination );
+
+        ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsCapture, &minCapture, &dir ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsCapture, &maxCapture, &dir ), paUnanticipatedHostError );
+
+        minPeriodSize = MAX( minPlayback, minCapture );
+        maxPeriodSize = MIN( maxPlayback, maxCapture );
+
+        desiredLatency = (snd_pcm_uframes_t) (MIN( outputParameters->suggestedLatency, inputParameters->suggestedLatency )
+                * sampleRate);
+        /* Clamp desiredLatency */
+        {
+            snd_pcm_uframes_t tmp, maxBufferSize = ULONG_MAX;
+            ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsPlayback, &tmp ), paUnanticipatedHostError );
+            maxBufferSize = MIN( maxBufferSize, tmp );
+            ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsCapture, &tmp ), paUnanticipatedHostError );
+            maxBufferSize = MIN( maxBufferSize, tmp );
+
+            desiredLatency = MIN( desiredLatency, maxBufferSize );
+        }
+
+        /* Find the closest power of 2 */
+        e = ilogb( minPeriodSize );
+        if( minPeriodSize & (minPeriodSize - 1) )
+            e += 1;
+
+        periodSize = (snd_pcm_uframes_t) pow( 2, e );
+        while( periodSize <= maxPeriodSize )
+        {
+            if( snd_pcm_hw_params_test_period_size( stream->pcm_playback, hwParamsPlayback, periodSize, 0 ) >= 0 &&
+                    snd_pcm_hw_params_test_period_size( stream->pcm_capture, hwParamsCapture, periodSize, 0 ) >= 0 )
+                break;  /* Ok! */
+
+            periodSize *= 2;
+        }
+
+        /* 4 periods considered optimal */
+        optimalPeriodSize = MAX( desiredLatency / 4, minPeriodSize );
+        optimalPeriodSize = MIN( optimalPeriodSize, maxPeriodSize );
+
+        /* Find the closest power of 2 */
+        e = ilogb( optimalPeriodSize );
+        if( optimalPeriodSize & (optimalPeriodSize - 1) )
+            e += 1;
+
+        optimalPeriodSize = (snd_pcm_uframes_t) pow( 2, e );
+        while( optimalPeriodSize >= periodSize )
+        {
+            pcm = stream->pcm_playback;
+            if( snd_pcm_hw_params_test_period_size( pcm, hwParamsPlayback, optimalPeriodSize, 0 ) < 0 )
+                continue;
+
+            pcm = stream->pcm_capture;
+            if( snd_pcm_hw_params_test_period_size( pcm, hwParamsCapture, optimalPeriodSize, 0 ) >= 0 )
+                break;
+
+            optimalPeriodSize /= 2;
+        }
+
+        if( optimalPeriodSize > periodSize )
+            periodSize = optimalPeriodSize;
+
+        if( periodSize <= maxPeriodSize )
+        {
+            /* Looks good */
+            framesPerBuffer = periodSize;
+        }
+        else    /* XXX: Some more descriptive error code might be appropriate */
+            ENSURE_PA( paBadIODeviceCombination );
+    }
+    else
+    {
+        /* half-duplex is a slightly simpler case */
+        unsigned long bufferSize, channels;
+        snd_pcm_t *pcm;
+        snd_pcm_hw_params_t *hwParams;
+
+        snd_pcm_hw_params_alloca( &hwParams );
+
+        if( stream->pcm_capture )
+        {
+            pcm = stream->pcm_capture;
+            bufferSize = inputParameters->suggestedLatency * sampleRate;
+            channels = inputParameters->channelCount;
+        }
+        else
+        {
+            pcm = stream->pcm_playback;
+            bufferSize = outputParameters->suggestedLatency * sampleRate;
+            channels = outputParameters->channelCount;
+        }
+
+        ENSURE( snd_pcm_hw_params_any( pcm, hwParams ), paUnanticipatedHostError );
+        ENSURE( SetApproximateSampleRate( pcm, hwParams, sampleRate ), paBadIODeviceCombination );
+        ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParams, channels ), paBadIODeviceCombination );
+
+        ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
+
+        /* Using 5 as a base number of periods, we try to approximate the suggested latency (+1 period),
+           finding a combination of period/buffer size which best fits these constraints */
+        framesPerBuffer = bufferSize / 4;
+        bufferSize += framesPerBuffer;   /* One period doesn't count as latency */
+        ENSURE( snd_pcm_hw_params_set_buffer_size_near( pcm, hwParams, &bufferSize ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_set_period_size_near( pcm, hwParams, &framesPerBuffer, NULL ), paUnanticipatedHostError );
+    }
+
+    UNLESS( framesPerBuffer != 0, paInternalError );
+    *determinedFrames = framesPerBuffer;
+
+error:
+    return result;
+}
+
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
                            const PaStreamParameters *inputParameters,
@@ -1454,161 +1639,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( getenv("PA_ALSA_PERIODSIZE") != NULL )
             framesPerHostBuffer = atoi( getenv("PA_ALSA_PERIODSIZE") );
         else
-        {
-            /* We need to determine how many frames per host buffer to use.  Our
-             * goals are to provide the best possible performance, but also to
-             * most closely honor the requested latency settings.  Therefore this
-             * decision is based on:
-             *
-             *   - the period sizes that playback and/or capture support.  The
-             *     host buffer size has to be one of these.
-             *   - the number of periods that playback and/or capture support.
-             *
-             * We want to make period_size*(num_periods-1) to be as close as possible
-             * to latency*rate for both playback and capture.
-             *
-             * This is one of those blocks of code that will just take a lot of
-             * refinement to be any good.
-             */
-
-            if( stream->pcm_capture && stream->pcm_playback )
-            {
-                snd_pcm_uframes_t desiredLatency, e;
-                snd_pcm_uframes_t minPeriodSize, minPlayback, minCapture, maxPeriodSize, maxPlayback, maxCapture,
-                    optimalPeriodSize, periodSize;
-                int dir;
-
-                snd_pcm_t *pcm;
-                snd_pcm_hw_params_t *hwParamsPlayback, *hwParamsCapture;
-
-                snd_pcm_hw_params_alloca( &hwParamsPlayback );
-                snd_pcm_hw_params_alloca( &hwParamsCapture );
-
-                /* Come up with a common desired latency */
-                pcm = stream->pcm_playback;
-                snd_pcm_hw_params_any( pcm, hwParamsPlayback );
-                ENSURE( SetApproximateSampleRate( pcm, hwParamsPlayback, sampleRate ), paBadIODeviceCombination );
-                ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsPlayback, outputParameters->channelCount ),
-                        paBadIODeviceCombination );
-
-                ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsPlayback, &minPlayback, &dir ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsPlayback, &maxPlayback, &dir ), paUnanticipatedHostError );
-
-                pcm = stream->pcm_capture;
-                ENSURE( snd_pcm_hw_params_any( pcm, hwParamsCapture ), paUnanticipatedHostError );
-                ENSURE( SetApproximateSampleRate( pcm, hwParamsCapture, sampleRate ), paBadIODeviceCombination );
-                ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsCapture, inputParameters->channelCount ),
-                        paBadIODeviceCombination );
-
-                ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsCapture, &minCapture, &dir ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsCapture, &maxCapture, &dir ), paUnanticipatedHostError );
-
-                minPeriodSize = MAX( minPlayback, minCapture );
-                maxPeriodSize = MIN( maxPlayback, maxCapture );
-
-                desiredLatency = (snd_pcm_uframes_t) (MIN( outputParameters->suggestedLatency, inputParameters->suggestedLatency )
-                    * sampleRate);
-                /* Clamp desiredLatency */
-                {
-                    snd_pcm_uframes_t tmp, maxBufferSize = ULONG_MAX;
-                    ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsPlayback, &tmp ), paUnanticipatedHostError );
-                    maxBufferSize = MIN( maxBufferSize, tmp );
-                    ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsCapture, &tmp ), paUnanticipatedHostError );
-                    maxBufferSize = MIN( maxBufferSize, tmp );
-
-                    desiredLatency = MIN( desiredLatency, maxBufferSize );
-                }
-
-                /* Find the closest power of 2 */
-                e = ilogb( minPeriodSize );
-                if( minPeriodSize & (minPeriodSize - 1) )
-                    e += 1;
-
-                periodSize = (snd_pcm_uframes_t) pow( 2, e );
-                while( periodSize <= maxPeriodSize )
-                {
-                    if( snd_pcm_hw_params_test_period_size( stream->pcm_playback, hwParamsPlayback, periodSize, 0 ) >= 0 &&
-                            snd_pcm_hw_params_test_period_size( stream->pcm_capture, hwParamsCapture, periodSize, 0 ) >= 0 )
-                        break;  /* Ok! */
-
-                    periodSize *= 2;
-                }
-
-                /* 4 periods considered optimal */
-                optimalPeriodSize = MAX( desiredLatency / 4, minPeriodSize );
-                optimalPeriodSize = MIN( optimalPeriodSize, maxPeriodSize );
-
-                /* Find the closest power of 2 */
-                e = ilogb( optimalPeriodSize );
-                if( optimalPeriodSize & (optimalPeriodSize - 1) )
-                    e += 1;
-
-                optimalPeriodSize = (snd_pcm_uframes_t) pow( 2, e );
-                while( optimalPeriodSize >= periodSize )
-                {
-                    pcm = stream->pcm_playback;
-                    if( snd_pcm_hw_params_test_period_size( pcm, hwParamsPlayback, optimalPeriodSize, 0 ) < 0 )
-                        continue;
-
-                    pcm = stream->pcm_capture;
-                    if( snd_pcm_hw_params_test_period_size( pcm, hwParamsCapture, optimalPeriodSize, 0 ) >= 0 )
-                        break;
-
-                    optimalPeriodSize /= 2;
-                }
-
-                if( optimalPeriodSize > periodSize )
-                    periodSize = optimalPeriodSize;
-
-                if( periodSize <= maxPeriodSize )
-                {
-                    /* Looks good */
-                    framesPerHostBuffer = periodSize;
-                }
-                else    /* XXX: Some more descriptive error code might be appropriate */
-                    ENSURE_PA( paBadIODeviceCombination );
-            }
-            else
-            {
-                /* half-duplex is a slightly simpler case */
-                unsigned long bufferSize, channels;
-                snd_pcm_t *pcm;
-                snd_pcm_hw_params_t *hwParams;
-
-                snd_pcm_hw_params_alloca( &hwParams );
-
-                if( stream->pcm_capture )
-                {
-                    pcm = stream->pcm_capture;
-                    bufferSize = inputParameters->suggestedLatency * sampleRate;
-                    channels = inputParameters->channelCount;
-                }
-                else
-                {
-                    pcm = stream->pcm_playback;
-                    bufferSize = outputParameters->suggestedLatency * sampleRate;
-                    channels = outputParameters->channelCount;
-                }
-
-                ENSURE( snd_pcm_hw_params_any( pcm, hwParams ), paUnanticipatedHostError );
-                ENSURE( SetApproximateSampleRate( pcm, hwParams, sampleRate ), paBadIODeviceCombination );
-                ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParams, channels ), paBadIODeviceCombination );
-
-                ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
-
-                /* Using 5 as a base number of periods, we try to approximate the suggested latency (+1 period),
-                   finding a combination of period/buffer size which best fits these constraints */
-                framesPerHostBuffer = bufferSize / 4;
-                bufferSize += framesPerHostBuffer;   /* One period doesn't count as latency */
-                ENSURE( snd_pcm_hw_params_set_buffer_size_near( pcm, hwParams, &bufferSize ), paUnanticipatedHostError );
-                ENSURE( snd_pcm_hw_params_set_period_size_near( pcm, hwParams, &framesPerHostBuffer, NULL ), paUnanticipatedHostError );
-            }
-        }
+            ENSURE_PA( DetermineFramesPerBuffer( stream, sampleRate, inputParameters, outputParameters, &framesPerHostBuffer ) );
     }
     else
     {
@@ -2770,10 +2801,6 @@ static PaError WriteStream( PaStream* s,
         int numBytes = sizeof (void *) * stream->playbackUserChannels;
         UNLESS( userBuffer = alloca( numBytes ), paInsufficientMemory );
         memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playbackUserChannels );
-        /*
-        for( i = 0; i < stream->playbackUserChannels; ++i )
-            ((const void **) userBuffer)[i] = ((const void **) buffer)[i];
-            */
     }
 
     while( frames > 0 )
