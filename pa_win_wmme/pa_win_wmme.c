@@ -994,8 +994,27 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                (DWORD)stream->bufferEvent, (DWORD) stream, CALLBACK_EVENT );
         if( mmresult != MMSYSERR_NOERROR )
         {
-            result = paHostError;
-            PaUtil_SetHostError( mmresult );
+            switch( mmresult )
+            {
+                case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
+                    result = paDeviceUnavailable;
+                    break;
+                case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
+                    result = paInternalError;  /* portaudio should ensure that only good device ids are used */
+                    break;
+                case MMSYSERR_NODRIVER:	    /* No device driver is present. */
+                    result = paDeviceUnavailable;
+                    break;
+                case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
+                    result = paInsufficientMemory;
+                    break;
+                case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
+                    result = paInternalError; /* REVIEW: port audio shouldn't get this far without using compatible format info */ 
+                    break;
+                default:
+                    result = paHostError;
+                    PaUtil_SetHostError( mmresult );
+            }
             goto error;
         }
     }
@@ -1018,8 +1037,27 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                 (DWORD)stream->bufferEvent, (DWORD) stream, CALLBACK_EVENT );
         if( mmresult != MMSYSERR_NOERROR )
         {
-            result = paHostError;
-            PaUtil_SetHostError( mmresult );
+            switch( mmresult )
+            {
+                case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
+                    result = paDeviceUnavailable;
+                    break;
+                case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
+                    result = paInternalError;  /* portaudio should ensure that only good device ids are used */
+                    break;
+                case MMSYSERR_NODRIVER:	    /* No device driver is present. */
+                    result = paDeviceUnavailable;
+                    break;
+                case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
+                    result = paInsufficientMemory;
+                    break;
+                case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
+                    result = paInternalError; /* REVIEW: port audio shouldn't get this far without using compatible format info */ 
+                    break;
+                default:
+                    result = paHostError;
+                    PaUtil_SetHostError( mmresult );
+            }
             goto error;
         }
     }
