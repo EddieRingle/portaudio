@@ -1103,7 +1103,6 @@ static PaError TestParameters( const PaStreamParameters *parameters, const PaAls
     PaError result = paNoError;
     snd_pcm_t *pcm = NULL;
     PaSampleFormat availableFormats;
-    PaSampleFormat paFormat;
     /* We are able to adapt to a number of channels less than what the device supports */
     unsigned int numHostChannels = MAX( parameters->channelCount, streamType == SND_PCM_STREAM_PLAYBACK ?
             deviceInfo->minOutputChannels : deviceInfo->minInputChannels );
@@ -1115,12 +1114,21 @@ static PaError TestParameters( const PaStreamParameters *parameters, const PaAls
 
     snd_pcm_hw_params_any( pcm, params );
 
-    ENSURE( SetApproximateSampleRate( pcm, params, sampleRate ), paInvalidSampleRate );
-    ENSURE( snd_pcm_hw_params_set_channels( pcm, params, numHostChannels ), paInvalidChannelCount );
+    if( SetApproximateSampleRate( pcm, params, sampleRate ) < 0 )
+    {
+        result = paInvalidSampleRate;
+        goto error;
+    }
+
+    if( snd_pcm_hw_params_set_channels( pcm, params, numHostChannels ) < 0 )
+    {
+        result = paInvalidChannelCount;
+        goto error;
+    }
 
     /* See if we can find a best possible match */
     availableFormats = GetAvailableFormats( pcm );
-    ENSURE_PA( paFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
+    ENSURE_PA( PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
 
 end:
     if( pcm )
@@ -1130,7 +1138,6 @@ end:
 error:
     goto end;
 }
-
 
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
@@ -1177,11 +1184,13 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputChannelCount )
     {
-        ENSURE_PA( TestParameters( inputParameters, inputDeviceInfo, inputStreamInfo, sampleRate, SND_PCM_STREAM_CAPTURE ) );
+        if( (result = TestParameters( inputParameters, inputDeviceInfo, inputStreamInfo, sampleRate, SND_PCM_STREAM_CAPTURE )) != paNoError )
+            goto error;
     }
     if ( outputChannelCount )
     {
-        ENSURE_PA( TestParameters( outputParameters, outputDeviceInfo, outputStreamInfo, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
+        if( (result = TestParameters( outputParameters, outputDeviceInfo, outputStreamInfo, sampleRate, SND_PCM_STREAM_PLAYBACK )) != paNoError )
+            goto error;
     }
 
     return paFormatIsSupported;
