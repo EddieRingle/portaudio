@@ -32,6 +32,15 @@
 /** @file
 
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+
+    @todo implement host api specific extension to set i/o buffer sizes in frames
+
+    @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
+
+    @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
+
+    @todo audit handling of DirectSound result codes - in many cases we could convert a HRESULT into
+        a native portaudio error code. Standard DirectSound result codes are documented at msdn.
 */
 
 #include <stdio.h>
@@ -95,8 +104,13 @@ static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
-static unsigned long GetStreamReadAvailable( PaStream* stream );
-static unsigned long GetStreamWriteAvailable( PaStream* stream );
+static signed long GetStreamReadAvailable( PaStream* stream );
+static signed long GetStreamWriteAvailable( PaStream* stream );
+
+
+/* FIXME: should convert hr to a string */
+#define PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr ) \
+    PaUtil_SetLastHostError( paDirectSound, hr, "DirectSound error" )
 
 /************************************************* DX Prototypes **********/
 static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
@@ -473,7 +487,13 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
             PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
             deviceInfo->structVersion = 2;
             deviceInfo->hostApi = hostApiIndex;
-            deviceInfo->name = 0; 
+            deviceInfo->name = 0;
+
+            deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+
             (*hostApi)->deviceInfos[i] = deviceInfo;
         }
 
@@ -832,7 +852,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCreate() failed!\n"));
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
             hr = DSW_InitOutputBuffer( dsw,
@@ -841,7 +862,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             DBUG(("DSW_InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
             /* Calculate value used in latency calculation to avoid real-time divides. */
@@ -872,7 +894,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCaptureCreate() failed!\n"));
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
             hr = DSW_InitInputBuffer( dsw,
@@ -882,7 +905,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DSW_InitInputBuffer() returns %x\n", hr));
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
         }
@@ -976,7 +1000,8 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
             if (hresult != DS_OK)
             {
                 ERR_RPT(("DirectSound IDirectSoundCaptureBuffer_Lock failed, hresult = 0x%x\n",hresult));
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hresult );
                 goto error2;
             }
 
@@ -1003,7 +1028,8 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
             if (hresult != DS_OK)
             {
                 ERR_RPT(("DirectSound IDirectSoundBuffer_Lock failed, hresult = 0x%x\n",hresult));
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_DS_SET_LAST_DIRECTSOUND_ERROR( hresult );
                 goto error1;
             }
 
@@ -1120,7 +1146,8 @@ static PaError StartStream( PaStream *s )
         DBUG(("StartStream: DSW_StartInput returned = 0x%X.\n", hr));
         if( hr != DS_OK )
         {
-            result = paHostError;
+            result = paUnanticipatedHostError;
+            PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
             goto error;
         }
     }
@@ -1141,7 +1168,8 @@ static PaError StartStream( PaStream *s )
         DBUG(("PaHost_StartOutput: DSW_StartOutput returned = 0x%X.\n", hr));
         if( hr != DS_OK )
         {
-            result = paHostError;
+            result = paUnanticipatedHostError;
+            PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
             goto error;
         }
     }
@@ -1161,7 +1189,8 @@ static PaError StartStream( PaStream *s )
     if( stream->timerID == 0 )
     {
         stream->isActive = 0;
-        result = paHostError;
+        result = paUnanticipatedHostError;
+        PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
         goto error;
     }
 
@@ -1318,7 +1347,7 @@ static PaError WriteStream( PaStream* s,
 
 
 /***********************************************************************************/
-static unsigned long GetStreamReadAvailable( PaStream* s )
+static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
@@ -1329,7 +1358,7 @@ static unsigned long GetStreamReadAvailable( PaStream* s )
 
 
 /***********************************************************************************/
-static unsigned long GetStreamWriteAvailable( PaStream* s )
+static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
