@@ -17,6 +17,10 @@ PaAlsaStreamInfo;
 
 void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info );
 
+void PaAlsa_EnableRealtimeScheduling( PaStream *s, int enable );
+
+void PaAlsa_EnableWatchdog( PaStream *s, int enable );
+
 #ifdef __cplusplus
 }
 #endif
