@@ -2355,8 +2355,14 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 is input-only.
             */
 
-            if( PA_IS_OUTPUT_STREAM_(stream) && NoBuffersAreQueued( &stream->output ) )
+            if( PA_IS_OUTPUT_STREAM_(stream) )
             {
+                if( NoBuffersAreQueued( &stream->output ) )
+                    done = 1; /* Will cause thread to return. */
+            }
+            else
+            {
+                /* input only stream */
                 done = 1; /* Will cause thread to return. */
             }
         }
