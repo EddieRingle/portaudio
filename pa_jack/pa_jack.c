@@ -779,7 +779,8 @@ static int JackCallback( jack_nframes_t frames, void *userData )
 
     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
+            0 /* @todo pass underflow/overflow flags when necessary */ );
 
     for( chn = 0; chn < stream->num_incoming_connections; chn++ )
     {

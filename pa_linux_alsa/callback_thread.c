@@ -303,7 +303,8 @@ void *CallbackThread( void *userData )
             /* Now we know the soundcard is ready to produce/receive at least
              * one period.  We just need to get the buffers for the client
              * to read/write. */
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
+                    0 /* @todo pass underflow/overflow flags when necessary */ );
 
             frames_got = setup_buffers( stream, frames_avail );
 

@@ -2259,7 +2259,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /* @todo pass underflow/overflow flags when necessary */  );
 
                     if( hostInputBufferIndex != -1 )
                     {
@@ -2544,7 +2544,7 @@ static PaError StartStream( PaStream *s )
                 stream->framesUsedInCurrentOutputBuffer = 0;
                 do{
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, paPrimingOutput );
                     if( stream->numInputBuffers > 0 )
                         PaUtil_SetNoInput( &stream->bufferProcessor );
 

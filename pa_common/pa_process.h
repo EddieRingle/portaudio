@@ -53,7 +53,7 @@ extern "C"
     buffer processor takes care of slicing or chunking the data into the correct
     size for the client callback. Secondly, buffer format and interleaving
     adaption is performed. The buffer processor makes use of the converters
-    devined in pa_converters.c to convert sample data, and also handles
+    defined in pa_converters.c to convert sample data, and also handles
     interleaving, deinterleaving, or re-interleaving data depending on the
     form the host API supplies the data in.
 
@@ -111,7 +111,9 @@ typedef struct {
     unsigned long framesInTempOutputBuffer; /**< frames remaining in input buffer from previous adaption iteration */
 
     PaStreamCallbackTimeInfo *timeInfo;
-    
+
+    PaStreamCallbackFlags callbackStatusFlags;
+
     unsigned long hostInputFrameCount[2];
     PaUtilChannelDescriptor *hostInputChannels[2];
     unsigned long hostOutputFrameCount[2];
@@ -165,7 +167,7 @@ void PaUtil_ResetBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
  information as necessary.
 */
 void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor,
-        PaStreamCallbackTimeInfo* timeInfo /* add callback flags parameter here */ );
+        PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags callbackStatusFlags );
 
 /** returns the number of frames processed, this usually corresponds to the
  number of frames passed in, exept in the

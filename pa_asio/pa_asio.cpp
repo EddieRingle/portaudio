@@ -1958,7 +1958,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                 }
             }
 
-            PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo );
+            PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo, 0 /* @todo pass underflow/overflow flags when necessary */ );
 
             PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
             for( i=0; i<theAsioStream->numInputChannels; ++i )

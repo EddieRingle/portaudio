@@ -537,7 +537,7 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
 
 
 
-    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */ );
 
     /*
         depending on whether the host buffers are interleaved, non-interleaved

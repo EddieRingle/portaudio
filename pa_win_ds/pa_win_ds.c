@@ -1277,7 +1277,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         timeInfo.outputBufferDacTime = timeInfo.currentTime + outputLatency;
 
 
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /* @todo pass underflow/overflow flags when necessary */ );
 
     /* Input */
         if( stream->bufferProcessor.inputChannelCount > 0 )

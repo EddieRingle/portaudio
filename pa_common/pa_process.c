@@ -50,16 +50,22 @@
 
     Cache tilings for intereave<->deinterleave also need to be considered.
 
-    @todo need to provide a way for clients to drain the adaption buffer
-        if the stream callback returns paComplete, but there is data left in the
-        tempOutputBuffer when PaUtil_EndBufferProcessing() returns. (check that this is implemented, i think it is)
-        
     @todo implement timeInfo->currentTime
 
-    @todo implement the streamFlags callback parameter, currently it is
-    always zero. It needs to be passed from the host layer somehow.
+    @todo specify and implement some kind of logical policy for handling the
+        underflow and overflow stream flags when the underflow/overflow overlaps
+        multiple user buffers/callbacks.
 
 	@todo provide support for priming the buffers with data from the callback.
+        The client interface is now implemented through PaUtil_SetNoInput()
+        which sets bp->hostInputChannels[0][0].data to zero. However this is
+        currently only implemented in NonAdaptingProcess(). It shouldn't be
+        needed for AdaptingInputOnlyProcess() (no priming should ever be
+        requested for AdaptingInputOnlyProcess()).
+        Not sure if additional work should be required to make it work with
+        AdaptingOutputOnlyProcess, but it definitely is required for
+        AdaptingProcess.
+
 
 
     @todo rename the following variables in the adaptor functions for improved clarity:
@@ -411,7 +417,8 @@ void PaUtil_ResetBufferProcessor( PaUtilBufferProcessor* bp )
 }
 
 
-void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaStreamCallbackTimeInfo* timeInfo )
+void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp,
+        PaStreamCallbackTimeInfo* timeInfo, PaStreamCallbackFlags callbackStatusFlags )
 {
     bp->timeInfo = timeInfo;
 
@@ -426,7 +433,9 @@ void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaStreamCallbackTi
         outputted after the frames currently in the output buffer have been
         outputted. */
     bp->timeInfo->outputBufferDacTime += bp->framesInTempOutputBuffer * bp->samplePeriod;
-    
+
+    bp->callbackStatusFlags = callbackStatusFlags;
+
     bp->hostInputFrameCount[1] = 0;
     bp->hostOutputFrameCount[1] = 0;
 }
@@ -836,7 +845,6 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
     unsigned long frameCount;
     unsigned long framesToGo = framesToProcess;
     unsigned long framesProcessed = 0;
-    unsigned long statusFlags = 0; // FIXME: implement this
 
 
     if( *streamCallbackResult == paContinue )
@@ -937,8 +945,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
             }
         
             *streamCallbackResult = bp->streamCallback( userInput, userOutput,
-                                                frameCount, bp->timeInfo,
-                                                statusFlags, bp->userData );
+                    frameCount, bp->timeInfo, bp->callbackStatusFlags, bp->userData );
 
             if( *streamCallbackResult == paAbort )
             {
@@ -1036,7 +1043,6 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
     unsigned long frameCount;
     unsigned long framesToGo = framesToProcess;
     unsigned long framesProcessed = 0;
-    unsigned long statusFlags = 0; // FIXME: implement this
     
     userOutput = 0;
 
@@ -1108,8 +1114,8 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
                 bp->timeInfo->outputBufferDacTime = 0;
 
                 *streamCallbackResult = bp->streamCallback( userInput, userOutput,
-                                    bp->framesPerUserBuffer, bp->timeInfo,
-                                    statusFlags, bp->userData );
+                        bp->framesPerUserBuffer, bp->timeInfo,
+                        bp->callbackStatusFlags, bp->userData );
 
                 bp->timeInfo->inputBufferAdcTime += frameCount * bp->samplePeriod;
             }
@@ -1144,8 +1150,7 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
     unsigned long frameCount;
     unsigned long framesToGo = framesToProcess;
     unsigned long framesProcessed = 0;
-    unsigned long statusFlags = 0; // FIXME: implement this
-    
+
     do
     {
         if( bp->framesInTempOutputBuffer == 0 && *streamCallbackResult == paContinue )
@@ -1172,7 +1177,7 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
             
             *streamCallbackResult = bp->streamCallback( userInput, userOutput,
                     bp->framesPerUserBuffer, bp->timeInfo,
-                    statusFlags, bp->userData );
+                    bp->callbackStatusFlags, bp->userData );
 
             if( *streamCallbackResult == paAbort )
             {
@@ -1283,8 +1288,8 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
     unsigned char *srcBytePtr, *destBytePtr;
     unsigned int srcStride, srcBytePtrStride, destStride, destBytePtrStride;
     unsigned int i, j;
-    unsigned long statusFlags = 0; // FIXME: implement this
-    
+ 
+
     framesAvailable = bp->hostInputFrameCount[0] + bp->hostInputFrameCount[1];/* this is assumed to be the same as the output buffers frame count */
 
     if( processPartialUserBuffers )
@@ -1496,7 +1501,7 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
 
                 *streamCallbackResult = bp->streamCallback( userInput, userOutput,
                         bp->framesPerUserBuffer, bp->timeInfo,
-                        statusFlags, bp->userData );
+                        bp->callbackStatusFlags, bp->userData );
 
                 bp->timeInfo->inputBufferAdcTime += bp->framesPerUserBuffer * bp->samplePeriod;
                 bp->timeInfo->outputBufferDacTime += bp->framesPerUserBuffer * bp->samplePeriod;

@@ -902,7 +902,8 @@ static void *PaOSS_AudioThreadProc(void *userData)
 
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
     
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
+                0 /* @todo pass underflow/overflow flags when necessary */ );
         
         /*
           depending on whether the host buffers are interleaved, non-interleaved
