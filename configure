@@ -805,8 +805,6 @@ Optional Packages:
   --with-winapi ((wmme/directx/asio) default=wmme)
   --with-macapi (asio) default=asio)
   --with-asiodir (default=/usr/local/asiosdk2)
-  --with-calliasiodir (default=./calliasio)
-  --with-nasm (checks path for nasm or nasmw
   --with-dxdir (default=/usr/local/dx7sdk)
 
 Some influential environment variables:
@@ -2755,24 +2753,6 @@ else
 fi;
 
 
-# Check whether --with-calliasiodir or --without-calliasiodir was given.
-if test "${with_calliasiodir+set}" = set; then
-  withval="$with_calliasiodir"
-  with_calliasiodir=$withval
-else
-  with_calliasiodir="./calliasio"
-fi;
-
-
-# Check whether --with-nasm or --without-nasm was given.
-if test "${with_nasm+set}" = set; then
-  withval="$with_nasm"
-  with_nasm=$withval
-else
-  with_nasm=""
-fi;
-
-
 # Check whether --with-dxdir or --without-dxdir was given.
 if test "${with_dxdir+set}" = set; then
   withval="$with_dxdir"
@@ -2798,58 +2778,6 @@ case "${host_os}" in
 	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
 	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
         if [ $with_macapi = "asio" ] ; then
-            if [ $with_nasm ] ; then
-                NASM=$with_nasm;
-            else
-                # Extract the first word of "nasm", so it can be a program name with args.
-set dummy nasm; ac_word=$2
-echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6
-if test "${ac_cv_path_NASM+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  case $NASM in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_NASM="$NASM" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if $as_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_NASM="$as_dir/$ac_word$ac_exec_ext"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-
-  test -z "$ac_cv_path_NASM" && ac_cv_path_NASM="no"
-  ;;
-esac
-fi
-NASM=$ac_cv_path_NASM
-
-if test -n "$NASM"; then
-  echo "$as_me:$LINENO: result: $NASM" >&5
-echo "${ECHO_T}$NASM" >&6
-else
-  echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6
-fi
-
-                if [ $NASM = "no" ] ; then
-                    { { echo "$as_me:$LINENO: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&5
-echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
-   { (exit 1); exit 1; }; }
-                fi
-                NASMOPT=  ;
-            fi
-            NASMOPT=  ;
-
             if [ $with_asiodir ] ; then
               ASIODIR="$with_asiodir";
             else
@@ -2857,15 +2785,7 @@ echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
             fi
             echo "ASIODIR: $ASIODIR";
 
-            if [ $with_calliasiodir ] ; then
-              CALLIASIODIR="$with_calliasiodir";
-            else
-              CALLIASIODIR="./calliasio";
-            fi
-            echo "CALLIASIODIR: $CALLIASIODIR";
-
-            OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o";
-            #OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
+            OTHER_OBJS="$CFLAGS pa_asio/iasiothiscallresolver.o $ASIODIR/host/asiodrivers.o $ASIODIR/common/asio.o $ASIODIR/host/mac/asioshlib.o";
             CFLAGS="$CFLAGS -Ipa_asio -I$ASIDIR/host/mac -I$ASIODIR/common";
             CXXFLAGS="$CFLAGS";
         fi
@@ -2890,100 +2810,6 @@ echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
             CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO";
         elif [ $with_winapi = "asio" ] ; then
-            if [ $with_nasm ] ; then
-                NASM=$with_nasm
-                NASMOPT="-f win32"
-            else
-                # Extract the first word of "nasm", so it can be a program name with args.
-set dummy nasm; ac_word=$2
-echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6
-if test "${ac_cv_path_NASM+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  case $NASM in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_NASM="$NASM" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if $as_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_NASM="$as_dir/$ac_word$ac_exec_ext"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-
-  test -z "$ac_cv_path_NASM" && ac_cv_path_NASM="no"
-  ;;
-esac
-fi
-NASM=$ac_cv_path_NASM
-
-if test -n "$NASM"; then
-  echo "$as_me:$LINENO: result: $NASM" >&5
-echo "${ECHO_T}$NASM" >&6
-else
-  echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6
-fi
-
-                if [ $NASM = "no" ] ; then
-                    # Extract the first word of "nasmw", so it can be a program name with args.
-set dummy nasmw; ac_word=$2
-echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6
-if test "${ac_cv_path_NASM+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  case $NASM in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_NASM="$NASM" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if $as_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_NASM="$as_dir/$ac_word$ac_exec_ext"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-
-  test -z "$ac_cv_path_NASM" && ac_cv_path_NASM="no"
-  ;;
-esac
-fi
-NASM=$ac_cv_path_NASM
-
-if test -n "$NASM"; then
-  echo "$as_me:$LINENO: result: $NASM" >&5
-echo "${ECHO_T}$NASM" >&6
-else
-  echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6
-fi
-
-                    if [ $NASM = "no" ] ; then
-                        { { echo "$as_me:$LINENO: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&5
-echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
-   { (exit 1); exit 1; }; }
-                    fi
-                fi
-                NASMOPT="-f win32"
-            fi
-
             if [ $with_asiodir ] ; then
               ASIODIR="$with_asiodir";
             else
@@ -2991,20 +2817,11 @@ echo "$as_me: error: \"Could not find nasm or nasmw- needed for ASIO\"" >&2;}
             fi
             echo "ASIODIR: $ASIODIR"
 
-            if [ $with_calliasiodir ] ; then
-              CALLIASIODIR="$with_calliasiodir";
-            else
-              CALLIASIODIR="./calliasio";
-            fi
-            echo "CALLIASIODIR: $CALLIASIODIR";
-
-            #OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/common/asio.o $ASIODIR/common/asiodrvr.o $ASIODIR/common/combase.o $ASIODIR/common/debugmessage.o $ASIODIR/common/dllentry.o $ASIODIR/common/register.o $ASIODIR/host/ASIOConvertSamples.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
-            OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
+            OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o pa_asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
-            #CFLAGS="$CFLAGS -Ipa_asio -I$ASIODIR/common -I$ASIODIR/host -I$ASIODIR/host/pc -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
             CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
             CXXFLAGS="$CFLAGS";
         else   # WMME default

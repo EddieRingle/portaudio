@@ -68,14 +68,6 @@ AC_ARG_WITH(asiodir,
             [  --with-asiodir (default=/usr/local/asiosdk2)],
             with_asiodir=$withval, with_asiodir="/usr/local/asiosdk2")
 
-AC_ARG_WITH(calliasiodir,
-            [  --with-calliasiodir (default=./calliasio)],
-            with_calliasiodir=$withval, with_calliasiodir="./calliasio")
-
-AC_ARG_WITH(nasm,
-            [  --with-nasm (checks path for nasm or nasmw],
-            with_nasm=$withval, with_nasm="")
-
 AC_ARG_WITH(dxdir,
             [  --with-dxdir (default=/usr/local/dx7sdk)],
             with_dxdir=$withval, with_dxdir="/usr/local/dx7sdk")
@@ -97,19 +89,7 @@ case "${host_os}" in
 	PADLL="libportaudio.dylib";
 	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
 	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
-dnl	Not sure if nasm is needed with Darwin and what flags (-f win32 on Windows)
         if [[ $with_macapi = "asio" ]] ; then
-            if [[ $with_nasm ]] ; then
-                NASM=$with_nasm;
-            else
-                AC_PATH_PROG(NASM, nasm, no)
-                if [[ $NASM = "no" ]] ; then
-                    AC_MSG_ERROR("Could not find nasm or nasmw- needed for ASIO")
-                fi
-                NASMOPT=  ;
-            fi
-            NASMOPT=  ;
-
             if [[ $with_asiodir ]] ; then
               ASIODIR="$with_asiodir";
             else
@@ -117,15 +97,7 @@ dnl	Not sure if nasm is needed with Darwin and what flags (-f win32 on Windows)
             fi
             echo "ASIODIR: $ASIODIR";
 
-            if [[ $with_calliasiodir ]] ; then
-              CALLIASIODIR="$with_calliasiodir";
-            else
-              CALLIASIODIR="./calliasio";
-            fi
-            echo "CALLIASIODIR: $CALLIASIODIR";
-
-            OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o";
-            #OTHER_OBJS="$CFLAGS $ASIODIR/host/asiodrivers.o $ASIODIR/host/mac/asioshlib.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
+            OTHER_OBJS="$CFLAGS pa_asio/iasiothiscallresolver.o $ASIODIR/host/asiodrivers.o $ASIODIR/common/asio.o $ASIODIR/host/mac/asioshlib.o";
             CFLAGS="$CFLAGS -Ipa_asio -I$ASIDIR/host/mac -I$ASIODIR/common";
             CXXFLAGS="$CFLAGS";
         fi
@@ -151,20 +123,6 @@ dnl	Not sure if nasm is needed with Darwin and what flags (-f win32 on Windows)
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
             CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO";
         elif [[ $with_winapi = "asio" ]] ; then
-            if [[ $with_nasm ]] ; then
-                NASM=$with_nasm
-                NASMOPT="-f win32"
-            else
-                AC_PATH_PROG(NASM, nasm, no)
-                if [[ $NASM = "no" ]] ; then
-                    AC_PATH_PROG(NASM, nasmw, no)
-                    if [[ $NASM = "no" ]] ; then
-                        AC_MSG_ERROR("Could not find nasm or nasmw- needed for ASIO")
-                    fi
-                fi
-                NASMOPT="-f win32"
-            fi
-
             if [[ $with_asiodir ]] ; then
               ASIODIR="$with_asiodir";
             else
@@ -172,20 +130,11 @@ dnl	Not sure if nasm is needed with Darwin and what flags (-f win32 on Windows)
             fi
             echo "ASIODIR: $ASIODIR"
 
-            if [[ $with_calliasiodir ]] ; then
-              CALLIASIODIR="$with_calliasiodir";
-            else
-              CALLIASIODIR="./calliasio";
-            fi
-            echo "CALLIASIODIR: $CALLIASIODIR";
-
-            #OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/common/asio.o $ASIODIR/common/asiodrvr.o $ASIODIR/common/combase.o $ASIODIR/common/debugmessage.o $ASIODIR/common/dllentry.o $ASIODIR/common/register.o $ASIODIR/host/ASIOConvertSamples.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
-            OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o $CALLIASIODIR/asio.o $CALLIASIODIR/calliasio_gcc.o $CALLIASIODIR/calls.o";
+            OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o pa_asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
             DLL_LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
-            #CFLAGS="$CFLAGS -Ipa_asio -I$ASIODIR/common -I$ASIODIR/host -I$ASIODIR/host/pc -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
             CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DWINDOWS";
             CXXFLAGS="$CFLAGS";
         else   # WMME default
