@@ -720,7 +720,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerCallback,
-              framesPerCallback, /* FIXME - ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
+              framesPerCallback, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
         /* This next mode is required because DS can split the host buffer when it wraps around. */
               paUtilVariableHostBufferSizePartialUsageAllowed,
               callback, userData );
@@ -730,7 +730,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 /* DirectSound specific initialization */
     {
         HRESULT          hr;
-        int              bytesPerDirectSoundBuffer, maxChannels;
+        int              bytesPerDirectSoundBuffer;
         DSoundWrapper   *dsw;
         int              userLatencyFrames;
         int              minLatencyFrames;
@@ -739,14 +739,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         dsw = &stream->directSoundWrapper;
         DSW_Init( dsw );
 
-                /* Allocate native buffer. */
-        maxChannels = ( numOutputChannels > numInputChannels ) ?
-                      numOutputChannels : numInputChannels;
-        if( maxChannels == 0 )
-        {
-            result = paInvalidChannelCount;
-            goto error;
-        }
     /* Get system minimum latency. */
         minLatencyFrames = PaWinDs_GetMinLatencyFrames( sampleRate );
 
@@ -769,28 +761,31 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             stream->framesPerDSBuffer = framesPerCallback * numUserBuffers;
         }
 
-        bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * maxChannels * sizeof(short);
-        if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
-        {
-            result = paBufferTooSmall;
-            goto error;
-        }
-        else if( bytesPerDirectSoundBuffer > DSBSIZE_MAX )
-        {
-            result = paBufferTooBig;
-            goto error;
-        }
-
         {
             int msecLatency = (int) ((stream->framesPerDSBuffer * MSEC_PER_SECOND) / sampleRate);
             PRINT(("PortAudio on DirectSound - Latency = %d frames, %d msec\n", stream->framesPerDSBuffer, msecLatency ));
         }
+
 
         /* ------------------ OUTPUT */
         if( (outputDevice >= 0) && (numOutputChannels > 0) )
         {
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputDevice ];
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputDevice));
+
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * numOutputChannels * sizeof(short);
+            if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
+            {
+                result = paBufferTooSmall;
+                goto error;
+            }
+            else if( bytesPerDirectSoundBuffer > DSBSIZE_MAX )
+            {
+                result = paBufferTooBig;
+                goto error;
+            }
+
+
             hr = dswDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputDevice].lpGUID,
                 &dsw->dsw_pDirectSound,   NULL );
             if( hr != DS_OK )
@@ -818,6 +813,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( (inputDevice >= 0) && (numInputChannels > 0) )
         {
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputDevice ];
+            
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * numInputChannels * sizeof(short);
+            if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
+            {
+                result = paBufferTooSmall;
+                goto error;
+            }
+            else if( bytesPerDirectSoundBuffer > DSBSIZE_MAX )
+            {
+                result = paBufferTooBig;
+                goto error;
+            }
+
             hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputDevice].lpGUID,
                 &dsw->dsw_pDirectSoundCapture,   NULL );
             if( hr != DS_OK )
@@ -971,26 +979,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         }
         
         numFrames = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
-
         stream->framesWritten += numFrames;
-
-#if 0 // FIXME - Debug hack, copy some input to output to see if sound OK.
-        { 
-            if( dwInSize1 == dwOutSize1 )
-            {
-                CopyMemory( lpOutBuf1, lpInBuf1, dwInSize1 );
-            }
-            else if( dwInSize1 < dwOutSize1 )
-            {
-                CopyMemory( lpOutBuf1, lpInBuf1, dwInSize1 );
-            }
-            else
-            {
-                CopyMemory( lpOutBuf1, lpInBuf1, dwOutSize1 );
-            }
-
-        }
-#endif
         
         if( stream->bufferProcessor.numOutputChannels > 0 )
         {
@@ -1105,6 +1094,7 @@ static PaError StartStream( PaStream *s )
         /* Give user callback a chance to pre-fill buffer. */
         result = Pa_TimeSlice( stream );
         if( result != paNoError ) return result; // FIXME - what if finished?
+
         hr = DSW_StartOutput( &stream->directSoundWrapper );
         DBUG(("PaHost_StartOutput: DSW_StartOutput returned = 0x%X.\n", hr));
         if( hr != DS_OK )
