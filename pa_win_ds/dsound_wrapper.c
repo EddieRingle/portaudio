@@ -36,7 +36,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-//#define INITGUID     // Needed to build IID_IDirectSoundNotify. See objbase.h for info.
+#define INITGUID     // Needed to build IID_IDirectSoundNotify. See objbase.h for info.
+#include <wtypes.h>
 #include <objbase.h>
 #include <unknwn.h>
 #include "dsound_wrapper.h"
