@@ -1657,6 +1657,12 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     int numEvents = 0;
     DWORD result = paNoError;
     DWORD waitResult;
+/** @todo:
+Gordon Gidluck:
+> function: ProcessingThreadProc()
+> line #1665 DWORD timeout = stream->allBuffersDurationMs * 0.5;
+> conversion from 'double ' to 'unsigned long ', possible loss of data
+*/
     DWORD timeout = stream->allBuffersDurationMs * 0.5;
     DWORD numTimeouts = 0;
     int hostBuffersAvailable;
@@ -1938,6 +1944,14 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                     stream->processingThreadPriority = stream->throttledThreadPriority;
                                 }
 
+/** @todo:
+Gordon Gidluck:
+> function: ProcessingThreadProc()
+> line #1947/1948 Sleep( stream->bufferProcessor.framesPerHostBuffer *
+>                   stream->bufferProcessor.samplePeriod * .25 );
+> conversion from 'double ' to 'unsigned long ', possible loss of data
+> integral size mismatch in argument; conversion supplied
+*/
                                 /* sleep for a quater of a buffer's duration to give other processes a go */
                                 Sleep( stream->bufferProcessor.framesPerHostBuffer *
                                         stream->bufferProcessor.samplePeriod * .25 );
@@ -2538,5 +2552,6 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
 
 
