@@ -60,23 +60,34 @@
         12-05-02 Rehashed into new multi-api infrastructure : Ross Bencina
 
         TO DO :
-        
+
+
+        - implement bit shifting & byte swapping for input and output types which
+            are not directly mapped to port audio types.
+
+
+        - implement IsStreamActive
+        - implement GetStreamTime
+        - implement block adaption        
+        - work out how to implement stream stoppage from callback
+
+        - need to in-place convert float64 data
+
+        - rigorously check asio return codes and convert to pa error codes
         - Check Pa_StopSteam and Pa_AbortStream
         - Optimization for Input only or Ouput only (really necessary ??)
 
 
+
         Ross' notes about the old implementation:
 
-        - Pa_ASIO_CreateBuffers sets up the callbacks and creates the buffers.
+        - Pa_ASIO_CreateBuffers sets up the callbacks and creates the host buffers.
             - i think the callback structure could just be a temp on the stack or as a static struct.
             - the buffer info structures will need to be dynamically allocated for the stream.
 
 
-        - the function called Pa_ASIO_loadDevice might be usable in the device query section too..
-            it's not clear that this functionality should be in a separate function for OpenStream
-
-        - PaHost_OpenStream does the work of opening the stream
-
+        Different channels of a multichannel stream can have different sample
+        formats, but we assume that all are the same as the first channel for now.
 */
 
 
@@ -161,6 +172,16 @@ static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames
 static unsigned long GetStreamReadAvailable( PaStream* stream );
 static unsigned long GetStreamWriteAvailable( PaStream* stream );
 
+/* our ASIO callback functions */
+
+static void bufferSwitch(long index, ASIOBool processNow);
+static ASIOTime *bufferSwitchTimeInfo(ASIOTime *timeInfo, long index, ASIOBool processNow);
+static void sampleRateChanged(ASIOSampleRate sRate);
+static long asioMessages(long selector, long value, void* message, double* opt);
+
+static ASIOCallbacks asioCallbacks_ =
+    { bufferSwitch, sampleRateChanged, asioMessages, bufferSwitchTimeInfo };
+
 
 /* PaAsioHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -197,12 +218,12 @@ static char **GetAsioDriverNames( PaUtilAllocationContext *context, long driverC
         goto error;
 
     result[0] = (char*)PaUtil_ContextAllocateMemory(
-            context, 33 * driverCount );
+            context, 32 * driverCount );
     if( !result[0] )
         goto error;
 
     for( i=0; i<driverCount; ++i )
-        result[i] = result[0] + (33 * i);
+        result[i] = result[0] + (32 * i);
 
     asioDrivers->getDriverNames( result, driverCount );
 
@@ -211,47 +232,83 @@ error:
 }
 
 
-static PaSampleFormat AsioSampleTypeToPaSampleFormat(ASIOSampleType type) 
+static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type) 
 {
-        switch (type) {
-        
-                case ASIOSTInt16MSB:
-                case ASIOSTInt16LSB:
-                case ASIOSTInt32MSB16:
-                case ASIOSTInt32LSB16:
-                        return paInt16;
+    switch (type) {
+        case ASIOSTInt16MSB:
+        case ASIOSTInt16LSB:
+        case ASIOSTInt32MSB16:
+        case ASIOSTInt32LSB16:
+                return paInt16;
                 
-                case ASIOSTFloat32MSB:
-                case ASIOSTFloat32LSB:
-                case ASIOSTFloat64MSB:
-                case ASIOSTFloat64LSB:
-                        return paFloat32;
+        case ASIOSTFloat32MSB:
+        case ASIOSTFloat32LSB:
+        case ASIOSTFloat64MSB:
+        case ASIOSTFloat64LSB:
+                return paFloat32;
                 
-                case ASIOSTInt32MSB:
-                case ASIOSTInt32LSB:
-                case ASIOSTInt32MSB18:          
-                case ASIOSTInt32MSB20:          
-                case ASIOSTInt32MSB24:          
-                case ASIOSTInt32LSB18:
-                case ASIOSTInt32LSB20:          
-                case ASIOSTInt32LSB24:          
-                        return paInt32;
-                        
-                case ASIOSTInt24MSB:
-                case ASIOSTInt24LSB:
-                        return paInt24;
-                        
-                default:
-                        return paCustomFormat;
-        }
+        case ASIOSTInt32MSB:
+        case ASIOSTInt32LSB:
+        case ASIOSTInt32MSB18:          
+        case ASIOSTInt32MSB20:          
+        case ASIOSTInt32MSB24:          
+        case ASIOSTInt32LSB18:
+        case ASIOSTInt32LSB20:
+        case ASIOSTInt32LSB24:
+                return paInt32;
+
+        case ASIOSTInt24MSB:
+        case ASIOSTInt24LSB:
+                return paInt24;
+
+        default:
+                return paCustomFormat;
+    }
 }
+
+
+static int BytesPerAsioSample( ASIOSampleType sampleType )
+{
+    switch (sampleType) {
+        case ASIOSTInt16MSB:
+        case ASIOSTInt16LSB:
+            return 2;
+
+        case ASIOSTFloat64MSB:
+        case ASIOSTFloat64LSB:
+            return 8;
+
+        case ASIOSTFloat32MSB:
+        case ASIOSTFloat32LSB:
+        case ASIOSTInt32MSB:
+        case ASIOSTInt32LSB:
+        case ASIOSTInt32MSB16:
+        case ASIOSTInt32LSB16:
+        case ASIOSTInt32MSB18:
+        case ASIOSTInt32MSB20:
+        case ASIOSTInt32MSB24:
+        case ASIOSTInt32LSB18:
+        case ASIOSTInt32LSB20:
+        case ASIOSTInt32LSB24:
+            return 4;
+
+        case ASIOSTInt24MSB:
+        case ASIOSTInt24LSB:
+            return 3;
+
+        default:
+            return 0;
+    }
+}
+
+
 
 
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
 static ASIOSampleRate possibleSampleRates_[]
     = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
 
-                
+
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
@@ -293,11 +350,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     (*hostApi)->info.name = "ASIO";
     (*hostApi)->deviceCount = 0;
-    (*hostApi)->defaultInputDeviceIndex = paNoDevice;
-    (*hostApi)->defaultOutputDeviceIndex = paNoDevice;
 
-
-    #ifdef	WINDOWS
+    #ifdef WINDOWS
         CoInitialize(0);
     #endif
     
@@ -365,6 +419,9 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             else if( (asioError = ASIOGetChannels(&inputChannels, &outputChannels)) != ASE_OK )
             {
                 PA_DEBUG(("PaAsio_Initialize: could not ASIOGetChannels for %s\n", names[i]));
+
+                /* you would think that we should unload the driver here, but it seems to cause crashes, so don't */
+                /* ASIOExit(); */
             }
             else
             {
@@ -413,7 +470,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 asioChannelInfo.isInput = 1;
                 ASIOGetChannelInfo( &asioChannelInfo );
                     
-                deviceInfo->nativeSampleFormats = AsioSampleTypeToPaSampleFormat(asioChannelInfo.type);
+                deviceInfo->nativeSampleFormats = AsioSampleTypeToPaNativeSampleFormat( asioChannelInfo.type );
 
                 /* unload the driver */
                 ASIOExit();
@@ -422,6 +479,17 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 ++(*hostApi)->deviceCount;
             }
         }
+    }
+
+    if( (*hostApi)->deviceCount > 0 )
+    {
+        (*hostApi)->defaultInputDeviceIndex = 0;
+        (*hostApi)->defaultOutputDeviceIndex = 0;
+    }
+    else
+    {
+        (*hostApi)->defaultInputDeviceIndex = paNoDevice;
+        (*hostApi)->defaultOutputDeviceIndex = paNoDevice;
     }
 
 
@@ -459,7 +527,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation context
+            - clean up any resources not handled by the allocation context
     */
 
     if( asioHostApi->allocations )
@@ -470,6 +538,15 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     PaUtil_FreeMemory( asioHostApi );
 }
+
+typedef struct
+{
+    ASIODriverInfo asioDriverInfo;
+    long numInputChannels, numOutputChannels;
+    long bufferMinSize, bufferMaxSize, bufferPreferredSize, bufferGranularity;
+    bool postOutput;
+}
+PaAsioDriverInfo;
 
 
 /* PaAsioStream - a stream data structure specifically for this implementation */
@@ -482,8 +559,105 @@ typedef struct PaAsioStream
 
     PaAsioHostApiRepresentation *asioHostApi;
     unsigned long framesPerHostCallback;
+
+    /* ASIO driver info  - these may not be needed for the life of the stream,
+        but store them here until we work out how format conversion is going
+        to work. */
+
+    ASIOBufferInfo *asioBufferInfos;
+    ASIOChannelInfo *asioChannelInfos;
+    long inputLatency, outputLatency;
+
+    long numInputChannels, numOutputChannels;
+    bool postOutput;
+
+    void **bufferPtrs; /* this is carved up for inputBufferPtrs and outputBufferPtrs */
+    void **inputBufferPtrs[2];
+    void **outputBufferPtrs[2];
+
+    volatile int stopProcessing; /* stop thread once existing buffers have been returned */
+    volatile int abortProcessing; /* stop thread immediately */
 }
 PaAsioStream;
+
+static PaAsioStream *theAsioStream = 0; /* due to ASIO sdk limitations there can be only one stream */
+
+
+/*
+    load the asio driver named by <driverName> and return statistics about
+    the driver in info. If no error occurred, the driver will remain open
+    and must be closed by the called by calling ASIOExit() - if an error
+    is returned the driver will already be closed.
+*/
+static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
+{
+    PaError result = paNoError;
+    ASIOError asioError;
+    int asioIsInitialized = 0;
+    
+    if( !loadAsioDriver( const_cast<char*>(driverName) ) )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( 0 );
+        goto error;
+    }
+
+    if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+    else
+    {
+        asioIsInitialized = 1;
+    }
+
+    if( (asioError = ASIOGetChannels(&info->numInputChannels,
+            &info->numOutputChannels)) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+
+    if( (asioError = ASIOGetBufferSize(&info->bufferMinSize,
+            &info->bufferMaxSize, &info->bufferPreferredSize,
+            &info->bufferGranularity)) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+
+    if( ASIOOutputReady() == ASE_OK )
+        info->postOutput = true;
+    else
+        info->postOutput = false;
+
+    return result;
+
+error:
+    if( asioIsInitialized )
+        ASIOExit();
+        
+    return result;
+}
+
+
+static void ZeroOutputBuffers( PaAsioStream *stream, long index )
+{
+    int i;
+    
+    for( i=0; i < stream->numOutputChannels; ++i )
+    {
+        void *buffer = stream->asioBufferInfos[ i + stream->numInputChannels ].buffers[index];
+
+        int bytesPerSample = BytesPerAsioSample( stream->asioChannelInfos[ i + stream->numInputChannels ].type );
+
+        memset( buffer, 0, stream->framesPerHostCallback * bytesPerSample );
+    }
+}
 
 
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
@@ -511,8 +685,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAsioStream *stream = 0;
     unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
-    const char *deviceName;
-
+    const char *driverName;
+    ASIOError asioError;
+    int asioIsInitialized = 0;
+    int asioBuffersCreated = 0;
+    PaAsioDriverInfo driverInfo;
+    int i;
+    
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
     if( asioHostApi->driverOpen )
@@ -528,37 +707,58 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputDevice != paNoDevice )
     {
-        deviceName = asioHostApi->commonHostApiRep.deviceInfos[ inputDevice ]->name;
+        driverName = asioHostApi->commonHostApiRep.deviceInfos[ inputDevice ]->name;
     }
     else
     {
-        deviceName = asioHostApi->commonHostApiRep.deviceInfos[ outputDevice ]->name;
+        driverName = asioHostApi->commonHostApiRep.deviceInfos[ outputDevice ]->name;
     }
 
+    result = LoadAsioDriver( driverName, &driverInfo );
+    if( result == paNoError )
+        asioIsInitialized = 1;
+    else
+        goto error;
+    
+    /* check that input device can support numInputChannels */
+    if( inputDevice != paNoDevice )
+    {
+        if( numInputChannels > driverInfo.numInputChannels )
+        {
+            result = paInvalidChannelCount;
+            goto error;
+        }
+    }
 
+    /* check that output device can support numOutputChannels */
+    if( outputDevice != paNoDevice )
+    {
+        if( numOutputChannels > driverInfo.numOutputChannels )
+        {
+            result = paInvalidChannelCount;
+            goto error;
+        }
+    }
+
+    /* Set sample rate */
+    if( ASIOSetSampleRate( sampleRate ) != ASE_OK )
+    {
+        result = paInvalidSampleRate;
+        goto error;
+    }
 
     /*
+        FIXME: for now we just force the user buffer size to conform
+        with an allowable host buffer size...
+    */
+
+    framesPerHostBuffer = driverInfo.bufferPreferredSize;
+    framesPerCallback = framesPerHostBuffer;
+    
+    /*
         IMPLEMENT ME:
-            - check that input device can support numInputChannels
-
-            - check that output device can support numOutputChannels
-
-        ( the following two checks are taken care of by PaUtil_InitializeBufferProcessor() )
-
-            - check that input device can support inputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
-
-            - check that output device can support outputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
-
             - if a full duplex stream is requested, check that the combination
                 of input and output parameters is supported
-
-            - check that the device supports sampleRate
-
-            - alter sampleRate to a close allowable rate if possible / necessary
 
             - validate inputLatency and outputLatency parameters,
                 use default values where necessary
@@ -585,6 +785,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
     }
 
+    stream->asioBufferInfos = 0; /* for deallocation in error */
+    stream->asioChannelInfos = 0; /* for deallocation in error */
+    stream->bufferPtrs = 0; /* for deallocation in error */
+    
     if( callback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
@@ -622,75 +826,152 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             - additional stream setup + opening
     */
 
+    stream->asioBufferInfos = (ASIOBufferInfo*)PaUtil_AllocateMemory(
+            sizeof(ASIOBufferInfo) * (numInputChannels + numOutputChannels) );
+    if( !stream->asioBufferInfos )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+
+    for( i=0; i < numInputChannels; ++i )
+    {
+        ASIOBufferInfo *info = &stream->asioBufferInfos[i];
+        
+        info->isInput = ASIOTrue;
+        info->channelNum = i;
+        info->buffers[0] = info->buffers[1] = 0;
+    }
+        
+    for( i=0; i < numOutputChannels; ++i ){
+        ASIOBufferInfo *info = &stream->asioBufferInfos[numInputChannels+i];
+        
+        info->isInput = ASIOFalse;
+        info->channelNum = i;
+        info->buffers[0] = info->buffers[1] = 0;
+    }
+
+    asioError = ASIOCreateBuffers( stream->asioBufferInfos, numInputChannels+numOutputChannels,
+                                  framesPerHostBuffer, &asioCallbacks_ );
+    if( asioError != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    } 
+
+    asioBuffersCreated = 1;
+
+    stream->asioChannelInfos = (ASIOChannelInfo*)PaUtil_AllocateMemory(
+            sizeof(ASIOChannelInfo) * (numInputChannels + numOutputChannels) );
+    if( !stream->asioChannelInfos )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+    for( i=0; i < numInputChannels + numOutputChannels; ++i )
+    {
+        stream->asioChannelInfos[i].channel = stream->asioBufferInfos[i].channelNum;
+        stream->asioChannelInfos[i].isInput = stream->asioBufferInfos[i].isInput;
+        asioError = ASIOGetChannelInfo( &stream->asioChannelInfos[i] );
+        if( asioError != ASE_OK )
+        {
+            result = paHostError;
+            PaUtil_SetHostError( asioError );
+            goto error;
+        }
+    }
+
+    stream->bufferPtrs = (void**)PaUtil_AllocateMemory(
+            2 * sizeof(void*) * (numInputChannels + numOutputChannels) );
+    if( !stream->bufferPtrs )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+    if( numInputChannels > 0 )
+    {
+        stream->inputBufferPtrs[0] = stream-> bufferPtrs;
+        stream->inputBufferPtrs[1] = &stream->bufferPtrs[numInputChannels];
+
+        for( i=0; i<numInputChannels; ++i )
+        {
+            stream->inputBufferPtrs[0][i] = stream->asioBufferInfos[i].buffers[0];
+            stream->inputBufferPtrs[1][i] = stream->asioBufferInfos[i].buffers[1];
+        }
+    }
+    else
+    {
+        stream->inputBufferPtrs[0] = 0;
+        stream->inputBufferPtrs[1] = 0;
+    }
+
+    if( numOutputChannels > 0 )
+    {
+        stream->outputBufferPtrs[0] = &stream->bufferPtrs[numInputChannels*2];
+        stream->outputBufferPtrs[1] = &stream->bufferPtrs[numInputChannels*2 + numOutputChannels];
+
+        for( i=0; i<numOutputChannels; ++i )
+        {
+            stream->outputBufferPtrs[0][i] = stream->asioBufferInfos[numInputChannels+i].buffers[0];
+            stream->outputBufferPtrs[1][i] = stream->asioBufferInfos[numInputChannels+i].buffers[1];
+        }
+    }
+    else
+    {
+        stream->outputBufferPtrs[0] = 0;
+        stream->outputBufferPtrs[1] = 0;
+    }
+
+
+    ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
+
+    PA_DEBUG(("PaAsio : InputLatency = %ld latency = %ld msec \n",
+            stream->inputLatency,
+            (long)((stream->inputLatency*1000)/ sampleRate)));
+    PA_DEBUG(("PaAsio : OuputLatency = %ld latency = %ld msec \n",
+            stream->outputLatency,
+            (long)((stream->outputLatency*1000)/ sampleRate)));
+
+
     stream->asioHostApi = asioHostApi;
     stream->framesPerHostCallback = framesPerHostBuffer;
 
+    stream->numInputChannels = numInputChannels;
+    stream->numOutputChannels = numOutputChannels;
+    stream->postOutput = driverInfo.postOutput;
+
     asioHostApi->driverOpen = 1;
-    
+
     *s = (PaStream*)stream;
 
     return result;
 
 error:
     if( stream )
+    {
+        if( stream->asioBufferInfos )
+            PaUtil_FreeMemory( stream->asioBufferInfos );
+
+        if( stream->asioChannelInfos )
+            PaUtil_FreeMemory( stream->asioChannelInfos );
+
+        if( stream->bufferPtrs )
+            PaUtil_FreeMemory( stream->bufferPtrs );
+
         PaUtil_FreeMemory( stream );
+    }
+
+    if( asioBuffersCreated )
+        ASIODisposeBuffers();
+
+    if( asioIsInitialized )
+        ASIOExit();
 
     return result;
-}
-
-/*
-    ExampleHostProcessingLoop() illustrates the kind of processing which may
-    occur in a host implementation.
- 
-*/
-static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, void *userData )
-{
-    PaAsioStream *stream = (PaAsioStream*)userData;
-    PaTimestamp outTime = 0; /* IMPLEMENT ME */
-    int callbackResult;
-
-    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->framesPerHostCallback );
-    
-    /*
-        IMPLEMENT ME:
-            - generate timing information
-            - handle buffer slips
-    */
-
-    /*
-        If you need to byte swap inputBuffer, you can do it here using
-        routines in pa_byteswappers.h
-    */
-
-    /*
-        depending on whether the host buffers are interleaved, non-interleaved
-        or a mixture, you will want to call PaUtil_ProcessInterleavedBuffers(),
-        PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
-    */
-    callbackResult = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor, inputBuffer, outputBuffer, outTime );
-
-    /*
-        If you need to byte swap outputBuffer, you can do it here using
-        routines in pa_byteswappers.h
-    */
-
-    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-
-
-    if( callbackResult == paContinue )
-    {
-        /* nothing special to do */
-    }
-    else if( callbackResult == paAbort )
-    {
-        /* IMPLEMENT ME - finish playback immediately  */
-    }
-    else
-    {
-        /* User callback has asked us to stop with paComplete or other non-zero value */
-
-        /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
-    }
 }
 
 
@@ -712,10 +993,230 @@ static PaError CloseStream( PaStream* s )
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
 
     stream->asioHostApi->driverOpen = 0;
-    
+
+    PaUtil_FreeMemory( stream->asioBufferInfos );
+    PaUtil_FreeMemory( stream->asioChannelInfos );
+    PaUtil_FreeMemory( stream->bufferPtrs );
     PaUtil_FreeMemory( stream );
 
+    ASIODisposeBuffers();
+    ASIOExit();
+    
     return result;
+}
+
+
+static void bufferSwitch(long index, ASIOBool processNow)
+{
+//TAKEN FROM THE ASIO SDK
+
+    // the actual processing callback.
+    // Beware that this is normally in a seperate thread, hence be sure that
+    // you take care about thread synchronization. This is omitted here for
+    // simplicity.
+
+    // as this is a "back door" into the bufferSwitchTimeInfo a timeInfo needs
+    // to be created though it will only set the timeInfo.samplePosition and
+    // timeInfo.systemTime fields and the according flags
+        
+    ASIOTime  timeInfo;
+    memset( &timeInfo, 0, sizeof (timeInfo) );
+
+    // get the time stamp of the buffer, not necessary if no
+    // synchronization to other media is required
+    if( ASIOGetSamplePosition(&timeInfo.timeInfo.samplePosition, &timeInfo.timeInfo.systemTime) == ASE_OK)
+            timeInfo.timeInfo.flags = kSystemTimeValid | kSamplePositionValid;
+                
+    // Call the real callback
+    bufferSwitchTimeInfo( &timeInfo, index, processNow );
+}
+
+
+static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool processNow )
+{
+    // the actual processing callback.
+    // Beware that this is normally in a seperate thread, hence be sure that
+    // you take care about thread synchronization. This is omitted here for simplicity.
+
+#if 0
+    // store the timeInfo for later use
+    asioDriverInfo.tInfo = *timeInfo;
+
+    // get the time stamp of the buffer, not necessary if no
+    // synchronization to other media is required
+        
+    if (timeInfo->timeInfo.flags & kSystemTimeValid)
+            asioDriverInfo.nanoSeconds = ASIO64toDouble(timeInfo->timeInfo.systemTime);
+    else
+            asioDriverInfo.nanoSeconds = 0;
+
+    if (timeInfo->timeInfo.flags & kSamplePositionValid)
+            asioDriverInfo.samples = ASIO64toDouble(timeInfo->timeInfo.samplePosition);
+    else
+            asioDriverInfo.samples = 0;
+
+    if (timeInfo->timeCode.flags & kTcValid)
+            asioDriverInfo.tcSamples = ASIO64toDouble(timeInfo->timeCode.timeCodeSamples);
+    else
+            asioDriverInfo.tcSamples = 0;
+
+    // get the system reference time
+    asioDriverInfo.sysRefTime = get_sys_reference_time();
+#endif
+    
+#if 0
+    // a few debug messages for the Windows device driver developer
+    // tells you the time when driver got its interrupt and the delay until the app receives
+    // the event notification.
+    static double last_samples = 0;
+    char tmp[128];
+    sprintf (tmp, "diff: %d / %d ms / %d ms / %d samples                 \n", asioDriverInfo.sysRefTime - (long)(asioDriverInfo.nanoSeconds / 1000000.0), asioDriverInfo.sysRefTime, (long)(asioDriverInfo.nanoSeconds / 1000000.0), (long)(asioDriverInfo.samples - last_samples));
+    OutputDebugString (tmp);
+    last_samples = asioDriverInfo.samples;
+#endif
+
+    // Keep sample position
+    // FIXME: asioDriverInfo.pahsc_NumFramesDone = timeInfo->timeInfo.samplePosition.lo;
+
+    if( theAsioStream->stopProcessing || theAsioStream->abortProcessing ) {
+
+        ZeroOutputBuffers( theAsioStream, index );
+
+        // Finally if the driver supports the ASIOOutputReady() optimization,
+        // do it here, all data are in place
+        if( theAsioStream->postOutput )
+            ASIOOutputReady();
+       
+    }
+    else
+    {
+        PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, theAsioStream->framesPerHostCallback );
+
+        // FIXME: byte swap and shift input
+
+        PaTimestamp outTime = 0; /* FIXME */
+
+        //int callbackResult = paContinue;
+
+        int callbackResult = PaUtil_ProcessNonInterleavedBuffers( &theAsioStream->bufferProcessor,
+            theAsioStream->inputBufferPtrs[index], theAsioStream->outputBufferPtrs[index], outTime );
+
+        
+        // FIXME: byte swap and shift output
+
+        PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
+
+        // Finally if the driver supports the ASIOOutputReady() optimization,
+        // do it here, all data are in place
+        if( theAsioStream->postOutput )
+            ASIOOutputReady();
+
+        if( callbackResult == paContinue )
+        {
+            /* nothing special to do */
+        }
+        else if( callbackResult == paAbort )
+        {
+            /* IMPLEMENT ME - finish playback immediately  */
+        }
+        else
+        {
+            /* User callback has asked us to stop with paComplete or other non-zero value */
+
+            /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
+        }
+    }
+
+    return 0L;
+}
+
+
+static void sampleRateChanged(ASIOSampleRate sRate)
+{
+// TAKEN FROM THE ASIO SDK
+    // do whatever you need to do if the sample rate changed
+    // usually this only happens during external sync.
+    // Audio processing is not stopped by the driver, actual sample rate
+    // might not have even changed, maybe only the sample rate status of an
+    // AES/EBU or S/PDIF digital input at the audio device.
+    // You might have to update time/sample related conversion routines, etc.
+}
+
+static long asioMessages(long selector, long value, void* message, double* opt)
+{
+// TAKEN FROM THE ASIO SDK
+    // currently the parameters "value", "message" and "opt" are not used.
+    long ret = 0;
+    switch(selector)
+    {
+        case kAsioSelectorSupported:
+            if(value == kAsioResetRequest
+            || value == kAsioEngineVersion
+            || value == kAsioResyncRequest
+            || value == kAsioLatenciesChanged
+            // the following three were added for ASIO 2.0, you don't necessarily have to support them
+            || value == kAsioSupportsTimeInfo
+            || value == kAsioSupportsTimeCode
+            || value == kAsioSupportsInputMonitor)
+                    ret = 1L;
+            break;
+
+        case kAsioBufferSizeChange:
+            //printf("kAsioBufferSizeChange \n");
+            break;
+
+        case kAsioResetRequest:
+            // defer the task and perform the reset of the driver during the next "safe" situation
+            // You cannot reset the driver right now, as this code is called from the driver.
+            // Reset the driver is done by completely destruct is. I.e. ASIOStop(), ASIODisposeBuffers(), Destruction
+            // Afterwards you initialize the driver again.
+
+            /*FIXME: commented the next line out */
+            //asioDriverInfo.stopped;  // In this sample the processing will just stop
+            ret = 1L;
+            break;
+
+        case kAsioResyncRequest:
+            // This informs the application, that the driver encountered some non fatal data loss.
+            // It is used for synchronization purposes of different media.
+            // Added mainly to work around the Win16Mutex problems in Windows 95/98 with the
+            // Windows Multimedia system, which could loose data because the Mutex was hold too long
+            // by another thread.
+            // However a driver can issue it in other situations, too.
+            ret = 1L;
+            break;
+
+        case kAsioLatenciesChanged:
+            // This will inform the host application that the drivers were latencies changed.
+            // Beware, it this does not mean that the buffer sizes have changed!
+            // You might need to update internal delay data.
+            ret = 1L;
+            //printf("kAsioLatenciesChanged \n");
+            break;
+
+        case kAsioEngineVersion:
+            // return the supported ASIO version of the host application
+            // If a host applications does not implement this selector, ASIO 1.0 is assumed
+            // by the driver
+            ret = 2L;
+            break;
+
+        case kAsioSupportsTimeInfo:
+            // informs the driver wether the asioCallbacks.bufferSwitchTimeInfo() callback
+            // is supported.
+            // For compatibility with ASIO 1.0 drivers the host application should always support
+            // the "old" bufferSwitch method, too.
+            ret = 1;
+            break;
+
+        case kAsioSupportsTimeCode:
+            // informs the driver wether application is interested in time code info.
+            // If an application does not need to know about time code, the driver has less work
+            // to do.
+            ret = 0;
+            break;
+    }
+    return ret;
 }
 
 
@@ -723,8 +1224,25 @@ static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
     PaAsioStream *stream = (PaAsioStream*)s;
+    ASIOError asioError;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
+    if( stream->numOutputChannels > 0 )
+    {
+        ZeroOutputBuffers( stream, 0 );
+        ZeroOutputBuffers( stream, 1 );
+    }
+    
+    stream->stopProcessing = 0;
+    stream->abortProcessing = 0;
+    
+    theAsioStream = stream;
+    asioError = ASIOStart();
+    if( asioError != ASE_OK )
+    {
+        theAsioStream = 0;
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+    }
 
     return result;
 }
@@ -734,21 +1252,28 @@ static PaError StopStream( PaStream *s )
 {
     PaError result = paNoError;
     PaAsioStream *stream = (PaAsioStream*)s;
+    ASIOError asioError;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
+    stream->stopProcessing = 1;
+    stream->abortProcessing = 1;
+    
+    asioError = ASIOStop();
+    if( asioError != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+    }
 
+    theAsioStream = 0;
+    
     return result;
 }
 
 
 static PaError AbortStream( PaStream *s )
 {
-    PaError result = paNoError;
-    PaAsioStream *stream = (PaAsioStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
-
-    return result;
+    /* ASIO doesn't provide Abort behavior, so just stop instead */
+    return StopStream( s );
 }
 
 
@@ -756,9 +1281,7 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaAsioStream *stream = (PaAsioStream*)s;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
-
-    return 0;
+    return theAsioStream == 0;
 }
 
 
@@ -766,9 +1289,7 @@ static PaError IsStreamActive( PaStream *s )
 {
     PaAsioStream *stream = (PaAsioStream*)s;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
-
-    return 0;
+    return theAsioStream != 0; /* FIXME: currently there is no way to stop the stream from the callback */
 }
 
 
@@ -1114,12 +1635,12 @@ static ASIOError Pa_ASIO_CreateBuffers (PaHostSoundControl *asioDriverInfo, long
 {
         ASIOError  err;
         int i;
-        
+
         ASIOBufferInfo *info = asioDriverInfo->bufferInfos;
-        
+
         // Check parameters
         if ((InputChannels > kMaxInputChannels) || (OutputChannels > kMaxInputChannels)) return ASE_InvalidParameter;
-        
+
         for(i = 0; i < InputChannels; i++, info++){
                 info->isInput = ASIOTrue;
                 info->channelNum = i;
@@ -1265,10 +1786,10 @@ static ASIOTime *bufferSwitchTimeInfo(ASIOTime *timeInfo, long index, ASIOBool p
         // the actual processing callback.
         // Beware that this is normally in a seperate thread, hence be sure that you take care
         // about thread synchronization. This is omitted here for simplicity.
-        
+
        // static processedSamples = 0;
         int  result = 0;
-        
+
         // store the timeInfo for later use
         asioDriverInfo.tInfo = *timeInfo;
 
@@ -2415,15 +2936,15 @@ PaError PaHost_CloseStream( internalPortAudioStream   *past )
         #if PA_TRACE_START_STOP
          AddTraceMessage( "PaHost_CloseStream: pahsc_HWaveOut ", (int) pahsc->pahsc_HWaveOut );
         #endif
-        
+
         /* Dispose */
-        if(ASIODisposeBuffers() != ASE_OK) result = paHostError;        
+        if(ASIODisposeBuffers() != ASE_OK) result = paHostError;
         if(ASIOExit() != ASE_OK) result = paHostError;
-        
+
         /* Free data and device for output. */
         past->past_DeviceData = NULL;
         asioDriverInfo.past = NULL;
-                
+
         return result;
 }
 
@@ -2513,203 +3034,9 @@ PaTimestamp Pa_StreamTime( PortAudioStream *stream )
         return pahsc->pahsc_NumFramesDone;
 }
 
-/*************************************************************************
- * Allocate memory that can be accessed in real-time.
- * This may need to be held in physical memory so that it is not
- * paged to virtual memory.
- * This call MUST be balanced with a call to PaHost_FreeFastMemory().
- */
-void *PaHost_AllocateFastMemory( long numBytes )
-{
-        #if MAC
-                void *addr = NewPtrClear( numBytes );
-                if( (addr == NULL) || (MemError () != 0) ) return NULL;
-                        
-                #if (CARBON_COMPATIBLE == 0)
-                if( HoldMemory( addr, numBytes ) != noErr )
-                {
-                        DisposePtr( (Ptr) addr );
-                        return NULL;
-                }
-                #endif
-                return addr;
-        #elif WINDOWS
-                void *addr = malloc( numBytes ); /* FIXME - do we need physical memory? */
-                if( addr != NULL ) memset( addr, 0, numBytes );
-                return addr;
-        #endif
-}
-
-/*************************************************************************
- * Free memory that could be accessed in real-time.
- * This call MUST be balanced with a call to PaHost_AllocateFastMemory().
- */
-void PaHost_FreeFastMemory( void *addr, long numBytes )
-{
-        #if MAC
-                if( addr == NULL ) return;
-                #if CARBON_COMPATIBLE
-                (void) numBytes;
-                #else
-                UnholdMemory( addr, numBytes );
-                #endif
-                DisposePtr( (Ptr) addr );
-        #elif WINDOWS
-                if( addr != NULL ) free( addr );
-        #endif
-}
-
-
-/*************************************************************************/
-void Pa_Sleep( long msec )
-{
-        #if MAC
-                int32 sleepTime, endTime;
-                /* Convert to ticks. Round up so we sleep a MINIMUM of msec time. */
-                sleepTime = ((msec * 60) + 999) / 1000;
-                if( sleepTime < 1 ) sleepTime = 1;
-                endTime = TickCount() + sleepTime;
-                do{
-                        DBUGX(("Sleep for %d ticks.\n", sleepTime ));
-                        WaitNextEvent( 0, NULL, sleepTime, NULL );  /* Use this just to sleep without getting events. */
-                        sleepTime = endTime - TickCount();
-                } while( sleepTime > 0 );
-        #elif WINDOWS
-                Sleep( msec );
-        #endif 
-}
-
-/*************************************************************************/
-const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceID id )
-{
-        if( (id < 0) || ( id >= Pa_CountDevices()) ) return NULL;
-        return &sDevices[id].pad_Info;
-}
-
-/*************************************************************************/
-PaDeviceID Pa_GetDefaultInputDeviceID( void )
-{
-        return sDefaultInputDeviceID;
-}
-
-/*************************************************************************/
-PaDeviceID Pa_GetDefaultOutputDeviceID( void )
-{
-        return sDefaultOutputDeviceID;
-}
-
-/*************************************************************************/
-int Pa_GetMinNumBuffers( int framesPerUserBuffer, double sampleRate )
-{
-        // TO BE IMPLEMENTED : using the ASIOGetLatency call??
-        return 2;
-}
-
-/*************************************************************************/
-int32 Pa_GetHostError( void )
-{
-        int32 err = sPaHostError;
-        sPaHostError = 0;
-        return err;
-}
-
-
-#ifdef MAC                                      
-
-/**************************************************************************/
-static void Pa_StartUsageCalculation( internalPortAudioStream   *past )
-{
-        PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-        UnsignedWide widePad;
-        if( pahsc == NULL ) return;
-/* Query system timer for usage analysis and to prevent overuse of CPU. */
-        Microseconds( &widePad );
-        pahsc->pahsc_EntryCount = UnsignedWideToUInt64( widePad );
-}
-/**************************************************************************/
-static void Pa_EndUsageCalculation( internalPortAudioStream   *past )
-{
-        UnsignedWide widePad;
-        UInt64    CurrentCount;
-        long      InsideCount;
-        long      TotalCount;
-        PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-        if( pahsc == NULL ) return;
-/* Measure CPU utilization during this callback. Note that this calculation
-** assumes that we had the processor the whole time.
-*/
-#define LOWPASS_COEFFICIENT_0   (0.9)
-#define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
-        Microseconds( &widePad );
-        CurrentCount = UnsignedWideToUInt64( widePad );
-        if( past->past_IfLastExitValid )
-        {
-                InsideCount = (long) U64Subtract(CurrentCount, pahsc->pahsc_EntryCount);
-                TotalCount  = (long) U64Subtract(CurrentCount, pahsc->pahsc_LastExitCount);
-/* Low pass filter the result because sometimes we get called several times in a row.
-* That can cause the TotalCount to be very low which can cause the usage to appear
-* unnaturally high. So we must filter numerator and denominator separately!!!
-*/
-                past->past_AverageInsideCount = (( LOWPASS_COEFFICIENT_0 * past->past_AverageInsideCount) +
-                        (LOWPASS_COEFFICIENT_1 * InsideCount));
-                past->past_AverageTotalCount = (( LOWPASS_COEFFICIENT_0 * past->past_AverageTotalCount) +
-                        (LOWPASS_COEFFICIENT_1 * TotalCount));
-                past->past_Usage = past->past_AverageInsideCount / past->past_AverageTotalCount;
-        }
-        pahsc->pahsc_LastExitCount = CurrentCount;
-        past->past_IfLastExitValid = 1;
-}
-
-#elif WINDOWS
-
-/********************************* BEGIN CPU UTILIZATION MEASUREMENT ****/
-static void Pa_StartUsageCalculation( internalPortAudioStream   *past )
-{
-        PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-        if( pahsc == NULL ) return;
-/* Query system timer for usage analysis and to prevent overuse of CPU. */
-        QueryPerformanceCounter( &pahsc->pahsc_EntryCount );
-}
-
-static void Pa_EndUsageCalculation( internalPortAudioStream   *past )
-{
-        LARGE_INTEGER CurrentCount = { 0, 0 };
-        LONGLONG      InsideCount;
-        LONGLONG      TotalCount;
-/*
-** Measure CPU utilization during this callback. Note that this calculation
-** assumes that we had the processor the whole time.
-*/
-#define LOWPASS_COEFFICIENT_0   (0.9)
-#define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
-
-        PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-        if( pahsc == NULL ) return;
-
-        if( QueryPerformanceCounter( &CurrentCount ) )
-        {
-                if( past->past_IfLastExitValid )
-                {
-                        InsideCount = CurrentCount.QuadPart - pahsc->pahsc_EntryCount.QuadPart; 
-                        TotalCount =  CurrentCount.QuadPart - pahsc->pahsc_LastExitCount.QuadPart;
-/* Low pass filter the result because sometimes we get called several times in a row.
- * That can cause the TotalCount to be very low which can cause the usage to appear
- * unnaturally high. So we must filter numerator and denominator separately!!!
- */
-                        past->past_AverageInsideCount = (( LOWPASS_COEFFICIENT_0 * past->past_AverageInsideCount) +
-                                (LOWPASS_COEFFICIENT_1 * InsideCount));
-                        past->past_AverageTotalCount = (( LOWPASS_COEFFICIENT_0 * past->past_AverageTotalCount) +
-                                (LOWPASS_COEFFICIENT_1 * TotalCount));
-                        past->past_Usage = past->past_AverageInsideCount / past->past_AverageTotalCount;
-                }
-                pahsc->pahsc_LastExitCount = CurrentCount;
-                past->past_IfLastExitValid = 1;
-        }
-}
-
-#endif
-
 #endif /* OLD CODE IFDEFED OUT */
+
+
 
 
 
