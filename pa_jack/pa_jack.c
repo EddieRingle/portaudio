@@ -187,6 +187,9 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
     commonApi->info.defaultOutputDevice = paNoDevice;
     commonApi->info.deviceCount = 0;
 
+    /* Parse the list of ports, using a regex to grab the client names */
+    ASSERT_CALL( regcomp( &port_regex, "^[^:]*", REG_EXTENDED ), 0 );
+
     /* since we are rebuilding the list of devices, free all memory
      * associated with the previous list */
     PaUtil_FreeAllAllocations( jackApi->deviceInfoMemory );
@@ -198,9 +201,6 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
      * A: If jack_get_ports returns NULL, there's nothing for us to do */
     UNLESS( (jack_ports = jack_get_ports( jackApi->jack_client, "", "", 0 )) && jack_ports[0], paNoError );
 
-    /* Parse the list of ports, using a regex to grab the client names */
-    regcomp( &port_regex, "^[^:]*", REG_EXTENDED );
-
     /* Build a list of clients from the list of ports */
     for( port_index = 0; jack_ports[port_index] != NULL; port_index++ )
     {
@@ -211,7 +211,7 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
 
         /* extract the client name from the port name, using a regex
          * that parses the clientname:portname syntax */
-        regexec( &port_regex, port, 1, &match_info, 0 );
+        UNLESS( !regexec( &port_regex, port, 1, &match_info, 0 ), paInternalError );
         assert(match_info.rm_eo - match_info.rm_so < jack_client_name_size());
         memcpy( tmp_client_name, port + match_info.rm_so,
                 match_info.rm_eo - match_info.rm_so );
@@ -245,7 +245,6 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
         }
         ++num_clients;
     }
-    free( jack_ports );
 
     /* Now we have a list of clients, which will become the list of
      * PortAudio devices. */
@@ -263,6 +262,7 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
     for( client_index = 0; client_index < num_clients; client_index++ )
     {
         PaDeviceInfo *curDevInfo;
+        const char **jack_ports = NULL; /* Local definition, for easier cleanup */
 
         UNLESS( curDevInfo = (PaDeviceInfo*)MALLOC( sizeof(PaDeviceInfo) ), paInsufficientMemory );
         UNLESS( curDevInfo->name = (char*)MALLOC( strlen(client_names[client_index]) + 1 ), paInsufficientMemory );
@@ -334,6 +334,8 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
     }
 
 error:
+    regfree( &port_regex );
+    free( jack_ports );
     return paNoError;
 }
 #undef MALLOC
@@ -567,19 +569,13 @@ static void CleanUpStream( PaJackStream *stream )
     for( i = 0; i < stream->num_incoming_connections; ++i )
     {
         if( stream->local_input_ports[i] )
-        {
             ASSERT_CALL( jack_port_unregister( stream->jack_client, stream->local_input_ports[i] ), 0 );
-            free( stream->local_input_ports[i]);
-        }
         free( stream->remote_output_ports[i] );
     }
     for( i = 0; i < stream->num_outgoing_connections; ++i )
     {
         if( stream->local_output_ports[i] )
-        {
             ASSERT_CALL( jack_port_unregister(stream->jack_client, stream->local_output_ports[i] ), 0 );
-            free( stream->local_output_ports[i]);
-        }
         free( stream->remote_input_ports[i] );
     }
 
@@ -696,21 +692,29 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     UNLESS( stream->stream_memory = PaUtil_CreateAllocationGroup(), paInsufficientMemory );
     stream->jack_client = jackHostApi->jack_client;
 
-    UNLESS( stream->local_input_ports =
-        (jack_port_t**) MALLOC(sizeof(jack_port_t*) * inputChannelCount ), paInsufficientMemory );
-    memset( stream->local_input_ports, 0, sizeof(jack_port_t*) * inputChannelCount );
-    UNLESS( stream->local_output_ports =
-        (jack_port_t**) MALLOC( sizeof(jack_port_t*) * outputChannelCount ), paInsufficientMemory );
-    memset( stream->local_output_ports, 0, sizeof(jack_port_t*) * outputChannelCount );
-    UNLESS( stream->remote_output_ports =
-        (jack_port_t**) MALLOC( sizeof(jack_port_t*) * inputChannelCount ), paInsufficientMemory );
-    memset( stream->remote_input_ports, 0, sizeof(jack_port_t*) * inputChannelCount );
-    UNLESS( stream->remote_input_ports =
-        (jack_port_t**) MALLOC( sizeof(jack_port_t*) * outputChannelCount ), paInsufficientMemory );
-    memset( stream->remote_output_ports, 0, sizeof(jack_port_t*) * outputChannelCount );
-
     stream->num_incoming_connections = inputChannelCount;
     stream->num_outgoing_connections = outputChannelCount;
+    stream->local_input_ports = stream->local_output_ports = stream->remote_input_ports = stream->remote_output_ports =
+        NULL;
+
+    if( inputChannelCount )
+    {
+        UNLESS( stream->local_input_ports =
+                (jack_port_t**) MALLOC(sizeof(jack_port_t*) * inputChannelCount ), paInsufficientMemory );
+        memset( stream->local_input_ports, 0, sizeof(jack_port_t*) * inputChannelCount );
+        UNLESS( stream->remote_output_ports =
+                (jack_port_t**) MALLOC( sizeof(jack_port_t*) * inputChannelCount ), paInsufficientMemory );
+        memset( stream->remote_output_ports, 0, sizeof(jack_port_t*) * inputChannelCount );
+    }
+    if( outputChannelCount )
+    {
+        UNLESS( stream->local_output_ports =
+                (jack_port_t**) MALLOC( sizeof(jack_port_t*) * outputChannelCount ), paInsufficientMemory );
+        memset( stream->local_output_ports, 0, sizeof(jack_port_t*) * outputChannelCount );
+        UNLESS( stream->remote_input_ports =
+                (jack_port_t**) MALLOC( sizeof(jack_port_t*) * outputChannelCount ), paInsufficientMemory );
+        memset( stream->remote_input_ports, 0, sizeof(jack_port_t*) * outputChannelCount );
+    }
 
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
             &jackHostApi->callbackStreamInterface, streamCallback, userData );
@@ -836,6 +840,7 @@ static PaError CloseStream( PaStream* s )
     PaError result = paNoError;
     PaJackStream *stream = (PaJackStream*)s;
 
+    PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
     CleanUpStream( stream );
 
@@ -988,6 +993,7 @@ static PaError StartStream( PaStream *s )
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
 
     /* start the audio thread */
+    stream->xrun = FALSE;
     UNLESS( !jack_set_xrun_callback( stream->jack_client, JackXRunCb, stream ), paUnanticipatedHostError );
     UNLESS( !jack_activate( stream->jack_client ), paUnanticipatedHostError );
     activated = 1;
