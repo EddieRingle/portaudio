@@ -9,7 +9,7 @@ compile.
 Feel free to fix some more of them, most simply require adjusting to the new API.
 
 x- paqa_devs.c 
-x- paqa_errs.c 
+x- paqa_errs.c (needs reviewing)
 x- patest1.c
 x- patest_buffer.c
 x- patest_callbackstop.c
@@ -20,8 +20,8 @@ x- patest_latency.c
 x- patest_leftright.c
 o- patest_longsine.c
 x- patest_many.c
-o- patest_maxsines.c
-o- patest_multi_sine.c
+x- patest_maxsines.c
+x- patest_multi_sine.c
 x- patest_pink.c
 x- patest_prime.c
 x- patest_read_record.c
