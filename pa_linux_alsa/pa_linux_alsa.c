@@ -1688,7 +1688,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
-                    paUtilFixedHostBufferSize, callback, userData ) );
+                    paUtilVariableHostBufferSizePartialUsageAllowed, callback, userData ) );
 
     /* Ok, buffer processor is initialized, now we can deduce it's latency */
     if( numInputChannels > 0 )
@@ -2407,7 +2407,7 @@ static PaError SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t requested, 
          * In the case of output underflow, drop input frames unless stream->neverDropInput.
          * If we're starved for output, while keeping input, we'll discard output samples.
          */
-        if( !commonFrames ) 
+        if( !commonFrames )
         {
             if( !captureFrames )    /* Input underflow */
                 commonFrames = playbackFrames;  /* We still want output */
@@ -2442,7 +2442,7 @@ static PaError SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t requested, 
     }
 
     /* PA_DEBUG(( "SetUpBuffers: captureAvail: %d, playbackAvail: %d, commonFrames: %d\n\n", captureFrames, playbackFrames, commonFrames )); */
-    /* Either of these could be zero, otherwise equal to commonFrames */
+    /* These two could differ (one is zero), otherwise both are equal to commonFrames */
     stream->playbackAvail = playbackFrames;
     stream->captureAvail = captureFrames;
 
@@ -2593,10 +2593,13 @@ static void *CallbackThreadFunc( void *userData )
                 framesAvail = MIN( framesAvail, startThreshold );
             }
 
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
+
             /* now we know the soundcard is ready to produce/receive at least
              * one period.  we just need to get the buffers for the client
              * to read/write. */
             ENSURE_PA( SetUpBuffers( stream, framesAvail, 1, &framesGot, &captureOffset, &playbackOffset ) );
+
             /* Check for under/overflow */
             if( stream->pcm_playback && stream->pcm_capture )
             {
@@ -2620,28 +2623,37 @@ static void *CallbackThreadFunc( void *userData )
                 }
             }
 
-            CalculateTimeInfo( stream, &timeInfo );
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
-
-            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-
             CallbackUpdate( &stream->threading );   /* Report to watchdog */
+
+            CalculateTimeInfo( stream, &timeInfo );
+            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             /* this calls the callback */
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
-            cbFlags = 0;    /* Reset callback flags now that they should be received by the callback */
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-            assert( framesProcessed == framesGot ); /* These should be the same, since we don't use block adaption */
+            cbFlags = 0;    /* Reset callback flags now that they should be received by the callback */
+
+            /* Take note that framesProcessed may differ from framesGot, since we've allowed for partial
+             * consumption of the host buffer (paUtilVariableHostBufferSizePartialUsageAllowed) */
+            if( framesProcessed != framesGot )
+            {
+                PA_DEBUG(( "framesProcessed differs from framesGot: %lu\n", framesGot - framesProcessed ));
+                if( framesGot )    /* Not dropping excess input, update consumed frames */
+                {
+                    /* framesProcessed can never exceed framesGot */
+                    stream->captureAvail = MIN( stream->captureAvail, framesProcessed );
+                    stream->playbackAvail = MIN( stream->playbackAvail, framesProcessed );
+                }
+            }
 
             /* Inform ALSA how many frames we read/wrote
-               Now, this number may differ between capture and playback, due to under/overflow.
-               If we're dropping input frames, we effectively sink them here.
+             * Now, this number may differ between capture and playback, due to under/overflow.
+             * If we're dropping input frames, we effectively sink them here.
              */
             if( stream->pcm_capture )
             {
-                int res = snd_pcm_mmap_commit( stream->pcm_capture, captureOffset, MIN( stream->captureAvail,
-                            framesProcessed ) );
+                int res = snd_pcm_mmap_commit( stream->pcm_capture, captureOffset, stream->captureAvail );
 
                 /* Non-fatal error? Terminate loop (go back to polling for frames)*/
                 if( res == -EPIPE || res == -ESTRPIPE )
@@ -2651,8 +2663,7 @@ static void *CallbackThreadFunc( void *userData )
             }
             if( stream->pcm_playback )
             {
-                int res = snd_pcm_mmap_commit( stream->pcm_playback, playbackOffset, MIN( stream->playbackAvail,
-                            framesProcessed ) );
+                int res = snd_pcm_mmap_commit( stream->pcm_playback, playbackOffset, stream->playbackAvail );
 
                 /* Non-fatal error? Terminate loop (go back to polling for frames) */
                 if( res == -EPIPE || res == -ESTRPIPE )
@@ -2664,7 +2675,7 @@ static void *CallbackThreadFunc( void *userData )
             /* If threshold for starting stream specified (priming buffer), decrement and compare */
             if( startThreshold > 0 )
             {
-                if( (startThreshold -= framesGot) <= 0 )
+                if( (startThreshold -= framesProcessed) <= 0 )
                 {
                     ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
                     ENSURE_PA( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
@@ -2679,7 +2690,7 @@ static void *CallbackThreadFunc( void *userData )
                 goto end;
             }
 
-            framesAvail -= framesGot;
+            framesAvail -= framesProcessed;
         }
     }
 
