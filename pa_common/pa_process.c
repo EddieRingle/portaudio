@@ -780,7 +780,7 @@ void PaUtil_Set2ndNonInterleavedOutputChannel( PaUtilBufferProcessor* bp,
     with bp->framesPerTempBuffer samples.
 */
 static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostInputChannels,
         PaUtilChannelDescriptor *hostOutputChannels,
         unsigned long framesToProcess )
@@ -938,7 +938,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
     when the temporary input buffer is full, it calls the streamCallback.
 */
 static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostInputChannels,
         unsigned long framesToProcess )
 {
@@ -1036,7 +1036,7 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
     when the temporary output buffer is empty, it calls the streamCallback.
 */
 static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult,
+        int *streamCallbackResult,
         PaUtilChannelDescriptor *hostOutputChannels,
         unsigned long framesToProcess )
 {
@@ -1146,7 +1146,7 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
     as possible will be processed, but partial buffers will not be consumed.
 */
 static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
-        PaStreamCallbackResult *streamCallbackResult, int processPartialUserBuffers )
+        int *streamCallbackResult, int processPartialUserBuffers )
 {
     void *userInput, *userOutput;
     unsigned long framesProcessed = 0;
