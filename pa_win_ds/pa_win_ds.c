@@ -144,8 +144,7 @@ typedef struct PaWinDsStream
     DSoundWrapper    directSoundWrapper;
     MMRESULT         timerID;
     BOOL             ifInsideCallback;  /* Test for reentrancy. */
-    short           *nativeBuffer;
-    int              bytesPerNativeBuffer;
+    int              bytesPerUserBuffer;
     int              framesPerDSBuffer;
     int              numUserBuffers;
     double           framesWritten;
@@ -716,7 +715,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerCallback,
-              framesPerHostBuffer, paUtilFixedHostBufferSize,
+              framesPerHostBuffer, /* FIXME - ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
+       
+        /* This next mode is required because DS can split the host buffer when it wraps around. */
+              paUtilVariableHostBufferSizePartialUsageAllowed,
+
               callback, userData );
     if( result != paNoError )
         goto error;
@@ -725,8 +728,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         HRESULT          hr;
         PaError          result = paNoError;
-        int              numBytes, maxChannels;
-        int              minNumBuffers;
+        int              bytesPerDirectSoundBuffer, maxChannels;
         DSoundWrapper   *dsw;
 
         stream->timerID = 0;
@@ -736,44 +738,38 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 /* Allocate native buffer. */
         maxChannels = ( numOutputChannels > numInputChannels ) ?
                       numOutputChannels : numInputChannels;
-        stream->bytesPerNativeBuffer = framesPerCallback * maxChannels * sizeof(short);
-        if( maxChannels > 0 )
-        {
-            stream->nativeBuffer = (short *) PaUtil_AllocateMemory(stream->bytesPerNativeBuffer); /* MEM */
-            if( stream->nativeBuffer == NULL )
-            {
-                result = paInsufficientMemory;
-                goto error;
-            }
-        }
-        else
+        stream->bytesPerUserBuffer = framesPerCallback * maxChannels * sizeof(short);
+        if( maxChannels == 0 )
         {
             result = paInvalidChannelCount;
             goto error;
         }
+
+        stream->numUserBuffers = PaWinDsGetMinNumBuffers( framesPerCallback, sampleRate );
+        DBUG(("WinDS OpenStream: numUserBuffers = %d\n", stream->numUserBuffers ));
+
     /** Calculate numUserBuffers from user specified latency.
      * Currently just uses maximum of input and output latency. */
         {
-            int maxLatencyMSec = (inputLatency > outputLatency) ? inputLatency : outputLatency;
-            int maxLatencyFrames = (int) (maxLatencyMSec * sampleRate * 0.001);
-        /* Round up to number of buffers needed to guarantee that latency. */
-            stream->numUserBuffers = (maxLatencyFrames + stream->bufferProcessor.framesPerUserBuffer - 1) /
-                    stream->bufferProcessor.framesPerUserBuffer;
+            int maxLatencyFrames = (inputLatency > outputLatency) ? inputLatency : outputLatency;
+            if( maxLatencyFrames > 0 )
+            {
+            /* Round up to number of buffers needed to guarantee that latency. */
+                stream->numUserBuffers = (maxLatencyFrames + stream->bufferProcessor.framesPerUserBuffer - 1) /
+                        stream->bufferProcessor.framesPerUserBuffer;
+                if( stream->numUserBuffers < 1 ) stream->numUserBuffers = 1;
+            }
         }
 
-        DBUG(("WinDS OpenStream: numUserBuffers = %d\n", stream->numUserBuffers ));
-    /* Don't go below recommended latency for device. FIXME - why not? */
-        minNumBuffers = PaWinDsGetMinNumBuffers( framesPerCallback, sampleRate );
-        stream->numUserBuffers = ( minNumBuffers > stream->numUserBuffers ) ? minNumBuffers : stream->numUserBuffers;
         stream->numUserBuffers += 1; /* So we have latency worth of buffers ahead of current buffer. */
 
-        numBytes = stream->bytesPerNativeBuffer * stream->numUserBuffers;
-        if( numBytes < DSBSIZE_MIN )
+        bytesPerDirectSoundBuffer = stream->bytesPerUserBuffer * stream->numUserBuffers;
+        if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
         {
             result = paBufferTooSmall;
             goto error;
         }
-        else if( numBytes > DSBSIZE_MAX )
+        else if( bytesPerDirectSoundBuffer > DSBSIZE_MAX )
         {
             result = paBufferTooBig;
             goto error;
@@ -800,7 +796,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitOutputBuffer( dsw,
                                        (unsigned long) (sampleRate + 0.5),
-                                       numOutputChannels, numBytes );
+                                       numOutputChannels, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -827,7 +823,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitInputBuffer( dsw,
                                       (unsigned long) (sampleRate + 0.5),
-                                      numInputChannels, numBytes );
+                                      numInputChannels, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitInputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -857,24 +853,40 @@ error:
 static PaError Pa_TimeSlice( PaWinDsStream *stream )
 {
     PaError           result = 0;
+    DSoundWrapper    *dsw;
     long              bytesEmpty = 0;
     long              bytesFilled = 0;
     long              bytesToXfer = 0;
-    long              numChunks;
+    long              numFrames;
+    long              bytesProcessed;
     HRESULT           hresult;
-    short            *nativeBufPtr;
-    double            latency, outTime;
+    double            outputLatency = 0;
+    double            outTime;
+/* Input */
+    LPBYTE            lpInBuf1 = NULL;
+    LPBYTE            lpInBuf2 = NULL;
+    DWORD             dwInSize1 = 0;
+    DWORD             dwInSize2 = 0;
+/* Output */
+    LPBYTE            lpOutBuf1 = NULL;
+    LPBYTE            lpOutBuf2 = NULL;
+    DWORD             dwOutSize1 = 0;
+    DWORD             dwOutSize2 = 0;
+
+    dsw = &stream->directSoundWrapper;
 
     /* How much input data is available? */
     if( stream->bufferProcessor.numInputChannels > 0 )
     {
-        DSW_QueryInputFilled( &stream->directSoundWrapper, &bytesFilled );
+        DSW_QueryInputFilled( dsw, &bytesFilled );
         bytesToXfer = bytesFilled;
+        outputLatency = ((double)bytesFilled) * stream->secondsPerHostByte;
     }
+
     /* How much output room is available? */
     if( stream->bufferProcessor.numOutputChannels > 0 )
     {
-        DSW_QueryOutputSpace( &stream->directSoundWrapper, &bytesEmpty );
+        DSW_QueryOutputSpace( dsw, &bytesEmpty );
         bytesToXfer = bytesEmpty;
     }
 
@@ -883,86 +895,99 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     {
         bytesToXfer = ( bytesFilled < bytesEmpty ) ? bytesFilled : bytesEmpty;
     }
-    /* printf("bytesFilled = %d, bytesEmpty = %d, bytesToXfer = %d\n",
-      bytesFilled, bytesEmpty, bytesToXfer);
-    */
-    /* Quantize to multiples of a buffer. */
-    numChunks = bytesToXfer / stream->bytesPerNativeBuffer;
-    if( numChunks > (long)(stream->numUserBuffers/2) )
+
+    if( bytesToXfer > 0 )
     {
-        numChunks = (long)(stream->numUserBuffers/2);
-    }
-    else if( numChunks < 0 )
-    {
-        numChunks = 0;
-    }
+
+        numFrames = bytesToXfer / dsw->dsw_BytesPerFrame;
+        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, numFrames );
+
+    /* The outTime parameter should indicates the time at which
+        the first sample of the output buffer is heard at the DACs. */
+        outTime = PaUtil_GetTime() + outputLatency;
 
 
-    nativeBufPtr = stream->nativeBuffer;
-    if( numChunks > 0 )
-    {
-        while( numChunks-- > 0 )
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+
+    /* Input */
+        if( stream->bufferProcessor.numInputChannels > 0 )
         {
-
-            /* Get native data from DirectSound. */
-            if( stream->bufferProcessor.numInputChannels > 0 )
+            hresult = IDirectSoundCaptureBuffer_Lock ( dsw->dsw_InputBuffer,
+                dsw->dsw_ReadOffset, bytesToXfer,
+                (void **) &lpInBuf1, &dwInSize1,
+                (void **) &lpInBuf2, &dwInSize2, 0);
+            if (hresult != DS_OK)
             {
-                hresult = DSW_ReadBlock( &stream->directSoundWrapper, (char *) nativeBufPtr, stream->bytesPerNativeBuffer );
-                if( hresult < 0 )
-                {
-                    ERR_RPT(("DirectSound ReadBlock failed, hresult = 0x%x\n",hresult));
-                    break;
-                }
+                ERR_RPT(("DirectSound IDirectSoundCaptureBuffer_Lock failed, hresult = 0x%x\n",hresult));
+                result = paHostError;
+                goto error;
             }
 
-        /* The outTime parameter should indicates the time at which
-            the first sample of the output buffer is heard at the DACs. */
-            if( stream->bufferProcessor.numOutputChannels > 0 )
+            numFrames = dwInSize1 / dsw->dsw_BytesPerFrame;
+            PaUtil_SetInputFrameCount( &stream->bufferProcessor, numFrames );
+            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, lpInBuf1, 0 );
+        /* Is input split into two regions. */
+            if( dwInSize2 > 0 )
             {
-            /* How much output room is available? */
-                DSW_QueryOutputFilled( &stream->directSoundWrapper, &bytesFilled );
-                latency = ((double)bytesFilled) * stream->secondsPerHostByte;
-                
+                numFrames = dwInSize2 / dsw->dsw_BytesPerFrame;
+                PaUtil_Set2ndInputFrameCount( &stream->bufferProcessor, numFrames );
+                PaUtil_Set2ndInterleavedInputChannels( &stream->bufferProcessor, 0, lpInBuf2, 0 );
             }
-            else
-            {
-                latency = 0;
-            }
-            outTime = PaUtil_GetTime() + latency;
-
-            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer );
-
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
-
-            PaUtil_SetInputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
-            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, nativeBufPtr, 0 );
-
-            PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
-            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, nativeBufPtr, 0 );
-            
-            PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
-
-            stream->framesWritten += stream->bufferProcessor.framesPerHostBuffer;
-
-            PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-
-            if( result != paContinue) break;
-
-            /* Pass native data to DirectSound. */
-            if( stream->bufferProcessor.numOutputChannels > 0 )
-            {
-                hresult = DSW_WriteBlock( &stream->directSoundWrapper, (char *) nativeBufPtr, stream->bytesPerNativeBuffer );
-                if( hresult < 0 )
-                {
-                    ERR_RPT(("DirectSound WriteBlock failed, result = 0x%x\n",hresult));
-                    break;
-                }
-            }
-
         }
+
+    /* Output */
+        if( stream->bufferProcessor.numOutputChannels > 0 )
+        {
+            hresult = IDirectSoundBuffer_Lock ( dsw->dsw_OutputBuffer,
+                dsw->dsw_WriteOffset, bytesToXfer,
+                (void **) &lpOutBuf1, &dwOutSize1,
+                (void **) &lpOutBuf2, &dwOutSize2, 0);
+            if (hresult != DS_OK)
+            {
+                ERR_RPT(("DirectSound IDirectSoundBuffer_Lock failed, hresult = 0x%x\n",hresult));
+                result = paHostError;
+                goto error;
+            }
+
+            numFrames = dwOutSize1 / dsw->dsw_BytesPerFrame;
+            PaUtil_SetOutputFrameCount( &stream->bufferProcessor, numFrames );
+            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, lpOutBuf1, 0 );
+        /* Is output split into two regions. */
+            if( dwOutSize2 > 0 )
+            {
+                numFrames = dwOutSize2 / dsw->dsw_BytesPerFrame;
+                PaUtil_Set2ndInputFrameCount( &stream->bufferProcessor, numFrames );
+                PaUtil_Set2ndInterleavedOutputChannels( &stream->bufferProcessor, 0, lpOutBuf2, 0 );
+            }
+        }
+        
+        numFrames = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
+        if( result != paContinue) goto error;
+
+        stream->framesWritten += numFrames;
+        bytesProcessed = numFrames * dsw->dsw_BytesPerFrame;
+        
+        if( stream->bufferProcessor.numOutputChannels > 0 )
+        {
+        /* Update our buffer offset and unlock sound buffer */
+            dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + bytesProcessed) % dsw->dsw_OutputSize;
+            IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, lpOutBuf1, dwOutSize1, lpOutBuf2, dwOutSize2);
+            dsw->dsw_FramesWritten += numFrames;
+        }
+        
+        if( stream->bufferProcessor.numInputChannels > 0 )
+        {
+        /* Update our buffer offset and unlock sound buffer */
+            dsw->dsw_ReadOffset = (dsw->dsw_ReadOffset + bytesProcessed) % dsw->dsw_InputSize;
+            IDirectSoundBuffer_Unlock( dsw->dsw_InputBuffer, lpInBuf1, dwInSize1, lpInBuf2, dwInSize2);
+        }
+
+
+        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+
     }
     
-
+error:
     return result;
 }
 /*******************************************************************/
@@ -1016,11 +1041,6 @@ static PaError CloseStream( PaStream* s )
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
     DSW_Term( &stream->directSoundWrapper );
-    if( stream->nativeBuffer )
-    {
-        PaUtil_FreeMemory( stream->nativeBuffer ); /* MEM */
-        stream->nativeBuffer = NULL;
-    }
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
