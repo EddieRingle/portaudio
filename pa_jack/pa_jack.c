@@ -702,6 +702,7 @@ static int JackCallback( jack_nframes_t frames, void *userData )
     if( stream->num_outgoing_connections > 0 )
         PaUtil_SetOutputFrameCount( &stream->bufferProcessor, frames );
 
+    callbackResult = paContinue;
     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                   &callbackResult );
 

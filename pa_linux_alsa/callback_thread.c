@@ -315,6 +315,7 @@ void *CallbackThread( void *userData )
 
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
+        callbackResult = paContinue;
         framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                       &callbackResult );
 

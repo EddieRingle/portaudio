@@ -542,6 +542,13 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
             outputBuffer,
             0 ); /* 0 - use outputChannelCount passed to init buffer processor */
 
+    /* you must pass a valid value of callback result to PaUtil_EndBufferProcessing()
+        in general you would pass paContinue for normal operation, and
+        paComplete to drain the buffer processor's internal output buffer.
+        You can check whether the buffer processor's output buffer is empty
+        using PaUtil_IsBufferProcessorOuputEmpty( bufferProcessor )
+    */
+    callbackResult = paContinue;
     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
     

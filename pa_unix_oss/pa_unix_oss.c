@@ -931,6 +931,7 @@ static void *PaOSS_AudioThreadProc(void *userData)
                                                 0 ); /* 0 - use outputChannelCount passed to init buffer processor */
         }
 
+        callbackResult = paContinue;
         framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
