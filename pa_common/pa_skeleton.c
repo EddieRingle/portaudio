@@ -76,7 +76,9 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTimestamp GetStreamTime( PaStream *stream );
+static PaTime GetStreamInputLatency( PaStream *stream );
+static PaTime GetStreamOutputLatency( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -88,7 +90,7 @@ static unsigned long GetStreamWriteAvailable( PaStream* stream );
 
 typedef struct
 {
-    PaUtilHostApiRepresentation commonHostApiRep;
+    PaUtilHostApiRepresentation inheritedHostApiRep;
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
@@ -120,7 +122,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
         goto error;
     }
 
-    *hostApi = &skeletonHostApi->commonHostApiRep;
+    *hostApi = &skeletonHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paInDevelopment;            /* IMPLEMENT ME: change to correct type id */
     (*hostApi)->info.name = "skeleton implementation";  /* IMPLEMENT ME: change to correct name */
@@ -180,11 +182,13 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
     (*hostApi)->OpenStream = OpenStream;
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -391,7 +395,7 @@ error:
 static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, void *userData )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)userData;
-    PaTimestamp outTime = 0; /* IMPLEMENT ME */
+    PaTime outTime = 0; /* IMPLEMENT ME */
     int callbackResult;
     unsigned long framesProcessed;
     
@@ -533,7 +537,27 @@ static PaError IsStreamActive( PaStream *s )
 }
 
 
-static PaTimestamp GetStreamTime( PaStream *s )
+static PaTime GetStreamInputLatency( PaStream *s )
+{
+    PaSkeletonStream *stream = (PaSkeletonStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
+
+    return 0;
+}
+
+
+static PaTime GetStreamOutputLatency( PaStream *s )
+{
+    PaSkeletonStream *stream = (PaSkeletonStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
+
+    return 0;
+}
+
+
+static PaTime GetStreamTime( PaStream *s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
