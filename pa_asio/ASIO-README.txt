@@ -17,6 +17,16 @@ If you are compiling with a non-Microsoft compiler on windows, also
 compile and link with iasiothiscallresolver.cpp (see below for 
 an explanation).
 
+For some platforms (MingW, possibly Mac), you may simply
+be able to type:
+
+./configure --with-host_os=mingw --with-winapi=asio [--with-asiodir=/usr/local/asiosdk2]
+make
+
+./configure --with-host_os=darwin --with-winapi=asio [--with-asiodir=/usr/local/asiosdk2]
+make
+
+and life will be good.
 
 
 Obtaining the ASIO SDK
@@ -85,6 +95,9 @@ non-Microsoft compilers, be sure to compile and link with
 iasiothiscallresolver.cpp. Note that iasiothiscallresolver includes
 conditional directives which cause it to have no effect if it is
 compiled with a Microsoft compiler, or on the Macintosh.
+
+If you use configure and make (see above), this should be handled
+automatically for you.
 
 For further information about the IASIO thiscall problem see this page:
 http://www.audiomulch.com/~rossb/code/calliasio
