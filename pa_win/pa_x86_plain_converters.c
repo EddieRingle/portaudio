@@ -19,6 +19,9 @@ TODO:
     o- implement Dither only (no-clip) versions
     o- implement int8 and uint8 versions
     o- test thouroughly
+
+    o- the packed 24 bit functions could benefit from unrolling and avoiding
+        byte and word sized register access.
 */
 
 /* -------------------------------------------------------------------------- */
@@ -448,10 +451,9 @@ static void Float32_To_Int24(
         double scaled = *src * 0x7FFFFFFF;
         temp = (signed long) scaled;
 
-        // REVIEW, FIXME : this is little endian byte order 
-        dest[0] = (unsigned char)(temp >> 24);
+        dest[0] = (unsigned char)(temp >> 8);
         dest[1] = (unsigned char)(temp >> 16);
-        dest[2] = (unsigned char)(temp >> 8);
+        dest[2] = (unsigned char)(temp >> 24);
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -546,10 +548,9 @@ static void Float32_To_Int24_Clip(
         PA_CLIP_( scaled, -2147483648., 2147483647.  );
         temp = (signed long) scaled;
 
-        // REVIEW, FIXME : this is little endian byte order
-        dest[0] = (unsigned char)(temp >> 24);
+        dest[0] = (unsigned char)(temp >> 8);
         dest[1] = (unsigned char)(temp >> 16);
-        dest[2] = (unsigned char)(temp >> 8);
+        dest[2] = (unsigned char)(temp >> 24);
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -664,10 +665,9 @@ static void Float32_To_Int24_DitherClip(
         
         temp = (signed long) dithered;
 
-        // REVIEW, FIXME : this is little endian byte order 
-        dest[0] = (unsigned char)(temp >> 24);
+        dest[0] = (unsigned char)(temp >> 8);
         dest[1] = (unsigned char)(temp >> 16);
-        dest[2] = (unsigned char)(temp >> 8);
+        dest[2] = (unsigned char)(temp >> 24);
 
         src += sourceStride;
         dest += destinationStride * 3;

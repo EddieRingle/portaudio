@@ -42,14 +42,13 @@
  UInt8_To_Int24, UInt8_To_Int16, UInt8_To_Int8
 
  @todo review the converters marked REVIEW: Float32_To_Int32,
- Float32_To_Int32_Dither, Float32_To_Int32_Clip, Float32_To_Int32_DitherClip,
- Float32_To_Int24, Float32_To_Int24_Dither, Float32_To_Int24_Clip,
- Float32_To_Int24_DitherClip, Int24_To_Float32
+ Float32_To_Int32_Dither, Float32_To_Int32_Clip, Float32_To_Int32_DitherClip
 */
 
 
 #include "pa_converters.h"
 #include "pa_dither.h"
+#include "pa_endianness.h"
 
 
 PaSampleFormat PaUtil_SelectClosestAvailableFormat(
@@ -425,11 +424,16 @@ static void Float32_To_Int24(
         /* convert to 32 bit and drop the low 8 bits */
         double scaled = *src * 0x7FFFFFFF;
         temp = (signed long) scaled;
-
-        /* REVIEW, FIXME : this is little endian byte order */
+        
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = (unsigned char)(temp >> 8);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 24);
+#elif defined(PA_BIG_ENDIAN)
         dest[0] = (unsigned char)(temp >> 24);
         dest[1] = (unsigned char)(temp >> 16);
         dest[2] = (unsigned char)(temp >> 8);
+#endif
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -457,10 +461,15 @@ static void Float32_To_Int24_Dither(
         
         temp = (signed long) dithered;
 
-        /* REVIEW, FIXME : this is little endian byte order */
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = (unsigned char)(temp >> 8);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 24);
+#elif defined(PA_BIG_ENDIAN)
         dest[0] = (unsigned char)(temp >> 24);
         dest[1] = (unsigned char)(temp >> 16);
         dest[2] = (unsigned char)(temp >> 8);
+#endif
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -487,10 +496,15 @@ static void Float32_To_Int24_Clip(
         PA_CLIP_( scaled, -2147483648., 2147483647.  );
         temp = (signed long) scaled;
 
-        /* REVIEW, FIXME : this is little endian byte order */
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = (unsigned char)(temp >> 8);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 24);
+#elif defined(PA_BIG_ENDIAN)
         dest[0] = (unsigned char)(temp >> 24);
         dest[1] = (unsigned char)(temp >> 16);
         dest[2] = (unsigned char)(temp >> 8);
+#endif
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -519,10 +533,15 @@ static void Float32_To_Int24_DitherClip(
         
         temp = (signed long) dithered;
 
-        /* REVIEW, FIXME : this is little endian byte order */
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = (unsigned char)(temp >> 8);
+        dest[1] = (unsigned char)(temp >> 16);
+        dest[2] = (unsigned char)(temp >> 24);
+#elif defined(PA_BIG_ENDIAN)
         dest[0] = (unsigned char)(temp >> 24);
         dest[1] = (unsigned char)(temp >> 16);
         dest[2] = (unsigned char)(temp >> 8);
+#endif
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -992,10 +1011,16 @@ static void Int24_To_Float32(
     
     while( count-- )
     {
-        /* REVIEW, FIXME: this is little endian byte order */
-        temp = src[0] << 24;
-        temp = src[1] << 16;
-        temp = src[2] << 8;
+
+#if defined(PA_LITTLE_ENDIAN)
+        temp = (((long)src[0]) << 8);  
+        temp = temp | (((long)src[1]) << 16);
+        temp = temp | (((long)src[2]) << 24);
+#elif defined(PA_BIG_ENDIAN)
+        temp = (((long)src[0]) << 24);
+        temp = temp | (((long)src[1]) << 16);
+        temp = temp | (((long)src[2]) << 8);
+#endif
 
         *dest = (double)temp * const_1_div_2147483648_;
 

@@ -57,9 +57,11 @@ include:
 #include <stdarg.h>
 #include <memory.h>
 #include <string.h>
+#include <assert.h> /* needed by PA_VALIDATE_ENDIANNESS */
 
 #include "portaudio.h"
 #include "pa_util.h"
+#include "pa_endianness.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
 
@@ -333,6 +335,8 @@ PaError Pa_Initialize( void )
     }
     else
     {
+        PA_VALIDATE_ENDIANNESS;
+        
         PaUtil_InitializeClock();
         PaUtil_ResetTraceMessages();
 
