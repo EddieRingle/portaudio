@@ -56,6 +56,8 @@
 
 static int aErr_;
 static PaError paErr_;     /* For use with ENSURE_PA */
+static pthread_t mainThread_;
+static char *jackErr_ = NULL;
 
 #define STRINGIZE_HELPER(expr) #expr
 #define STRINGIZE(expr) STRINGIZE_HELPER(expr)
@@ -65,6 +67,11 @@ static PaError paErr_;     /* For use with ENSURE_PA */
     do { \
         if( (paErr_ = (expr)) < paNoError ) \
         { \
+            if( (paErr_) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
+            { \
+                assert( jackErr_ ); \
+                PaUtil_SetLastHostErrorInfo( paJACK, -1, jackErr_ ); \
+            } \
             PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
             result = paErr_; \
             goto error; \
@@ -75,6 +82,11 @@ static PaError paErr_;     /* For use with ENSURE_PA */
     do { \
         if( (expr) == 0 ) \
         { \
+            if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
+            { \
+                assert( jackErr_ ); \
+                PaUtil_SetLastHostErrorInfo( paJACK, -1, jackErr_ ); \
+            } \
             PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
             result = (code); \
             goto error; \
@@ -400,6 +412,17 @@ static void UpdateSampleRate( PaJackStream *stream, double sampleRate )
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 }
 
+static void JackErrorCallback( const char *msg )
+{
+    if( pthread_self() == mainThread_ )
+    {
+        assert( msg );
+        free( jackErr_ );
+        jackErr_ = malloc( strlen( msg ) );
+        sprintf( jackErr_, msg );
+    }
+}
+
 static void JackOnShutdown( void *arg )
 {
     PaJackHostApiRepresentation *jackApi = (PaJackHostApiRepresentation *)arg;
@@ -418,6 +441,7 @@ static void JackOnShutdown( void *arg )
     ASSERT_CALL( pthread_mutex_unlock( &jackApi->mtx ), 0 );
 
 }
+
 static int JackSrCb( jack_nframes_t nframes, void *arg )
 {
     PaJackHostApiRepresentation *jackApi = (PaJackHostApiRepresentation *)arg;
@@ -437,6 +461,7 @@ static int JackSrCb( jack_nframes_t nframes, void *arg )
 
     return 0;
 }
+
 static int JackXRunCb(void *arg) {
     PaJackHostApiRepresentation *hostApi = (PaJackHostApiRepresentation *)arg;
     assert( hostApi );
@@ -458,6 +483,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
         PaUtil_AllocateMemory( sizeof(PaJackHostApiRepresentation) ), paInsufficientMemory );
     jackHostApi->deviceInfoMemory = NULL;
 
+    mainThread_ = pthread_self();
     ASSERT_CALL( pthread_mutex_init( &jackHostApi->mtx, NULL ), 0 );
     ASSERT_CALL( pthread_cond_init( &jackHostApi->cond, NULL ), 0 );
 
@@ -510,6 +536,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     jackHostApi->jackIsDown = 0;
 
     jack_on_shutdown( jackHostApi->jack_client, JackOnShutdown, jackHostApi );
+    jack_set_error_function( JackErrorCallback );
     UNLESS( !jack_set_sample_rate_callback( jackHostApi->jack_client, JackSrCb, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_set_xrun_callback( jackHostApi->jack_client, JackXRunCb, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_set_process_callback( jackHostApi->jack_client, JackCallback, jackHostApi ), paUnanticipatedHostError );
@@ -559,6 +586,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     PaUtil_FreeMemory( jackHostApi );
+
+    free( jackErr_ );
 }
 
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
@@ -1055,12 +1084,12 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
         goto end;
     }
     
-    timeInfo.currentTime = jack_frame_time( stream->jack_client ) / sr;
+    timeInfo.currentTime = (jack_frame_time( stream->jack_client ) - stream->t0) / sr;
     if( stream->num_incoming_connections > 0 )
-        timeInfo.inputBufferAdcTime = timeInfo.currentTime - jack_port_get_latency( stream->local_input_ports[0] )
+        timeInfo.inputBufferAdcTime = timeInfo.currentTime - jack_port_get_latency( stream->remote_output_ports[0] )
             / sr;
     if( stream->num_outgoing_connections > 0 )
-        timeInfo.outputBufferDacTime = timeInfo.currentTime + jack_port_get_latency( stream->local_output_ports[0] )
+        timeInfo.outputBufferDacTime = timeInfo.currentTime + jack_port_get_latency( stream->remote_input_ports[0] )
             / sr;
 
     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
