@@ -191,7 +191,8 @@ PaAlsaHostApiRepresentation;
 typedef struct PaAlsaDeviceInfo
 {
     PaDeviceInfo commonDeviceInfo;
-    int deviceNumber;
+    char *alsaName;
+    int isPlug;
 }
 PaAlsaDeviceInfo;
 
@@ -202,9 +203,10 @@ PaAlsaDeviceInfo;
 
 static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm )
 {
-    th->callbackTime = 0;
     th->watchdogRunning = 0;
     th->rtSched = 0;
+    th->callbackTime = 0;
+    th->callbackCpuTime = 0;
     th->useWatchdog = 1;
     th->cpuLoadMeasurer = clm;
 
@@ -611,7 +613,7 @@ error:
  * and a suitable result returned. The device is closed before returning.
  */
 static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLatency,
-        double *defaultHighLatency, double *defaultSampleRate )
+        double *defaultHighLatency, double *defaultSampleRate, int isPlug )
 {
     PaError result = paNoError;
     snd_pcm_hw_params_t *hwParams;
@@ -632,7 +634,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
         if( SetApproximateSampleRate( pcm, hwParams, *defaultSampleRate ) < 0 )
         {
             *defaultSampleRate = 0.;
-            PA_DEBUG(( "Original default samplerate failed, trying again ..\n" ));
+            PA_DEBUG(( "%s: Original default samplerate failed, trying again ..\n", __FUNCTION__ ));
         }
     }
 
@@ -645,9 +647,11 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
 
     ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, &uchans ), paUnanticipatedHostError );
     assert( uchans <= INT_MAX );
-    *channels = (int) uchans;
-    assert( *channels > 0 );    /* Weird linking issue could cause wrong version of ALSA symbols to be called,
+    assert( uchans > 0 );    /* Weird linking issue could cause wrong version of ALSA symbols to be called,
                                    resulting in zeroed values */
+    *channels = isPlug ? 128 : uchans;   /* XXX: Limit to sensible number (ALSA plugins accept a crazy amount of channels)? */
+    if( isPlug )
+        PA_DEBUG(( "%s: Limiting number of plugin channels to %d\n", __FUNCTION__, *channels ));
 
     /* TWEAKME:
      *
@@ -686,18 +690,27 @@ error:
     goto end;
 }
 
+/* Helper struct */
+typedef struct
+{
+    char *alsaName;
+    char *name;
+    int isPlug;
+} DeviceNames;
 
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
     PaUtilHostApiRepresentation *commonApi = &alsaApi->commonHostApiRep;
     PaAlsaDeviceInfo *deviceInfoArray;
-    int deviceCount = 0;
-    int card_idx;
-    int device_idx;
+    int cardIdx = -1, devIdx = 0;
     snd_ctl_t *ctl;
     snd_ctl_card_info_t *card_info;
     PaError result = paNoError;
+    size_t numDeviceNames = 0, maxDeviceNames = 1, i;
+    DeviceNames *deviceNames = NULL;
+    snd_config_t *top;
+    int res;
     int blocking = SND_PCM_NONBLOCK;
     if( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) && atoi( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) ) )
         blocking = 0;
@@ -714,78 +727,137 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
      *      -1 if there are no more cards
      *
      * The function itself returns 0 if it succeeded. */
-    card_idx = -1;
-    while( snd_card_next( &card_idx ) == 0 && card_idx >= 0 )
-    {
-        ++deviceCount;
-    }
-
-    /* allocate deviceInfo memory based on the number of devices */
-
-    UNLESS( commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
-            alsaApi->allocations, sizeof(PaDeviceInfo*) * deviceCount ), paInsufficientMemory );
-
-    /* allocate all device info structs in a contiguous block */
-    UNLESS( deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
-            alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * deviceCount ), paInsufficientMemory );
-
-    /* now loop over the list of devices again, filling in the deviceInfo for each
-     * A: If a device is deemed unavailable (can't get name), its not added to list of devices.
-     */
-    card_idx = -1;
-    device_idx = 0;
+    cardIdx = -1;
     snd_ctl_card_info_alloca( &card_info );
-    while( snd_card_next( &card_idx ) == 0 && card_idx >= 0 )
+    while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 )
     {
-        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[ device_idx ];
-        PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
-        snd_pcm_t *pcm;
-        char *deviceName;
-        char alsaDeviceName[50];
         const char *cardName;
+        char *alsaDeviceName, *deviceName;
 
-        /* First of all, get name of card */
-        snprintf( alsaDeviceName, 50, "hw:%d", card_idx );
+        UNLESS( alsaDeviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
+                                                        50 ), paInsufficientMemory );
+        snprintf( alsaDeviceName, 50, "hw:%d", cardIdx );
+
+        /* Acquire name of card */
         if( snd_ctl_open( &ctl, alsaDeviceName, 0 ) < 0 )
             continue;   /* Unable to open card :( */
-
         snd_ctl_card_info( ctl, card_info );
         snd_ctl_close( ctl );
         cardName = snd_ctl_card_info_get_name( card_info );
 
-        /* Zero fields */
-        memset( commonDeviceInfo, 0, sizeof (PaDeviceInfo) );
-
         UNLESS( deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
                                                         strlen(cardName) + 1 ), paInsufficientMemory );
         strcpy( deviceName, cardName );
-        commonDeviceInfo->name = deviceName;
 
-        deviceInfo->deviceNumber = card_idx;    /* ALSA device number */
+        ++numDeviceNames;
+        if( !deviceNames || numDeviceNames > maxDeviceNames )
+        {
+            maxDeviceNames *= 2;
+            UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
+                    paInsufficientMemory );
+        }
 
-        commonDeviceInfo->structVersion = 2;
-        commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
+        deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
+        deviceNames[ numDeviceNames - 1 ].name = deviceName;
+        deviceNames[ numDeviceNames - 1 ].isPlug = 0;
+    }
+
+    /* Iterate over plugin devices */
+    if( (res = snd_config_search( snd_config, "pcm", &top )) >= 0 )
+    {
+        snd_config_iterator_t i, next;
+        const char *s;
+
+        snd_config_for_each( i, next, top )
+        {
+            char *alsaDeviceName, *deviceName;
+            snd_config_t *n = snd_config_iterator_entry( i ), *tp;
+            if( snd_config_get_type( n ) != SND_CONFIG_TYPE_COMPOUND )
+                continue;
+
+            /* Restrict search to nodes of type "plug" for now */
+            ENSURE( snd_config_search( n, "type", &tp ), paUnanticipatedHostError );
+            ENSURE( snd_config_get_string( tp, &s ), paUnanticipatedHostError );
+            if( strcmp( s, "plug" ) )
+                continue;
+
+            /* Disregard standard plugins
+             * XXX: Might want to make the "default" plugin available, if we can make it work
+             */
+            ENSURE( snd_config_get_id( n, &s ), paUnanticipatedHostError );
+            if( !strcmp( s, "plughw" ) || !strcmp( s, "plug" ) || !strcmp( s, "default" ) )
+                continue;
+
+            UNLESS( alsaDeviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
+                                                            strlen(s) + 6 ), paInsufficientMemory );
+            strcpy( alsaDeviceName, s );
+            UNLESS( deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
+                                                            strlen(s) + 1 ), paInsufficientMemory );
+            strcpy( deviceName, s );
+
+            ++numDeviceNames;
+            if( !deviceNames || numDeviceNames > maxDeviceNames )
+            {
+                maxDeviceNames *= 2;
+                UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
+                        paInsufficientMemory );
+            }
+
+            deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
+            deviceNames[ numDeviceNames - 1 ].name = deviceName;
+            deviceNames[ numDeviceNames - 1 ].isPlug = 1;
+        }
+    }
+    else
+        PA_DEBUG(( "%s: Iterating over ALSA plugins failed: %s\n", __FUNCTION__, snd_strerror( res ) ));
+
+    /* allocate deviceInfo memory based on the number of devices */
+    UNLESS( commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
+            alsaApi->allocations, sizeof(PaDeviceInfo*) * (numDeviceNames) ), paInsufficientMemory );
+
+    /* allocate all device info structs in a contiguous block */
+    UNLESS( deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
+            alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * numDeviceNames ), paInsufficientMemory );
+
+    /* Loop over list of cards, filling in info, if a device is deemed unavailable (can't get name),
+     * it's ignored.
+     */
+    /* while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 ) */
+    for( i = 0, devIdx = 0; i < numDeviceNames; ++i )
+    {
+        snd_pcm_t *pcm;
+        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[ devIdx ];
+        PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
+
+        /* Zero fields */
+        memset( commonDeviceInfo, 0, sizeof (PaDeviceInfo) );
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
 
         /* Query capture */
-        if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
+        if( snd_pcm_open( &pcm, deviceNames[ i ].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
-                        &commonDeviceInfo->defaultSampleRate ) != paNoError )
+                        &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
                 continue;   /* Error */
         }
                 
         /* Query playback */
-        if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
+        if( snd_pcm_open( &pcm, deviceNames[ i ].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
-                        &commonDeviceInfo->defaultSampleRate ) != paNoError )
+                        &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
                 continue;   /* Error */
         }
+
+        commonDeviceInfo->structVersion = 2;
+        commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
+        deviceInfo->alsaName = deviceNames[ i ].alsaName;
+        deviceInfo->isPlug = deviceNames[ i ].isPlug;
+        commonDeviceInfo->name = deviceNames[ i ].name;
 
         /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
          * Should now be safe to add device info, unless the device supports neither capture nor playback
@@ -793,16 +865,17 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( commonDeviceInfo->maxInputChannels || commonDeviceInfo->maxOutputChannels )
         {
             if( commonApi->info.defaultInputDevice == paNoDevice )
-                commonApi->info.defaultInputDevice = device_idx;
+                commonApi->info.defaultInputDevice = devIdx;
 
             if( commonApi->info.defaultOutputDevice == paNoDevice )
-                commonApi->info.defaultOutputDevice = device_idx;
+                commonApi->info.defaultOutputDevice = devIdx;
 
-            commonApi->deviceInfos[ device_idx++ ] = (PaDeviceInfo *) deviceInfo;
+            commonApi->deviceInfos[ devIdx++ ] = (PaDeviceInfo *) deviceInfo;
         }
     }
+    free( deviceNames );
 
-    commonApi->info.deviceCount = device_idx;   /* Number of successfully queried devices */
+    commonApi->info.deviceCount = devIdx;   /* Number of successfully queried devices */
 
 end:
     return result;
@@ -931,20 +1004,22 @@ static PaError AlsaOpen(snd_pcm_t **pcm, const PaAlsaDeviceInfo *deviceInfo, con
 {
     PaError result = paNoError;
     int ret;
-    char *deviceName = alloca( 50 );
+    const char *deviceName = alloca( 50 );
 
     if( !streamInfo )
     {
         int usePlug = 0;
-        char *prefix;
         
-        if( getenv( "PA_ALSA_PLUGHW" ) )
+        /* If device name starts with hw: and PA_ALSA_PLUGHW is 1, we open the plughw device instead */
+        if( !strncmp( "hw:", deviceInfo->alsaName, 3 ) && getenv( "PA_ALSA_PLUGHW" ) )
             usePlug = atoi( getenv( "PA_ALSA_PLUGHW" ) );
-        prefix = usePlug ? "plughw" : "hw";
-        snprintf( deviceName, 50, "%s:%d", prefix, deviceInfo->deviceNumber );
+        if( usePlug )
+            snprintf( (char *) deviceName, 50, "plug%s", deviceInfo->alsaName );
+        else
+            deviceName = deviceInfo->alsaName;
     }
     else
-        deviceName = (char *) streamInfo->deviceString;
+        deviceName = streamInfo->deviceString;
 
     if( (ret = snd_pcm_open( pcm, deviceName, streamType, SND_PCM_NONBLOCK )) < 0 )
     {
@@ -1144,7 +1219,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
     ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
     ENSURE( snd_pcm_hw_params_set_period_size( pcm, hwParams, framesPerBuffer, 0 ), paUnanticipatedHostError );
-
+    
     /* Find an acceptable number of periods */
     numPeriods = (*latency * *sampleRate) / framesPerBuffer + 1;
     numPeriods = MAX( numPeriods, 2 );  /* Should be at least 2 periods I think? */
@@ -1443,7 +1518,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     optimalPeriodSize /= 2;
                 }
 
-                if( optimalPeriodSize >= periodSize )
+                if( optimalPeriodSize > periodSize )
                     periodSize = optimalPeriodSize;
 
                 if( periodSize <= maxPeriodSize )
@@ -1457,9 +1532,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             else
             {
                 /* half-duplex is a slightly simpler case */
-                unsigned long desiredLatency, channels;
-                snd_pcm_uframes_t minPeriodSize;
-                unsigned int numPeriods;
+                unsigned long bufferSize, channels;
                 snd_pcm_t *pcm;
                 snd_pcm_hw_params_t *hwParams;
 
@@ -1468,13 +1541,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 if( stream->pcm_capture )
                 {
                     pcm = stream->pcm_capture;
-                    desiredLatency = inputParameters->suggestedLatency * sampleRate;
+                    bufferSize = inputParameters->suggestedLatency * sampleRate;
                     channels = inputParameters->channelCount;
                 }
                 else
                 {
                     pcm = stream->pcm_playback;
-                    desiredLatency = outputParameters->suggestedLatency * sampleRate;
+                    bufferSize = outputParameters->suggestedLatency * sampleRate;
                     channels = outputParameters->channelCount;
                 }
 
@@ -1485,14 +1558,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
                 ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
 
-                /* Using 5 as a base number of buffers, we try to approximate the suggested latency (+1 period),
-                   finding a period size which best fits these constraints */
-                ENSURE( snd_pcm_hw_params_get_period_size_min( hwParams, &minPeriodSize, 0 ), paUnanticipatedHostError );
-                numPeriods = MIN( desiredLatency / minPeriodSize, 4 ) + 1;
-                ENSURE( snd_pcm_hw_params_set_periods_near( pcm, hwParams, &numPeriods, 0 ), paUnanticipatedHostError );
-
-                framesPerHostBuffer = desiredLatency / (numPeriods - 1);
-                ENSURE( snd_pcm_hw_params_set_period_size_near( pcm, hwParams, &framesPerHostBuffer, 0 ), paUnanticipatedHostError );
+                /* Using 5 as a base number of periods, we try to approximate the suggested latency (+1 period),
+                   finding a combination of period/buffer size which best fits these constraints */
+                framesPerHostBuffer = bufferSize / 4;
+                bufferSize += framesPerHostBuffer;   /* One period doesn't count as latency */
+                ENSURE( snd_pcm_hw_params_set_buffer_size_near( pcm, hwParams, &bufferSize ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_set_period_size_near( pcm, hwParams, &framesPerHostBuffer, NULL ), paUnanticipatedHostError );
             }
         }
     }
