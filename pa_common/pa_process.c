@@ -988,7 +988,7 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
             *callbackResult = bp->userCallback( userInput, userOutput,
                                 bp->framesPerUserBuffer, bp->hostOutTime, bp->userData );
 
-            bp->hostOutTime += frameCount * bp->samplePeriod;  //FIXME, this is completely wrong for input only
+            bp->hostOutTime += bp->framesPerUserBuffer * bp->samplePeriod;  //FIXME, this is completely wrong for input only
 
             // FIXME: if callback result is abort, then abort!
 
