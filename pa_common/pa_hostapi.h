@@ -1,7 +1,7 @@
 #ifndef PA_HOSTAPI_H
 #define PA_HOSTAPI_H
 /*
- *
+ * $Id$
  * Portable Audio I/O Library
  * host api representation
  *
@@ -33,8 +33,10 @@
  */
 
 /** @file
- Interface used by pa_front to virtualize functions which operate on host APIs.
+ @brief Interface used by pa_front to virtualize functions which operate on
+ host APIs.
 */
+
 
 #include "portaudio.h"
 

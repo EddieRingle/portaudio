@@ -31,7 +31,7 @@
  */
 
 /** @file
- Functions to assist in measuring the CPU utilization of a callback
+ @brief Functions to assist in measuring the CPU utilization of a callback
  stream. Used to implement the Pa_GetStreamCpuLoad() function.
 
  @todo Dynamically calculate the coefficients used to smooth the CPU Load

@@ -30,6 +30,11 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ @brief Event trace mechanism for debugging.
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

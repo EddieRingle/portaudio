@@ -31,7 +31,13 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
- 
+
+/** @file
+ @brief Functions to assist in measuring the CPU utilization of a callback
+ stream. Used to implement the Pa_GetStreamCpuLoad() function.
+*/
+
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -42,7 +48,7 @@ typedef struct {
     double samplingPeriod;
     double measurementStartTime;
     double averageLoad;
-} PaUtilCpuLoadMeasurer; /** @todo need better name than measurer */
+} PaUtilCpuLoadMeasurer; /**< @todo need better name than measurer */
 
 void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double sampleRate );
 void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );

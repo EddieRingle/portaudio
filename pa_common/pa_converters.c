@@ -30,8 +30,7 @@
  */
 
 /** @file
- Conversion functions used to convert buffers of samples from one
- format to another.
+ @brief Conversion functions implementations.
  
  If the C9x function lrintf() is available, define PA_USE_C99_LRINTF to use it
 

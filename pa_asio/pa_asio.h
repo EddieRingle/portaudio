@@ -1,7 +1,7 @@
 #ifndef PA_ASIO_H
 #define PA_ASIO_H
 /*
- *
+ * $Id$
  * PortAudio Portable Real-Time Audio Library
  * ASIO specific extensions
  *
@@ -32,9 +32,12 @@
  *
  */
 
+/** @file
+ @brief ASIO-specific PortAudio API extension header file.
+*/
+
 
 #include "portaudio.h"
-
 
 #ifdef __cplusplus
 extern "C"
@@ -47,7 +50,7 @@ extern "C"
  @param device The global index of the device about which the query is being made.
  @param minLatency A pointer to the location which will recieve the minimum latency value.
  @param maxLatency A pointer to the location which will recieve the maximum latency value.
- @param minLatency A pointer to the location which will recieve the preferred latency value.
+ @param preferredLatency A pointer to the location which will recieve the preferred latency value.
  @param granularity A pointer to the location which will recieve the granularity. This value 
  determines which values between minLatency and maxLatency are available. ie the step size,
  if granularity is -1 then available latency settings are powers of two.
@@ -67,6 +70,7 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
   on Macintosh this value should be zero.
 */
 PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
+
 
 #ifdef __cplusplus
 }

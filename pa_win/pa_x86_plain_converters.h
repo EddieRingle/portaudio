@@ -8,7 +8,7 @@ extern "C"
 
 
 /**
-    Install optimised converter functions suitable for all IA32 processors
+ @brief Install optimised converter functions suitable for all IA32 processors
 */
 void PaUtil_InitializeX86PlainConverters( void );
 

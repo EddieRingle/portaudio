@@ -31,12 +31,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
-
 /** @file
+ @brief Configure endianness symbols for the target processor.
+
  Arrange for either the PA_LITTLE_ENDIAN or PA_BIG_ENDIAN preprocessor symbols
  to be defined. The one that is defined reflects the endianness of the target
  platform and may be used to implement conditional compilation of byte-order
@@ -50,6 +47,12 @@ extern "C"
  A PA_VALIDATE_ENDIANNESS macro is provided to compare the compile time
  and runtime endiannes and raise an assertion if they don't match.
 */
+
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
 
 
 #if defined(PA_LITTLE_ENDIAN) || defined(PA_BIG_ENDIAN)
@@ -91,13 +94,13 @@ extern "C"
     #define PA_VALIDATE_ENDIANNESS \
     { \
         const long nativeOne = 1; \
-        assert( "compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 1 ); \
+        assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 1 ); \
     }
 #elif defined(PA_BIG_ENDIAN)
     #define PA_VALIDATE_ENDIANNESS \
     { \
         const long nativeOne = 1; \
-        assert( "compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 0 ); \
+        assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 0 ); \
     }
 #endif
 

@@ -31,12 +31,19 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ @brief Conversion functions used to convert buffers of samples from one
+ format to another.
+*/
+
+
 #include "portaudio.h"  /* for PaSampleFormat */
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif /* __cplusplus */
+
 
 struct PaUtilTriangularDitherGenerator;
 

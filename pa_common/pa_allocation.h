@@ -1,7 +1,7 @@
 #ifndef PA_ALLOCATION_H
 #define PA_ALLOCATION_H
 /*
- * Id:
+ * $Id$
  * Portable Audio I/O Library allocation context header
  * memory allocation context for tracking allocation groups
  *
@@ -32,12 +32,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
-
-/** @file 
+/** @file
+ @brief Allocation Group prototypes. An Allocation Group makes it easy to
+ allocate multiple blocks of memory and free them all simultanously.
+ 
  An allocation group is useful for keeping track of multiple blocks
  of memory which are allocated at the same time (such as during initialization)
  and need to be deallocated at the same time. The allocation group maintains
@@ -48,6 +46,11 @@ extern "C"
  level allocation functions defined in pa_util.h
 */
 
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
 
 
 typedef struct

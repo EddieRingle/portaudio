@@ -29,6 +29,11 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ @brief Functions for generating dither noise
+*/
+
+
 #include "pa_dither.h"
 
 #define PA_DITHER_BITS_   (15)
