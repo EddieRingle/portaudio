@@ -61,6 +61,7 @@ void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer )
     double measuredLoad =
         (measurementEndTime - measurer->measurementStartTime) / measurer->microsecondsFor100Percent;
 
+    /* Low pass filter the calculated CPU load to reduce jitter using a simple IIR low pass filter. */
 #define LOWPASS_COEFFICIENT_0   (0.9)
 #define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
 
