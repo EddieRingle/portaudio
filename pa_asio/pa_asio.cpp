@@ -93,7 +93,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-#include <values.h>
+//#include <values.h>
 
 #include "portaudio.h"
 #include "pa_asio.h"
@@ -411,7 +411,7 @@ static void Swap64ConvertFloat64ToFloat32( void *buffer, long shift, long count 
         PA_SWAP_( p[2], p[5] );
         PA_SWAP_( p[3], p[4] );
         
-        *out++ = *in++;
+        *out++ = (float) (*in++);
     }
 }
 
@@ -422,7 +422,7 @@ static void ConvertFloat64ToFloat32( void *buffer, long shift, long count )
     (void) shift; /* unused parameter */
 
     while( count-- )
-        *out++ = *in++;
+        *out++ = (float) (*in++);
 }
 
 static void ConvertFloat32ToFloat64Swap64( void *buffer, long shift, long count )
@@ -547,7 +547,7 @@ static void SelectAsioToPaConverter( ASIOSampleType type, PaAsioBufferConverter 
             break;
         case ASIOSTInt32MSB20:
             /* dest: paInt32, 12 bit shift, possible byte swap */
-            #ifdef PA_LSB_IS_NATIVE_ )
+            #ifdef PA_LSB_IS_NATIVE_
                 *converter = SwapShiftLeft32;
             #else
                 *converter = ShiftLeft32;
@@ -929,7 +929,6 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     PaAsioDeviceInfo *deviceInfoArray;
     char **names;
     PaAsioDriverInfo paAsioDriverInfo;
-    ASIOError asioError;
     ASIODriverInfo asioDriverInfo;
     ASIOChannelInfo asioChannelInfo;
     double *sampleRates;
@@ -1713,6 +1712,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     }
     else
     {
+        int i;
         PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 
         PaTimestamp outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
@@ -1731,11 +1731,11 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, outTime );
 
         PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-        for( int i=0; i<theAsioStream->numInputChannels; ++i )
+        for( i=0; i<theAsioStream->numInputChannels; ++i )
             PaUtil_SetNonInterleavedInputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->inputBufferPtrs[index][i] );
 
         PaUtil_SetOutputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-        for( int i=0; i<theAsioStream->numOutputChannels; ++i )
+        for( i=0; i<theAsioStream->numOutputChannels; ++i )
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
         int callbackResult;
