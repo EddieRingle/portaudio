@@ -2,6 +2,7 @@
 	@brief Self Testing Quality Assurance app for PortAudio
 	Do lots of bad things to test error reporting.
 	@author Phil Burk  http://www.softsynth.com
+    Pieter Suurmond adapted to V19 API.
 */
 /*
  * $Id$
@@ -125,6 +126,36 @@ static int QaCallback( const void*                      inputBuffer,
         data->framesLeft = 0;
         return 1;
     }
+}
+
+static PaDeviceIndex FindInputOnlyDevice(void)
+{
+    PaDeviceIndex result = Pa_GetDefaultInputDevice();
+    if( result != paNoDevice && Pa_GetDeviceInfo(result)->maxOutputChannels == 0 )
+        return result;
+
+    for( result = 0; result < Pa_GetDeviceCount(); ++result )
+    {
+        if( Pa_GetDeviceInfo(result)->maxOutputChannels == 0 )
+            return result;
+    }
+
+    return paNoDevice;
+}
+
+static PaDeviceIndex FindOutputOnlyDevice(void)
+{
+    PaDeviceIndex result = Pa_GetDefaultOutputDevice();
+    if( result != paNoDevice && Pa_GetDeviceInfo(result)->maxInputChannels == 0 )
+        return result;
+
+    for( result = 0; result < Pa_GetDeviceCount(); ++result )
+    {
+        if( Pa_GetDeviceInfo(result)->maxInputChannels == 0 )
+            return result;
+    }
+
+    return paNoDevice;
 }
 
 /*-------------------------------------------------------------------------------------------------*/
@@ -262,32 +293,30 @@ static int TestBadOpens( void )
                                      255,                      /* Is 8 maybe legal V19 API? */
                                      QaCallback, &myData )) == paInvalidFlag));
 
+    /*----------------------------- using input device as output device: */
+    if( FindInputOnlyDevice() != paNoDevice )
+    {
+        ipp.hostApiSpecificStreamInfo = opp.hostApiSpecificStreamInfo = NULL;
+        ipp.sampleFormat              = opp.sampleFormat              = paFloat32;
+        ipp.channelCount = 0;           ipp.device = paNoDevice; /* And no input device, and no channels. */
+        opp.channelCount = 2;           opp.device = FindInputOnlyDevice();
+        HOPEFOR(((result = Pa_OpenStream(&stream, NULL, &opp,
+                                         SAMPLE_RATE, FRAMES_PER_BUFFER,
+                                         paClipOff, QaCallback, &myData )) == paInvalidChannelCount));
+    }
 
+    /*----------------------------- using output device as input device: */
+    if( FindOutputOnlyDevice() != paNoDevice )
+    {
+        ipp.hostApiSpecificStreamInfo = opp.hostApiSpecificStreamInfo = NULL;
+        ipp.sampleFormat              = opp.sampleFormat              = paFloat32;
+        ipp.channelCount = 2;           ipp.device = FindOutputOnlyDevice();
+        opp.channelCount = 0;           opp.device = paNoDevice;  /* And no output device, and no channels. */
+        HOPEFOR(((result = Pa_OpenStream(&stream, &ipp, NULL,
+                                         SAMPLE_RATE, FRAMES_PER_BUFFER,
+                                         paClipOff, QaCallback, &myData )) == paInvalidChannelCount));
 
-#if 0 /** @todo FIXME - this is legal for some implementations. */
-    /* to fix this write a function that finds an input-only device and
-        passes it as output, and find an output only device and pass
-        it as input. if only full duplex devices are available then these
-        tests cannot be run */
-
-    HOPEFOR( ( /* Use input device as output device. */
-                 (result = Pa_OpenStream(
-                               &stream,
-                               paNoDevice, 0, paFloat32, NULL,
-                               Pa_GetDefaultInputDeviceID(), 2, paFloat32, NULL,
-                               SAMPLE_RATE, FRAMES_PER_BUFFER, NUM_BUFFERS,
-                               paClipOff, QaCallback, &myData )
-                 ) == paInvalidDeviceId) );
-
-    HOPEFOR( ( /* Use output device as input device. */
-                 (result = Pa_OpenStream(
-                               &stream,
-                               Pa_GetDefaultOutputDeviceID(), 2, paFloat32, NULL,
-                               paNoDevice, 0, paFloat32, NULL,
-                               SAMPLE_RATE, FRAMES_PER_BUFFER, NUM_BUFFERS,
-                               paClipOff, QaCallback, &myData )
-                 ) == paInvalidDeviceId) );
-#endif
+    }
 
     if( stream != NULL ) Pa_CloseStream( stream );
     return result;
@@ -323,7 +352,6 @@ static int TestBadActions( void )
     HOPEFOR(((result = Pa_IsStreamActive(NULL)) == paBadStreamPtr));
     HOPEFOR(((result = Pa_CloseStream(NULL))    == paBadStreamPtr));
     HOPEFOR(((result = Pa_SetStreamFinishedCallback(NULL, NULL)) == paBadStreamPtr));
-    HOPEFOR(((result = Pa_GetStreamInfo(NULL))    == NULL));
     HOPEFOR(((result = Pa_GetStreamInfo(NULL))    == NULL));
     HOPEFOR(((result = Pa_GetStreamTime(NULL))  == 0.0));
     HOPEFOR(((result = Pa_GetStreamCpuLoad(NULL))  == 0.0));
