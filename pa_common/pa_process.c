@@ -883,7 +883,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                     userInput = bp->tempInputBufferPtrs;
                 }
 
-                if( hostInputChannels[i].data )
+                if( bp->hostInputChannels[0][0].data )
                 {
                     /* no input was supplied (see PaUtil_SetNoInput), so
                         zero the input buffer */
