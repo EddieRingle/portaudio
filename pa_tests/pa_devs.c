@@ -46,6 +46,11 @@ int main(void)
     PaError  err;
     
     Pa_Initialize();
+
+    printf("PortAudio Version Text = %s\nPortAudio Version Number = %d\n",
+            Pa_GetVersionText(), Pa_GetVersion() );
+
+
     numDevices = Pa_CountDevices();
     if( numDevices < 0 )
     {
@@ -53,6 +58,7 @@ int main(void)
         err = numDevices;
         goto error;
     }
+    
     printf("Number of devices = %d\n", numDevices );
     for( i=0; i<numDevices; i++ )
     {
@@ -118,6 +124,7 @@ int main(void)
 
     printf("----------------------------------------------\n");
     return 0;
+
 error:
     Pa_Terminate();
     fprintf( stderr, "An error occured while using the portaudio stream\n" );

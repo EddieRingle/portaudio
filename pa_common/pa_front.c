@@ -43,6 +43,11 @@
 #include "pa_trace.h"
 
 
+#define PA_VERSION_  1899
+#define PA_VERSION_TEXT_ "PortAudio V19-devel"
+
+
+
 //#define PA_LOG_API_CALLS
 /*
     The basic format for log messages is as follows:
@@ -76,6 +81,19 @@
  
     see the code for more detailed examples
 */
+
+int Pa_GetVersion( void )
+{
+    return PA_VERSION_;
+}
+
+
+const char* Pa_GetVersionText( void )
+{
+    return PA_VERSION_TEXT_;
+}
+
+
 
 #define PA_LAST_HOST_ERROR_TEXT_LENGTH_  1024
 

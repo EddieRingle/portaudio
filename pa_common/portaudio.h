@@ -39,6 +39,19 @@ extern "C"
  *
  */
 
+ 
+/** Retrieve the release number of the currently running PortAudio build,
+ eg 1900.
+*/
+int Pa_GetVersion( void );
+
+
+/** Retrieve a textual description of the current PortAudio build,
+ eg "PortAudio V19-devel 13 October 2002".
+*/
+const char* Pa_GetVersionText( void );
+
+
 /** Error codes returned by PortAudio functions. */
 
 typedef int PaError;
