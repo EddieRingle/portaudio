@@ -331,6 +331,31 @@ HRESULT DSW_StopOutput( DSoundWrapper *dsw )
 }
 
 /************************************************************************************/
+HRESULT DSW_QueryOutputFilled( DSoundWrapper *dsw, long *bytesFilledPtr )
+{
+    HRESULT hr;
+    DWORD   playCursor;
+    DWORD   writeCursor;
+    long    bytesFilled;
+    // Query to see where play position is.
+    // We don't need the writeCursor but sometimes DirectSound doesn't handle NULLS correctly
+    // so let's pass a pointer just to be safe.
+    hr = IDirectSoundBuffer_GetCurrentPosition( dsw->dsw_OutputBuffer, &playCursor, &writeCursor );
+    if( hr != DS_OK )
+    {
+        return hr;
+    }
+    bytesFilled = dsw->dsw_WriteOffset - playCursor;
+    if( bytesFilled < 0 ) bytesFilled += dsw->dsw_OutputSize; // unwrap offset
+    *bytesFilledPtr = bytesFilled;
+    return hr;
+}
+
+/************************************************************************************
+ * Determine how much space can be safely written to in DS buffer.
+ * Detect underflows and overflows.
+ * Does not allow writing into safety gap maintained by DirectSound.
+ */
 HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
 {
     HRESULT hr;
@@ -339,9 +364,6 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
     long    numBytesEmpty;
     long    playWriteGap;
     // Query to see how much room is in buffer.
-    // Note: Even though writeCursor is not used, it must be passed to prevent DirectSound from dieing
-    // under WinNT. The Microsoft documentation says we can pass NULL but apparently not.
-    // Thanks to Max Rheiner for the fix.
     hr = IDirectSoundBuffer_GetCurrentPosition( dsw->dsw_OutputBuffer, &playCursor, &writeCursor );
     if( hr != DS_OK )
     {

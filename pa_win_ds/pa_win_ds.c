@@ -42,7 +42,7 @@
 #include "dsound_wrapper.h"
 
 /* TODO
-O- Fix timestamps.
+O- fix "patest_stop.c"
 O- Handle buffer underflow, overflow, etc.
 */
 
@@ -148,7 +148,8 @@ typedef struct PaWinDsStream
     int              bytesPerNativeBuffer;
     int              framesPerDSBuffer;
     int              numUserBuffers;
-    PaTimestamp      frameCount; /* FIXME */
+    double           framesWritten;
+    double           secondsPerHostByte; /* Used to optimize latency calculation for outTime */
 
 /* FIXME - move all below to PaUtilStreamRepresentation */
     double           sampleRate; 
@@ -750,10 +751,22 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             result = paInvalidChannelCount;
             goto error;
         }
+    /** Calculate numUserBuffers from user specified latency.
+     * Currently just uses maximum of input and output latency. */
+        {
+            int maxLatencyMSec = (inputLatency > outputLatency) ? inputLatency : outputLatency;
+            int maxLatencyFrames = (int) (maxLatencyMSec * sampleRate * 0.001);
+        /* Round up to number of buffers needed to guarantee that latency. */
+            stream->numUserBuffers = (maxLatencyFrames + stream->bufferProcessor.framesPerUserBuffer - 1) /
+                    stream->bufferProcessor.framesPerUserBuffer;
+        }
 
-        DBUG(("PaHost_OpenStream: pahsc_MinFramesPerHostBuffer = %d\n", pahsc->pahsc_MinFramesPerHostBuffer ));
+        DBUG(("WinDS OpenStream: numUserBuffers = %d\n", stream->numUserBuffers ));
+    /* Don't go below recommended latency for device. FIXME - why not? */
         minNumBuffers = PaWinDsGetMinNumBuffers( framesPerCallback, sampleRate );
         stream->numUserBuffers = ( minNumBuffers > stream->numUserBuffers ) ? minNumBuffers : stream->numUserBuffers;
+        stream->numUserBuffers += 1; /* So we have latency worth of buffers ahead of current buffer. */
+
         numBytes = stream->bytesPerNativeBuffer * stream->numUserBuffers;
         if( numBytes < DSBSIZE_MIN )
         {
@@ -794,6 +807,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 result = paHostError;
                 goto error;
             }
+            /* Calculate value used in latency calculation to avoid real-time divides. */
+            stream->secondsPerHostByte = 1.0 /
+                (stream->bufferProcessor.bytesPerHostOutputSample *
+                numOutputChannels * sampleRate);
         }
 
         /* ------------------ INPUT */
@@ -898,13 +915,19 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
                 }
             }
 
-            /*
-            FIXME: the outTime parameter should indicate the time at which
-            the first sample of the output buffer is heard at the dacs. At the
-            moment it's just a rough estimate.
-            */
-
-            latency = 0;
+        /* The outTime parameter should indicates the time at which
+            the first sample of the output buffer is heard at the DACs. */
+            if( stream->bufferProcessor.numOutputChannels > 0 )
+            {
+            /* How much output room is available? */
+                DSW_QueryOutputFilled( &stream->directSoundWrapper, &bytesFilled );
+                latency = ((double)bytesFilled) * stream->secondsPerHostByte;
+                
+            }
+            else
+            {
+                latency = 0;
+            }
             outTime = PaUtil_GetTime() + latency;
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer );
@@ -919,7 +942,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
             
             PaUtil_EndBufferProcessing( &stream->bufferProcessor, &result );
 
-            stream->frameCount += stream->bufferProcessor.framesPerHostBuffer;
+            stream->framesWritten += stream->bufferProcessor.framesPerHostBuffer;
 
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
@@ -963,7 +986,7 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
             {
                 DSW_ZeroEmptySpace( dsw );
                 /* clear isActive when all sound played */
-                if( dsw->dsw_FramesPlayed >= stream->frameCount ) /* FIXME */
+                if( dsw->dsw_FramesPlayed >= stream->framesWritten )
                 {
                     stream->isActive = 0;
                 }
@@ -1024,7 +1047,7 @@ static PaError StartStream( PaStream *s )
         }
     }
 
-    stream->frameCount = 0;
+    stream->framesWritten = 0;
 
     stream->abortProcessing = 0;
     stream->stopProcessing = 0;

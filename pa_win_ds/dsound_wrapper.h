@@ -117,6 +117,7 @@ HRESULT DSW_StartInput( DSoundWrapper *dsw );
 HRESULT DSW_StopInput( DSoundWrapper *dsw );
 HRESULT DSW_ReadBlock( DSoundWrapper *dsw, char *buf, long numBytes );
 HRESULT DSW_QueryInputFilled( DSoundWrapper *dsw, long *bytesFilled );
+HRESULT DSW_QueryOutputFilled( DSoundWrapper *dsw, long *bytesFilled );
 #endif /* SUPPORT_AUDIO_CAPTURE */
 
 #ifdef __cplusplus
