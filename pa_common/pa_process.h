@@ -279,9 +279,17 @@ typedef struct {
     PaStreamCallbackFlags callbackStatusFlags;
 
     unsigned long hostInputFrameCount[2];
-    PaUtilChannelDescriptor *hostInputChannels[2];
+    PaUtilChannelDescriptor *hostInputChannels[2]; /**< pointers to arrays of channel descriptors.
+                                                        pointers are NULL for half-duplex output processing.
+                                                        hostInputChannels[i].data is NULL when the caller
+                                                        calls PaUtil_SetNoInput()
+                                                        */
     unsigned long hostOutputFrameCount[2];
-    PaUtilChannelDescriptor *hostOutputChannels[2];
+    PaUtilChannelDescriptor *hostOutputChannels[2]; /**< pointers to arrays of channel descriptors.
+                                                         pointers are NULL for half-duplex input processing.
+                                                         hostOutputChannels[i].data is NULL when the caller
+                                                         calls PaUtil_SetNoOutput()
+                                                         */
 
     PaUtilTriangularDitherGenerator ditherGenerator;
 

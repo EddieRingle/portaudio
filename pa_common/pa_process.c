@@ -145,9 +145,9 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
 
     bp->hostBufferSizeMode = hostBufferSizeMode;
 
-    bp->hostInputChannels[0] = 0;
-    bp->hostOutputChannels[0] = 0;
-    
+    bp->hostInputChannels[0] = bp->hostInputChannels[1] = 0;
+    bp->hostOutputChannels[0] = bp->hostOutputChannels[1] = 0;
+
     if( framesPerUserBuffer == 0 ) /* streamCallback will accept any buffer size */
     {
         bp->useNonAdaptingProcess = 1;
@@ -818,48 +818,42 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                 bp->timeInfo->outputBufferDacTime += frameCount * bp->samplePeriod;
 
                 /* convert output data (user -> host) */
-                if( bp->outputChannelCount != 0 )
+                
+                if( bp->outputChannelCount != 0 && bp->hostOutputChannels[0][0].data )
                 {
-                    if( !bp->hostOutputChannels[0][0].data )
-                    {
-                        /* do nothing, this are no host output buffers */
-                    }
-                    else
-                    {
-                        /*
-                            could use more elaborate logic here and sometimes process
-                            buffers in-place.
-                        */
+                    /*
+                        could use more elaborate logic here and sometimes process
+                        buffers in-place.
+                    */
             
-                        srcBytePtr = (unsigned char *)bp->tempOutputBuffer;
+                    srcBytePtr = (unsigned char *)bp->tempOutputBuffer;
 
-                        if( bp->userOutputIsInterleaved )
-                        {
-                            srcSampleStrideSamples = bp->outputChannelCount;
-                            srcChannelStrideBytes = bp->bytesPerUserOutputSample;
-                        }
-                        else /* user output is not interleaved */
-                        {
-                            srcSampleStrideSamples = 1;
-                            srcChannelStrideBytes = frameCount * bp->bytesPerUserOutputSample;
-                        }
+                    if( bp->userOutputIsInterleaved )
+                    {
+                        srcSampleStrideSamples = bp->outputChannelCount;
+                        srcChannelStrideBytes = bp->bytesPerUserOutputSample;
+                    }
+                    else /* user output is not interleaved */
+                    {
+                        srcSampleStrideSamples = 1;
+                        srcChannelStrideBytes = frameCount * bp->bytesPerUserOutputSample;
+                    }
 
-                        for( i=0; i<bp->outputChannelCount; ++i )
-                        {
-                            bp->outputConverter(    hostOutputChannels[i].data,
-                                                    hostOutputChannels[i].stride,
-                                                    srcBytePtr, srcSampleStrideSamples,
-                                                    frameCount, &bp->ditherGenerator );
+                    for( i=0; i<bp->outputChannelCount; ++i )
+                    {
+                        bp->outputConverter(    hostOutputChannels[i].data,
+                                                hostOutputChannels[i].stride,
+                                                srcBytePtr, srcSampleStrideSamples,
+                                                frameCount, &bp->ditherGenerator );
 
-                            srcBytePtr += srcChannelStrideBytes;  /* skip to next source channel */
+                        srcBytePtr += srcChannelStrideBytes;  /* skip to next source channel */
 
-                            /* advance dest ptr for next iteration */
-                            hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                                    frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-                        }
+                        /* advance dest ptr for next iteration */
+                        hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                                frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
                     }
                 }
-
+             
                 framesProcessed += frameCount;
 
                 framesToGo -= frameCount;
@@ -870,12 +864,12 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
 
     if( framesToGo > 0 )
     {
-        /* zero any remaining frames. There will only be remaining frames
+        /* zero any remaining frames output. There will only be remaining frames
             if the callback has returned paComplete or paAbort */
 
         frameCount = framesToGo;
 
-        if( bp->hostOutputChannels[0][0].data )
+        if( bp->outputChannelCount != 0 && bp->hostOutputChannels[0][0].data )
         {
             for( i=0; i<bp->outputChannelCount; ++i )
             {
