@@ -1030,7 +1030,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( inputStreamInfo->flags & PaWinMmeUseMultipleDevices )
             {
                 int totalChannels = 0;
-                for( i=0; i< inputStreamInfo->numDevices; ++i )
+                for( i=0; i< inputStreamInfo->deviceCount; ++i )
                 {
                     /* validate that the device number is within range, and that
                         the number of channels is legal */
@@ -1062,7 +1062,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 }
 
                 inputDevices = inputStreamInfo->devices;
-                numInputDevices = inputStreamInfo->numDevices;
+                numInputDevices = inputStreamInfo->deviceCount;
             }
         }
 
@@ -1112,7 +1112,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( outputStreamInfo->flags & PaWinMmeUseMultipleDevices )
             {
                 int totalChannels = 0;
-                for( i=0; i< outputStreamInfo->numDevices; ++i )
+                for( i=0; i< outputStreamInfo->deviceCount; ++i )
                 {
                     /* validate that the device number is within range, and that
                         the number of channels is legal */
@@ -1145,7 +1145,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 }
 
                 outputDevices = outputStreamInfo->devices;
-                numOutputDevices = outputStreamInfo->numDevices;
+                numOutputDevices = outputStreamInfo->deviceCount;
             }
         }
 
