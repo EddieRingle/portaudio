@@ -564,7 +564,9 @@ static PaError SetUpUnidirectionalStream(AudioDeviceID device, double sampleRate
 {
     PaError err = paNoError;
     err = SetSampleRate(device, sampleRate, isInput);
-    err = SetFramesPerBuffer(device, framesPerBuffer, isInput);
+    if( err == paNoError )
+        err = SetFramesPerBuffer(device, framesPerBuffer, isInput);
+    return err;
 }
 
 // =====  PortAudio functions  =====
