@@ -1099,7 +1099,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                     */
 
                     double defaultLowLatency =
-                            deviceInfo->defaultSampleRate / paAsioDriverInfo.bufferPreferredSize;
+                            paAsioDriverInfo.bufferPreferredSize / deviceInfo->defaultSampleRate;
 
                     deviceInfo->defaultLowInputLatency = defaultLowLatency;
                     deviceInfo->defaultLowOutputLatency = defaultLowLatency;
@@ -1111,7 +1111,10 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                         defaultHighLatencyBufferSize = paAsioDriverInfo.bufferMaxSize;
 
                     double defaultHighLatency =
-                            deviceInfo->defaultSampleRate / defaultHighLatencyBufferSize;
+                            defaultHighLatencyBufferSize / deviceInfo->defaultSampleRate;
+
+                    if( defaultHighLatency < defaultLowLatency )
+                        defaultHighLatency = defaultLowLatency; /* just incase the driver returns something strange */ 
                             
                     deviceInfo->defaultHighInputLatency = defaultHighLatency;
                     deviceInfo->defaultHighOutputLatency = defaultHighLatency;
