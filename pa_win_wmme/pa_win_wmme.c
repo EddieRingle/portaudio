@@ -61,12 +61,14 @@
 TODO:
 
 
-    - implement buffer size and number of buffers code
-        - write template function and ask phil to implement it
-        - template should take: host input and output sample formats,
+    o- implement buffer size and number of buffers code
+        x- write template function and ask phil to implement it
+        x- template should take: host input and output sample formats,
             callbackBufferSize, requested input and output latency
-        - this code should generate defaults the way the old code did
+        o- this code should generate defaults the way the old code did
 
+    - implement "close sample rate matching" if needed - is this really needed
+        in mme?
 
     - implement timecode param to callback
 
