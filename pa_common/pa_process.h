@@ -86,10 +86,10 @@ typedef struct {
     PaTimestamp hostOutTime;
     
     unsigned long hostInputFrameCount[2];
-    PaUtilChannelDescriptor hostInputChannels[2][24];  // FIXME: should be dynamically allocated
+    PaUtilChannelDescriptor *hostInputChannels[2];
     unsigned long hostOutputFrameCount[2];
-    PaUtilChannelDescriptor hostOutputChannels[2][24];  // FIXME: should be dynamically allocated
-    
+    PaUtilChannelDescriptor *hostOutputChannels[2];
+
     PaUtilTriangularDitherGenerator ditherGenerator;
 
     double samplePeriod;
