@@ -1,3 +1,6 @@
+# THIS FILE IS AN OLD V18 file, maybe it should be removed, for the
+# makefile in the parent directory can be used(?).
+
 # Make PortAudio for Silicon Graphics IRIX (6.2)
 # Pieter suurmond, september 23, 2001. (pa_sgi sub-version #0.21 for PA v15.)
 # Based on SGI-specific sproc()-method to spawn children, not on POSIX-threads.
