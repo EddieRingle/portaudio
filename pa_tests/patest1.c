@@ -67,11 +67,11 @@ static int patest1Callback( const void *inputBuffer, void *outputBuffer,
     if( data->sampsToGo < framesPerBuffer )
     {
         framesToCalc = data->sampsToGo;
-        finished = paContinue;
+        finished = paComplete;
     }
     else
     {
-        finished = paComplete;
+        finished = paContinue;
     }
 
     for( ; i<framesToCalc; i++ )
