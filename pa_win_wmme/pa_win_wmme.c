@@ -1760,8 +1760,6 @@ struct PaWinMmeStream
     HANDLE processingThread;
     DWORD processingThreadId;
 
-    char noHighPriorityProcessClass;
-    char useTimeCriticalProcessingThreadPriority;
     char throttleProcessingThreadOnOverload; /* 0 -> don't throtte, non-0 -> throttle */
     int processingThreadPriority;
     int highThreadPriority;
@@ -1780,10 +1778,8 @@ struct PaWinMmeStream
 
 static PaError ValidateWinMmeSpecificStreamInfo(
         const PaStreamParameters *streamParameters,
-        const PaWinMmeStreamInfo *streamInfo, 
-        char *noHighPriorityProcessClass,
+        const PaWinMmeStreamInfo *streamInfo,
         char *throttleProcessingThreadOnOverload,
-        char *useTimeCriticalProcessingThreadPriority,
         unsigned long *deviceCount )
 {
 	if( streamInfo )
@@ -1793,14 +1789,10 @@ static PaError ValidateWinMmeSpecificStreamInfo(
 	    {
 	        return paIncompatibleHostApiSpecificStreamInfo;
 	    }
-	
-	    if( streamInfo->flags & paWinMmeNoHighPriorityProcessClass )
-	        *noHighPriorityProcessClass = 1;
+
 	    if( streamInfo->flags & paWinMmeDontThrottleOverloadedProcessingThread )
 	        *throttleProcessingThreadOnOverload = 0;
-	    if( streamInfo->flags & paWinMmeUseTimeCriticalThreadPriority )
-	        *useTimeCriticalProcessingThreadPriority = 1;
-
+            
 	    if( streamInfo->flags & paWinMmeUseMultipleDevices )
 	    {
 	        if( streamParameters->device != paUseHostApiSpecificDeviceSpecification )
@@ -1927,8 +1919,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long inputDeviceCount = 0;            
     PaWinMmeDeviceAndChannelCount *outputDevices = 0;
     unsigned long outputDeviceCount = 0;                /* contains all devices and channel counts as local host api ids, even when PaWinMmeUseMultipleDevices is not used */
-    char noHighPriorityProcessClass = 0;
-    char useTimeCriticalProcessingThreadPriority = 0;
     char throttleProcessingThreadOnOverload = 1;
 
     
@@ -1943,9 +1933,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 		/* validate input hostApiSpecificStreamInfo */
         inputStreamInfo = (PaWinMmeStreamInfo*)inputParameters->hostApiSpecificStreamInfo;
 		result = ValidateWinMmeSpecificStreamInfo( inputParameters, inputStreamInfo,
-				&noHighPriorityProcessClass,
 				&throttleProcessingThreadOnOverload,
-				&useTimeCriticalProcessingThreadPriority,
 				&inputDeviceCount );
 		if( result != paNoError ) return result;
 
@@ -1982,9 +1970,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 		/* validate output hostApiSpecificStreamInfo */
         outputStreamInfo = (PaWinMmeStreamInfo*)outputParameters->hostApiSpecificStreamInfo;
 		result = ValidateWinMmeSpecificStreamInfo( outputParameters, outputStreamInfo,
-				&noHighPriorityProcessClass,
 				&throttleProcessingThreadOnOverload,
-				&useTimeCriticalProcessingThreadPriority,
 				&outputDeviceCount );
 		if( result != paNoError ) return result;
 
@@ -2042,8 +2028,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->abortEvent = 0;
     stream->processingThread = 0;
 
-    stream->noHighPriorityProcessClass = noHighPriorityProcessClass;
-    stream->useTimeCriticalProcessingThreadPriority = useTimeCriticalProcessingThreadPriority;
     stream->throttleProcessingThreadOnOverload = throttleProcessingThreadOnOverload;
 
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
@@ -2943,35 +2927,9 @@ static PaError StartStream( PaStream *s )
             goto error;
         }
 
-        /* I used to pass the thread which was failing. I now pass GetCurrentProcess().
-         * This fix could improve latency for some applications. It could also result in CPU
-         * starvation if the callback did too much processing.
-         * I also added result checks, so we might see more failures at initialization.
-         * Thanks to Alberto di Bene for spotting this.
-         */
-        /* REVIEW: should we reset the priority class when the stream has stopped?
-            - would be best to refcount priority boosts incase more than one
-            stream is open
-        */
-
-        if( !stream->noHighPriorityProcessClass )
-        {
-    #ifndef WIN32_PLATFORM_PSPC /* no SetPriorityClass or HIGH_PRIORITY_CLASS on PocketPC */
-
-            if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
-            {
-                result = paUnanticipatedHostError;
-                PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-                goto error;
-            }
-    #endif
-        }
-
-        if( stream->useTimeCriticalProcessingThreadPriority )
-            stream->highThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
-        else
-            stream->highThreadPriority = THREAD_PRIORITY_HIGHEST;
-
+        /** @todo could have mme specific stream parameters to allow the user
+            to set the callback thread priorities */
+        stream->highThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
         stream->throttledThreadPriority = THREAD_PRIORITY_NORMAL;
 
         if( !SetThreadPriority( stream->processingThread, stream->highThreadPriority ) )

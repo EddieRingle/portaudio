@@ -48,21 +48,13 @@ extern "C"
 #define paWinMmeUseLowLevelLatencyParameters            (0x01)
 #define paWinMmeUseMultipleDevices                      (0x02)  /* use mme specific multiple device feature */
 
-/* by default, the mme implementation boosts the process priority class to
-    HIGH_PRIORITY_CLASS. This flag disables that priority boost */
-#define paWinMmeNoHighPriorityProcessClass              (0x04)
 
-/* by default, the mme implementation drops the processing thread's priority
-    to THREAD_PRIORITY_NORMAL and sleeps the thread if the CPU load exceeds 100% */
+/* By default, the mme implementation drops the processing thread's priority
+    to THREAD_PRIORITY_NORMAL and sleeps the thread if the CPU load exceeds 100%
+    This flag disables any priority throttling. The processing thread will always
+    run at THREAD_PRIORITY_TIME_CRITICAL.
+*/
 #define paWinMmeDontThrottleOverloadedProcessingThread  (0x08)
-
-/* by default, the mme implementation sets the processing thread's priority to
-    THREAD_PRIORITY_HIGHEST. This flag sets the priority to
-    THREAD_PRIORITY_TIME_CRITICAL instead. Note that this has the potential
-    to freeze the machine, especially when used in combination with
-    PaWinMmeDontThrottleOverloadedProcessingThread */
-#define paWinMmeUseTimeCriticalThreadPriority           (0x10)
-
 
 
 typedef struct PaWinMmeDeviceAndChannelCount{
@@ -165,4 +157,4 @@ HWAVEOUT PaWinMME_GetStreamOutputHandle( PaStream* stream, int handleIndex );
 }
 #endif /* __cplusplus */
 
-#endif /* PA_WIN_WMME_H */
+#endif /* PA_WIN_WMME_H */                                  
