@@ -52,34 +52,32 @@
 
 #include "portaudio.h"
 #include "pa_util.h"
-/*#include "../pa_unix/pa_unix_util.h"*/
+#include "../pa_unix/pa_unix_util.h"
 #include "pa_allocation.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-#include "../pa_unix/pa_unix_util.h"
 
 #include "pa_linux_alsa.h"
 
-#define STRINGIZE_HELPER(expr) #expr
-#define STRINGIZE(expr) STRINGIZE_HELPER(expr)
-
 /* Check return value of ALSA function, and map it to PaError */
 #define ENSURE_(expr, code) \
-    if( UNLIKELY( (aErr_ = (expr)) < 0 ) ) \
-    { \
-        /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
-        if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
+    do { \
+        if( UNLIKELY( (aErr_ = (expr)) < 0 ) ) \
         { \
-            PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
+            /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
+            if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
+            { \
+                PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
+            } \
+            PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+            result = (code); \
+            goto error; \
         } \
-        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
-        result = (code); \
-        goto error; \
-    }
+    } while( 0 );
 
-#define ASSERT_CALL(expr, success) \
+#define ASSERT_CALL_(expr, success) \
     aErr_ = (expr); \
     assert( aErr_ == success );
 
@@ -112,13 +110,14 @@ typedef struct
     PaSampleFormat hostSampleFormat;
     unsigned long framesPerBuffer;
     int numUserChannels, numHostChannels;
-    int interleaved;
+    int userInterleaved, hostInterleaved;
 
     snd_pcm_t *pcm;
     snd_pcm_uframes_t bufferSize;
     snd_pcm_format_t nativeFormat;
     unsigned int nfds;
     snd_pcm_sframes_t framesAvail;
+    void **userBuffers;
 } PaAlsaStreamComponent;
 
 /* Implementation specific stream structure */
@@ -213,7 +212,7 @@ static PaError KillCallbackThread( PaAlsaThreading *th, int wait, PaError *exitR
     if( th->watchdogRunning )
     {
         pthread_cancel( th->watchdogThread );
-        ASSERT_CALL( pthread_join( th->watchdogThread, &pret ), 0 );
+        ASSERT_CALL_( pthread_join( th->watchdogThread, &pret ), 0 );
 
         if( pret && pret != PTHREAD_CANCELED )
         {
@@ -226,7 +225,7 @@ static PaError KillCallbackThread( PaAlsaThreading *th, int wait, PaError *exitR
     /* Only kill the thread if it isn't in the process of stopping (flushing adaptation buffers) */
     if( !wait )
         pthread_cancel( th->callbackThread );   /* XXX: Safe to call this if the thread has exited on its own? */
-    ASSERT_CALL( pthread_join( th->callbackThread, &pret ), 0 );
+    ASSERT_CALL_( pthread_join( th->callbackThread, &pret ), 0 );
 
     if( pret && pret != PTHREAD_CANCELED )
     {
@@ -244,7 +243,7 @@ static void OnWatchdogExit( void *userData )
     struct sched_param spm = { 0 };
     assert( th );
 
-    ASSERT_CALL( pthread_setschedparam( th->callbackThread, SCHED_OTHER, &spm ), 0 );    /* Lower before exiting */
+    ASSERT_CALL_( pthread_setschedparam( th->callbackThread, SCHED_OTHER, &spm ), 0 );    /* Lower before exiting */
     PA_DEBUG(( "Watchdog exiting\n" ));
 }
 
@@ -443,7 +442,7 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*callbackThread
             {
                 int policy;
                 th->watchdogRunning = 1;
-                ASSERT_CALL( pthread_getschedparam( th->watchdogThread, &policy, &wdSpm ), 0 );
+                ASSERT_CALL_( pthread_getschedparam( th->watchdogThread, &policy, &wdSpm ), 0 );
                 /* Check if priority is right, policy could potentially differ from SCHED_FIFO (but that's alright) */
                 if( wdSpm.sched_priority != prio )
                 {
@@ -598,7 +597,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, 
 {
     PaError result = paNoError;
     snd_pcm_hw_params_t *hwParams;
-    snd_pcm_uframes_t lowLatency = 1024, highLatency = 16384;
+    snd_pcm_uframes_t lowLatency = 512, highLatency = 2048;
     unsigned int minChans, maxChans;
     double defaultSr = *defaultSampleRate;
 
@@ -609,7 +608,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, 
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
 
-    if( defaultSr != -1. )
+    if( defaultSr >= 0 )
     {
         /* Could be that the device opened in one mode supports samplerates that the other mode wont have,
          * so try again .. */
@@ -620,7 +619,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, 
         }
     }
 
-    if( defaultSr == -1. )           /* Default sample rate not set */
+    if( defaultSr < 0. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
         ENSURE_( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, NULL ), paUnanticipatedHostError );
@@ -732,6 +731,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     snd_pcm_info_t *pcmInfo;
     int res;
     int blocking = SND_PCM_NONBLOCK;
+    char alsaCardName[50];
     if( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) && atoi( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) ) )
         blocking = 0;
 
@@ -753,9 +753,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 )
     {
         char *cardName;
-        char alsaCardName[50];
         int devIdx = -1;
         snd_ctl_t *ctl;
+        char buf[50];
 
         snprintf( alsaCardName, sizeof (alsaCardName), "hw:%d", cardIdx );
 
@@ -770,7 +770,6 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         {
             char *alsaDeviceName, *deviceName;
             size_t len;
-            char buf[50];
             int hasPlayback = 0, hasCapture = 0;
             snprintf( buf, sizeof (buf), "%s:%d,%d", "hw", cardIdx, devIdx );
 
@@ -1178,11 +1177,14 @@ error:
 }
 
 static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, PaAlsaHostApiRepresentation *alsaApi,
-        const PaStreamParameters *params, StreamMode streamMode )
+        const PaStreamParameters *params, StreamMode streamMode, int callbackMode )
 {
     PaError result = paNoError;
     PaSampleFormat userSampleFormat = params->sampleFormat, hostSampleFormat;
     assert( params->channelCount > 0 );
+
+    /* Make sure things have an initial value */
+    memset( self, 0, sizeof (PaAlsaStreamComponent) );
 
     if( params->hostApiSpecificStreamInfo == NULL )
     {
@@ -1201,9 +1203,15 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
 
     self->hostSampleFormat = hostSampleFormat;
     self->nativeFormat = Pa2AlsaFormat( hostSampleFormat );
-    self->interleaved = !(userSampleFormat & paNonInterleaved);
-    self->numHostChannels = 
+    self->hostInterleaved = self->userInterleaved = !(userSampleFormat & paNonInterleaved);
     self->numUserChannels = params->channelCount;
+
+    if( !callbackMode && !self->userInterleaved )
+    {
+        /* Pre-allocate non-interleaved user provided buffers */
+        PA_UNLESS( self->userBuffers = PaUtil_AllocateMemory( sizeof (void *) * self->numUserChannels ),
+                paInsufficientMemory );
+    }
 
 error:
     return result;
@@ -1212,6 +1220,8 @@ error:
 static void PaAlsaStreamComponent_Terminate( PaAlsaStreamComponent *self )
 {
     snd_pcm_close( self->pcm );
+    if( self->userBuffers )
+        PaUtil_FreeMemory( self->userBuffers );
 }
 
 static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, const PaStreamParameters *params, unsigned long
@@ -1259,7 +1269,7 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
     ENSURE_( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
     ENSURE_( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
 
-    if( self->interleaved )
+    if( self->userInterleaved )
     {
         accessMode = SND_PCM_ACCESS_MMAP_INTERLEAVED;
         alternateAccessMode = SND_PCM_ACCESS_MMAP_NONINTERLEAVED;
@@ -1273,8 +1283,7 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
     /* If requested access mode fails, try alternate mode */
     if( snd_pcm_hw_params_set_access( pcm, hwParams, accessMode ) < 0 ) {
         ENSURE_( snd_pcm_hw_params_set_access( pcm, hwParams, alternateAccessMode ), paUnanticipatedHostError );
-        self->interleaved = !(self->interleaved);     /* Flip mode */
-    }
+        self->hostInterleaved = !(self->userInterleaved);     /* Flip mode */ }
 
     /* set the format based on what the user selected */
     ENSURE_( snd_pcm_hw_params_set_format( pcm, hwParams, self->nativeFormat ), paUnanticipatedHostError );
@@ -1363,8 +1372,6 @@ static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiReprese
                                                &alsaApi->blockingStreamInterface,
                                                NULL, userData );
     }
-    PaUtil_InitializeCpuLoadMeasurer( &self->cpuLoadMeasurer, sampleRate );
-    InitializeThreading( &self->threading, &self->cpuLoadMeasurer );
 
     self->neverDropInput = streamFlags & paNeverDropInput;
     /* XXX: Ignore paPrimeOutputBuffersUsingStreamCallback untill buffer priming is fully supported in pa_process.c */
@@ -1372,22 +1379,23 @@ static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiReprese
     if( outParams & streamFlags & paPrimeOutputBuffersUsingStreamCallback )
         self->primeBuffers = 1;
         */
-
-    ASSERT_CALL( pthread_mutex_init( &self->stateMtx, NULL ), 0 );
-    ASSERT_CALL( pthread_mutex_init( &self->startMtx, NULL ), 0 );
-    ASSERT_CALL( pthread_cond_init( &self->startCond, NULL ), 0 );
-
     memset( &self->capture, 0, sizeof (PaAlsaStreamComponent) );
     memset( &self->playback, 0, sizeof (PaAlsaStreamComponent) );
     if( inParams )
-        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->capture, alsaApi, inParams, StreamMode_In ) );
+        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->capture, alsaApi, inParams, StreamMode_In, callback != NULL ) );
     if( outParams )
-        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->playback, alsaApi, outParams, StreamMode_Out ) );
+        PA_ENSURE( PaAlsaStreamComponent_Initialize( &self->playback, alsaApi, outParams, StreamMode_Out, callback != NULL ) );
 
     assert( self->capture.nfds || self->playback.nfds );
 
     PA_UNLESS( self->pfds = (struct pollfd*)PaUtil_AllocateMemory( (self->capture.nfds +
                     self->playback.nfds) * sizeof (struct pollfd) ), paInsufficientMemory );
+
+    PaUtil_InitializeCpuLoadMeasurer( &self->cpuLoadMeasurer, sampleRate );
+    InitializeThreading( &self->threading, &self->cpuLoadMeasurer );
+    ASSERT_CALL_( pthread_mutex_init( &self->stateMtx, NULL ), 0 );
+    ASSERT_CALL_( pthread_mutex_init( &self->startMtx, NULL ), 0 );
+    ASSERT_CALL_( pthread_cond_init( &self->startCond, NULL ), 0 );
 
 error:
     return result;
@@ -1411,9 +1419,9 @@ static void PaAlsaStream_Terminate( PaAlsaStream *self )
     }
 
     PaUtil_FreeMemory( self->pfds );
-    ASSERT_CALL( pthread_mutex_destroy( &self->stateMtx ), 0 );
-    ASSERT_CALL( pthread_mutex_destroy( &self->startMtx ), 0 );
-    ASSERT_CALL( pthread_cond_destroy( &self->startCond ), 0 );
+    ASSERT_CALL_( pthread_mutex_destroy( &self->stateMtx ), 0 );
+    ASSERT_CALL_( pthread_mutex_destroy( &self->startMtx ), 0 );
+    ASSERT_CALL_( pthread_cond_destroy( &self->startCond ), 0 );
 
     PaUtil_FreeMemory( self );
 }
@@ -1835,7 +1843,7 @@ static int IsRunning( PaAlsaStream *stream )
 {
     int result = 0;
 
-    ASSERT_CALL( pthread_mutex_lock( &stream->stateMtx ), 0 ); /* Synchronize access to pcm state */
+    ASSERT_CALL_( pthread_mutex_lock( &stream->stateMtx ), 0 ); /* Synchronize access to pcm state */
     if( stream->capture.pcm )
     {
         snd_pcm_state_t capture_state = snd_pcm_state( stream->capture.pcm );
@@ -1861,7 +1869,7 @@ static int IsRunning( PaAlsaStream *stream )
     }
 
 end:
-    ASSERT_CALL( pthread_mutex_unlock( &stream->stateMtx ), 0 );
+    ASSERT_CALL_( pthread_mutex_unlock( &stream->stateMtx ), 0 );
 
     return result;
 }
@@ -1894,12 +1902,12 @@ static PaError StartStream( PaStream *s )
         /* Since we'll be holding a lock on the startMtx (when not waiting on the condition), IsRunning won't be checking
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
-        ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+        ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
         while( !IsRunning( stream ) && IsStreamActive( s ) && !res )    /* Due to possible spurious wakeups, we enclose in a loop */
         {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
         }
-        ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
+        ASSERT_CALL_( pthread_mutex_unlock( &stream->startMtx ), 0 );
 
         PA_UNLESS( !res || res == ETIMEDOUT, paInternalError );
         PA_DEBUG(( "%s: Waited for %g seconds for stream to start\n", __FUNCTION__, PaUtil_GetTime() - pt ));
@@ -2107,14 +2115,14 @@ static PaError AlsaRestart( PaAlsaStream *stream )
 {
     PaError result = paNoError;
 
-    ASSERT_CALL( pthread_mutex_lock( &stream->stateMtx ), 0 );
+    ASSERT_CALL_( pthread_mutex_lock( &stream->stateMtx ), 0 );
     PA_ENSURE( AlsaStop( stream, 0 ) );
     PA_ENSURE( AlsaStart( stream, 0 ) );
 
     PA_DEBUG(( "%s: Restarted audio\n", __FUNCTION__ ));
 
 end:
-    ASSERT_CALL( pthread_mutex_unlock( &stream->stateMtx ), 0 );
+    ASSERT_CALL_( pthread_mutex_unlock( &stream->stateMtx ), 0 );
     return result;
 error:
    goto end;
@@ -2371,7 +2379,7 @@ static PaError SetChannels( PaAlsaStream *stream, PaAlsaStreamComponent *compone
     
     ENSURE_( snd_pcm_mmap_begin( pcm, &areas, offset, frames ), paUnanticipatedHostError );
 
-    if( component->interleaved )
+    if( component->hostInterleaved )
     {
         int swidth = snd_pcm_format_size( component->nativeFormat, 1 );
         p = buffer = ExtractAddress( areas, *offset );
@@ -2612,10 +2620,10 @@ static void *CallbackThreadFunc( void *userData )
     }
     else    /* Start immediately */
     {
-        ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+        ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
         PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
-        ASSERT_CALL( pthread_cond_signal( &stream->startCond ), 0 );
-        ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
+        ASSERT_CALL_( pthread_cond_signal( &stream->startCond ), 0 );
+        ASSERT_CALL_( pthread_mutex_unlock( &stream->startMtx ), 0 );
     }
 
     while( 1 )
@@ -2629,12 +2637,12 @@ static void *CallbackThreadFunc( void *userData )
 
         PA_ENSURE( Wait( stream, &framesAvail ) );  /* Wait on available frames */
         /* Set callback flags after one of these has been detected (in Wait()) */
-        if( stream->underrun != 0.0 )
+        if( stream->underrun > 0.0 )
         {
             cbFlags |= paOutputUnderflow;
             stream->underrun = 0.0;
         }
-        if( stream->overrun != 0.0 )
+        if( stream->overrun > 0.0 )
         {
             cbFlags |= paInputOverflow;
             stream->overrun = 0.0;
@@ -2680,11 +2688,11 @@ static void *CallbackThreadFunc( void *userData )
                     }
                 }
             }
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
             CallbackUpdate( &stream->threading );   /* Report to watchdog */
 
             CalculateTimeInfo( stream, &timeInfo );
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             /* Invoke the callback if we have any frames */
@@ -2737,10 +2745,10 @@ static void *CallbackThreadFunc( void *userData )
                 PA_DEBUG(( "\nstartThreshold: %lu, framesGot: %lu, framesProcessed: %lu\n\n", startThreshold, framesGot, framesProcessed ));
                 if( (startThreshold -= framesProcessed) <= 0 )
                 {
-                    ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+                    ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
                     PA_ENSURE( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
-                    ASSERT_CALL( pthread_cond_signal( &stream->startCond ), 0 );
-                    ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
+                    ASSERT_CALL_( pthread_cond_signal( &stream->startCond ), 0 );
+                    ASSERT_CALL_( pthread_mutex_unlock( &stream->startMtx ), 0 );
                 }
             }
 
@@ -2795,18 +2803,17 @@ static PaError ReadStream( PaStream* s,
     /* Disregard playback */
     stream->playback.pcm = NULL;
 
-    if( stream->overrun )
+    if( stream->overrun > 0. )
     {
         result = paInputOverflowed;
         stream->overrun = 0.0;
     }
 
-    if( stream->bufferProcessor.userInputIsInterleaved )
+    if( stream->capture.userInterleaved )
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->capture.numUserChannels;
-        PA_UNLESS( userBuffer = alloca( numBytes ), paInsufficientMemory );
+        userBuffer = stream->capture.userBuffers;
         memcpy( userBuffer, buffer, sizeof (void *) * stream->capture.numUserChannels );
     }
 
@@ -2862,18 +2869,17 @@ static PaError WriteStream( PaStream* s,
     /* Disregard capture */
     stream->capture.pcm = NULL;
 
-    if( stream->underrun )
+    if( stream->underrun > 0. )
     {
         result = paOutputUnderflowed;
         stream->underrun = 0.0;
     }
 
-    if( stream->bufferProcessor.userOutputIsInterleaved )
+    if( stream->playback.userInterleaved )
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->playback.numUserChannels;
-        PA_UNLESS( userBuffer = alloca( numBytes ), paInsufficientMemory );
+        userBuffer = stream->playback.userBuffers;
         memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playback.numUserChannels );
     }
 
