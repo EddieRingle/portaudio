@@ -4,15 +4,16 @@ files that may or may not work.
 
 The following is a checklist indicating which files are currently up
 to date with the V19 API. (x- indicates done, o- indicates not done).
-Feel free to fix some more of the, most of them simply require 
-adjusting to the new API.
+Note that this does not necissarily mean that the tests pass, just that they
+compile.
+Feel free to fix some more of them, most simply require adjusting to the new API.
 
 o- paqa_devs.c 
 o- paqa_errs.c 
 o- patest1.c
 o- patest_buffer.c
 x- patest_callbackstop.c
-o- patest_clip.c
+x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)
 o- patest_dither.c
 o- patest_hang.c
 o- patest_latency.c
