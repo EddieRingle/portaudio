@@ -9,6 +9,8 @@
 
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 
+void Stop( void *data );
+
 static int wait( PaAlsaStream *stream )
 {
     int need_capture;
@@ -210,6 +212,7 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
 void *CallbackThread( void *userData )
 {
     PaAlsaStream *stream = (PaAlsaStream*)userData;
+    pthread_cleanup_push( &Stop, stream );   // Execute Stop on exit
 
     if( stream->pcm_playback )
         snd_pcm_start( stream->pcm_playback );
@@ -341,41 +344,45 @@ void *CallbackThread( void *userData )
             routines in pa_byteswappers.h
         */
 
-        if( callbackResult == paContinue )
-        {
-            /* nothing special to do */
-        }
-        else if( callbackResult == paAbort )
+        if( callbackResult != paContinue )
         {
             stream->callback_finished = 1;
+            stream->callbackAbort = (callbackResult == paAbort);
 
-            if( stream->pcm_playback )
-            {
-                snd_pcm_drop( stream->pcm_playback );
-            }
-            else if( stream->pcm_capture )
-            {
-                snd_pcm_drop( stream->pcm_capture );
-            }
-
-            pthread_exit(NULL);
+            pthread_exit( NULL );
         }
-        else
-        {
-            stream->callback_finished = 1;
-
-            if( stream->pcm_playback )
-            {
-                snd_pcm_drain( stream->pcm_playback );
-            }
-            else if( stream->pcm_capture )
-            {
-                snd_pcm_drain( stream->pcm_capture );
-            }
-
-            pthread_exit(NULL);
-        }
-
     }
+
+    /* This code is unreachable, but important to include regardless because it
+     * is possibly a macro with a closing brace to match the opening brace in
+     * pthread_cleanup_push() above.  The documentation states that they must
+     * always occur in pairs. */
+
+    pthread_cleanup_pop( 1 );
+}
+
+void Stop( void *data )
+{
+    PaAlsaStream *stream = (PaAlsaStream *) data;
+
+    if( stream->callbackAbort )
+    {
+        if( stream->pcm_playback )
+            snd_pcm_drop( stream->pcm_playback );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            snd_pcm_drop( stream->pcm_capture );
+
+        PA_DEBUG(( "Dropped frames\n" ));
+        stream->callbackAbort = 0;
+    }
+    else
+    {
+        if( stream->pcm_playback )
+            snd_pcm_drain( stream->pcm_playback );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            snd_pcm_drain( stream->pcm_capture );
+    }
+
+    PA_DEBUG(( "Stoppage\n" ));
 }
 

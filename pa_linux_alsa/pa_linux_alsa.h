@@ -40,6 +40,9 @@ typedef struct PaAlsaStream
     /* these aren't really stream state, the callback uses them */
     snd_pcm_uframes_t capture_offset;
     snd_pcm_uframes_t playback_offset;
+
+    int pcmsSynced;             // Have we successfully synced pcms
+    int callbackAbort;          // Drop frames?
 }
 PaAlsaStream;
 

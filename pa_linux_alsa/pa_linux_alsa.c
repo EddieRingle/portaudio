@@ -92,6 +92,7 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
+void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags );
 
 /* blocking calls are in blocking_calls.c */
 extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -656,11 +657,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         result = paInsufficientMemory;
         goto error;
     }
-
-    stream->pcm_capture = NULL;
-    stream->pcm_playback = NULL;
-    stream->callback_mode = (callback != 0);
-    stream->callback_finished = 0;
+    InitializeStream( stream, (int) callback, streamFlags );    // Initialize structure
 
     if( callback )
     {
@@ -1022,6 +1019,7 @@ static PaError StartStream( PaStream *s )
     Pa_Sleep( 100 );
 
     stream->callback_finished = 0;
+    stream->callbackAbort = 0;
 
     return result;
 }
@@ -1036,44 +1034,27 @@ static PaError StopStream( PaStream *s )
      * it if necessary
      */
 
-    if( stream->callback_mode && stream->callback_finished )
+    if( stream->callback_mode )
     {
-        /* We are running in callback mode but the callback thread has
-         * already been cancelled by the return value from the user's
-         * callback function.  Therefore we don't need to cancel the
-         * thread, but we do want to wait for it. */
-        pthread_join( stream->callback_thread, NULL );
-    }
-    else if( stream->callback_mode )
-    {
-        /* We are running in callback mode, and the callback thread
-         * is still running.  Cancel it and wait for it to be done. */
-        pthread_cancel( stream->callback_thread );
-        pthread_join( stream->callback_thread, NULL );
-    }
+        if( stream->callback_finished )
+            pthread_join( stream->callback_thread, NULL );  // Just wait for it to die
+        else
+        {
+            /* We are running in callback mode, and the callback thread
+             * is still running.  Cancel it and wait for it to be done. */
+            pthread_cancel( stream->callback_thread );      // Snuff it!
+            pthread_join( stream->callback_thread, NULL );
+        }
 
-    /* Stop the ALSA streams if necessary */
-
-    if( stream->callback_mode && stream->callback_finished )
-    {
-        /* If we are in the callback_finished state the callback thread
-         * already stopped the streams.  So there is nothing to do here.
-         */
+        stream->callback_finished = 0;
     }
     else
     {
         if( stream->pcm_playback )
-        {
             snd_pcm_drain( stream->pcm_playback );
-        }
-        else if( stream->pcm_capture )
-        {
+        if( stream->pcm_capture && !stream->pcmsSynced )
             snd_pcm_drain( stream->pcm_capture );
-        }
-
     }
-
-    stream->callback_finished = 0;
 
     return result;
 }
@@ -1088,44 +1069,29 @@ static PaError AbortStream( PaStream *s )
      * it if necessary
      */
 
-    if( stream->callback_mode && stream->callback_finished )
+    if( stream->callback_mode )
     {
-        /* We are running in callback mode but the callback thread has
-         * already been cancelled by the return value from the user's
-         * callback function.  Therefore we don't need to cancel the
-         * thread, but we do want to wait for it. */
-        pthread_join( stream->callback_thread, NULL );
-    }
-    else if( stream->callback_mode )
-    {
-        /* We are running in callback mode, and the callback thread
-         * is still running.  Cancel it and wait for it to be done. */
-        pthread_cancel( stream->callback_thread );
-        pthread_join( stream->callback_thread, NULL );
-    }
+        stream->callbackAbort = 1;
 
-    /* Stop the ALSA streams if necessary */
+        if( stream->callback_finished )
+            pthread_join( stream->callback_thread, NULL );  // Just wait for it to die
+        else
+        {
+            /* We are running in callback mode, and the callback thread
+             * is still running.  Cancel it and wait for it to be done. */
+            pthread_cancel( stream->callback_thread );      // Snuff it!
+            pthread_join( stream->callback_thread, NULL );
+        }
 
-    if( stream->callback_mode && stream->callback_finished )
-    {
-        /* If we are in the callback_finished state the callback thread
-         * already stopped the streams.  So there is nothing to do here.
-         */
+        stream->callback_finished = 0;
     }
     else
     {
         if( stream->pcm_playback )
-        {
             snd_pcm_drop( stream->pcm_playback );
-        }
-        else if( stream->pcm_capture )
-        {
+        if( stream->pcm_capture && !stream->pcmsSynced )
             snd_pcm_drop( stream->pcm_capture );
-        }
-
     }
-
-    stream->callback_finished = 0;
 
     return result;
 }
@@ -1204,3 +1170,16 @@ static double GetStreamCpuLoad( PaStream* s )
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
 
+void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags )
+{
+    assert( stream );
+
+    stream->pcm_capture = NULL;
+    stream->pcm_playback = NULL;
+    stream->callback_finished = 0;
+    stream->callback_mode = callback;
+    stream->capture_nfds = 0;
+    stream->playback_nfds = 0;
+    stream->pfds = NULL;
+    stream->callbackAbort = 0;
+}
