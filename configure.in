@@ -204,7 +204,8 @@ case "${host_os}" in
 	fi
 
 	if [[ $have_jack = "yes" ] && [ $with_jack != "no" ]] ; then
-   	LIBS="$LIBS $JACK_LIBS"
+		LIBS="$LIBS $JACK_LIBS"
+		DLL_LIBS="$DLL_LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
 		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
                 AC_DEFINE(PA_USE_JACK)
