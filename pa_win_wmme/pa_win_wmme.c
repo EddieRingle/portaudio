@@ -894,20 +894,18 @@ static PaError CalculateBufferSettings(
 
     if( inputChannelCount > 0 )
     {
-        if( inputStreamInfo )
+        if( inputStreamInfo
+                && ( inputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters ) )
         {
-            if( inputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters )
+            if( inputStreamInfo->numBuffers <= 0
+                    || inputStreamInfo->framesPerBuffer <= 0 )
             {
-                if( inputStreamInfo->numBuffers <= 0
-                        || inputStreamInfo->framesPerBuffer <= 0 )
-                {
-                    result = paIncompatibleHostApiSpecificStreamInfo;
-                    goto error;
-                }
-
-                *framesPerHostInputBuffer = inputStreamInfo->framesPerBuffer;
-                *numHostInputBuffers = inputStreamInfo->numBuffers;
+                result = paIncompatibleHostApiSpecificStreamInfo;
+                goto error;
             }
+
+            *framesPerHostInputBuffer = inputStreamInfo->framesPerBuffer;
+            *numHostInputBuffers = inputStreamInfo->numBuffers;
         }
         else
         {
@@ -941,20 +939,18 @@ static PaError CalculateBufferSettings(
 
     if( outputChannelCount > 0 )
     {
-        if( outputStreamInfo )
+        if( outputStreamInfo
+                && ( outputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters ) )
         {
-            if( outputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters )
+            if( outputStreamInfo->numBuffers <= 0
+                    || outputStreamInfo->framesPerBuffer <= 0 )
             {
-                if( outputStreamInfo->numBuffers <= 0
-                        || outputStreamInfo->framesPerBuffer <= 0 )
-                {
-                    result = paIncompatibleHostApiSpecificStreamInfo;
-                    goto error;
-                }
-
-                *framesPerHostOutputBuffer = outputStreamInfo->framesPerBuffer;
-                *numHostOutputBuffers = outputStreamInfo->numBuffers;
+                result = paIncompatibleHostApiSpecificStreamInfo;
+                goto error;
             }
+
+            *framesPerHostOutputBuffer = outputStreamInfo->framesPerBuffer;
+            *numHostOutputBuffers = outputStreamInfo->numBuffers;
         }
         else
         {
