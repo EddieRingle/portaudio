@@ -61,51 +61,60 @@ static int patest1Callback( const void *inputBuffer, void *outputBuffer,
     float *in = (float*)inputBuffer;
     float *out = (float*)outputBuffer;
     int framesToCalc = framesPerBuffer;
-    unsigned long i;
-    int finished = 0;
-
-    /* Check to see if any input data is available. */
-    if(inputBuffer == NULL) return 0; /* FIXME: no longer needed in V19 */
+    unsigned long i = 0;
+    int finished;
 
     if( data->sampsToGo < framesPerBuffer )
     {
         framesToCalc = data->sampsToGo;
-        finished = 1;
+        finished = paContinue;
     }
-    for( i=0; i<framesToCalc; i++ )
+    else
+    {
+        finished = paComplete;
+    }
+
+    for( ; i<framesToCalc; i++ )
     {
         *out++ = *in++ * data->sine[data->phase];  /* left */
         *out++ = *in++ * data->sine[data->phase++];  /* right */
         if( data->phase >= 100 )
             data->phase = 0;
     }
+
     data->sampsToGo -= framesToCalc;
+
     /* zero remainder of final buffer if not already done */
     for( ; i<framesPerBuffer; i++ )
     {
         *out++ = 0; /* left */
         *out++ = 0; /* right */
     }
+    
     return finished;
 }
 
 int main(int argc, char* argv[]);
 int main(int argc, char* argv[])
 {
-    PaStream *stream;
-    PaError err;
-    patest1data data;
-    int i;
-    PaStreamParameters inputParameters, outputParameters;
-    const PaHostErrorInfo*    herr;
+    PaStream                *stream;
+    PaError                 err;
+    patest1data             data;
+    int                     i;
+    PaStreamParameters      inputParameters, outputParameters;
+    const PaHostErrorInfo*  herr;
+
+    printf("patest1.c\n"); fflush(stdout);
+    printf("Ring modulate input for 20 seconds.\n"); fflush(stdout);
     
     /* initialise sinusoidal wavetable */
     for( i=0; i<100; i++ )
         data.sine[i] = sin( ((double)i/100.) * M_PI * 2. );
     data.phase = 0;
     data.sampsToGo = SAMPLE_RATE * 20;        /* 20 seconds. */
+
     /* initialise portaudio subsytem */
-    Pa_Initialize();
+    err = Pa_Initialize();
 
     inputParameters.device = Pa_GetDefaultInputDevice();    /* default input device */
     inputParameters.channelCount = 2;                       /* stereo input */
@@ -128,26 +137,36 @@ int main(int argc, char* argv[])
                         paClipOff,           /* We won't output out of range samples so don't bother clipping them. */
                         patest1Callback,
                         &data );
-    if( err == paNoError )
+    if( err != paNoError ) goto done;
+
+    err = Pa_StartStream( stream );
+    if( err != paNoError ) goto done;
+    
+    printf( "Press any key to end.\n" ); fflush(stdout);
+         
+    getc( stdin ); /* wait for input before exiting */
+
+    err = Pa_AbortStream( stream );
+    if( err != paNoError ) goto done;
+    
+    printf( "Waiting for stream to complete...\n" );
+
+    /* sleep until playback has finished */
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(1000);
+    if( err < 0 ) goto done;
+
+    err = Pa_CloseStream( stream );
+    if( err != paNoError ) goto done;
+
+done:
+    Pa_Terminate();
+
+    if( err != paNoError )
     {
-        err = Pa_StartStream( stream );
-        printf( "Press any key to end.\n" );
-        getc( stdin ); /* wait for input before exiting */
-        Pa_AbortStream( stream );
-
-        printf( "Waiting for stream to complete...\n" );
-
-        while( Pa_IsStreamActive( stream ) )
-            Pa_Sleep(1000); /* sleep until playback has finished */
-
-        err = Pa_CloseStream( stream );
-    }
-    else
-    {
-        fprintf( stderr, "An error occured while opening the portaudio stream\n" );
-        if( err == paUnanticipatedHostError )   /* Was paHostError in v18. */
+        fprintf( stderr, "An error occured while using portaudio\n" );
+        if( err == paUnanticipatedHostError )
         {
-            fprintf( stderr, " Host error!\n");
+            fprintf( stderr, " unanticipated host error.\n");
             herr = Pa_GetLastHostErrorInfo();
             if (herr)
             {
@@ -156,16 +175,18 @@ int main(int argc, char* argv[])
                     fprintf( stderr, " Error text: %s\n", herr->errorText );
             }
             else
-                fprintf( stderr, "\nPa_GetLastHostErrorInfo() failed!\n" );
+                fprintf( stderr, " Pa_GetLastHostErrorInfo() failed!\n" );
         }
         else
         {
             fprintf( stderr, " Error number: %d\n", err );
             fprintf( stderr, " Error text: %s\n", Pa_GetErrorText( err ) );
         }
+
+        err = 1;          /* Always return 0 or 1, but no other return codes. */
     }
-    Pa_Terminate();
+
     printf( "bye\n" );
 
-    return 0;
+    return err;
 }
