@@ -1249,7 +1249,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         wfx.cbSize = 0;
 
         stream->numOutputDevices = numOutputDevices;
-        stream->hWaveOuts = (HWAVEOUT*)PaUtil_AllocateMemory( sizeof(HWAVEOUT) * stream->numInputDevices );
+        stream->hWaveOuts = (HWAVEOUT*)PaUtil_AllocateMemory( sizeof(HWAVEOUT) * stream->numOutputDevices );
         if( !stream->hWaveOuts )
         {
             result = paInsufficientMemory;
@@ -1903,7 +1903,6 @@ static PaError CloseStream( PaStream* s )
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
     MMRESULT mmresult;
     unsigned int i;
-    
 
     if( PA_IS_INPUT_STREAM_(stream) )
     {
