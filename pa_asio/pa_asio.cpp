@@ -997,7 +997,7 @@ error:
 #define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_     13   /* must be the same number of elements as in the array below */
 static ASIOSampleRate defaultSampleRateSearchOrder_[]
      = {44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0,
-        192000.0, 16000.0, 12000.0, 11025.0, 96000.0, 8000.0 };
+        192000.0, 16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
 
 
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
