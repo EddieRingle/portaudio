@@ -42,6 +42,7 @@ TESTS = \
 	bin/patest_buffer \
 	bin/patest_callbackstop \
 	bin/patest_clip \
+	bin/patest_hang \
 	bin/patest_latency \
 	bin/patest_leftright \
 	bin/patest_many \

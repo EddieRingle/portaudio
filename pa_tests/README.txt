@@ -15,7 +15,7 @@ x- patest_buffer.c
 x- patest_callbackstop.c
 x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)
 o- patest_dither.c
-o- patest_hang.c
+x- patest_hang.c
 x- patest_latency.c
 x- patest_leftright.c
 o- patest_longsine.c
