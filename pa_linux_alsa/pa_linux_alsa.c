@@ -115,6 +115,7 @@ typedef struct PaAlsaThreading
     int watchdogRunning;
     int rtSched;
     int useWatchdog;
+    unsigned long throttledSleepTime;
     volatile PaTime callbackTime;
     volatile PaTime callbackCpuTime;
     PaUtilCpuLoadMeasurer *cpuLoadMeasurer;
@@ -198,9 +199,6 @@ PaAlsaDeviceInfo;
 
 /* Threading utilities */
 
-#define SIGTERM_THREAD SIGRTMIN + 4     /* Terminate callback thread, according to manpage LinuxThreads uses first three */
-#define SIGTHROTTLE_THREAD SIGTERM_THREAD + 1
-
 static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm )
 {
     th->watchdogRunning = 0;
@@ -208,6 +206,7 @@ static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm
     th->callbackTime = 0;
     th->callbackCpuTime = 0;
     th->useWatchdog = 1;
+    th->throttledSleepTime = 0;
     th->cpuLoadMeasurer = clm;
 
     if (rtPrio_ < 0) {
@@ -265,39 +264,6 @@ static void OnWatchdogExit( void *userData )
     PA_DEBUG(( "Watchdog exiting\n" ));
 }
 
-/* Handle thread termination signal */
-static void HandleTerm( int signum )
-{
-    pthread_exit( NULL );
-}
-
-static void HandleThrottle( int signum )
-{
-    static struct sched_param spm = { 0 };
-    /*
-    static int policy;
-
-    pthread_getschedparam( pthread_self(), &policy, &spm );
-    spm.sched_priority = spm.sched_priority;
-    spm.sched_priority = 0;
-
-    if( ( pthread_setschedparam( pthread_self(), SCHED_OTHER, &spm ) != 0) )
-    {
-        PA_DEBUG(( "Watchdog: Couldn't lower priority of audio thread: %s\n", strerror( errno ) ));
-    }
-    */
-
-    if( ( sched_yield() < 0 ) )
-        PA_DEBUG(( "%s\n", strerror( errno ) ));
-
-    /* Reset callback priority */
-    spm.sched_priority = rtPrio_;
-    if( ( pthread_setschedparam( pthread_self(), SCHED_FIFO, &spm ) != 0) )
-    {
-        PA_DEBUG(( "%s: Couldn't raise priority of audio thread: %s\n", __FUNCTION__, strerror( errno ) ));
-    }
-}
-
 static PaError BoostPriority( PaAlsaThreading *th )
 {
     PaError result = paNoError;
@@ -328,8 +294,6 @@ static void *WatchdogFunc( void *userData )
     PaTime timeThen = PaUtil_GetTime(), timeNow, timeElapsed, cpuTimeThen, cpuTimeNow, cpuTimeElapsed;
     double cpuLoad, avgCpuLoad = 0.;
     int throttled = 0;
-    struct sigaction sa;
-    memset( &sa, 0, sizeof (struct sigaction) );
 
     assert( th );
 
@@ -341,12 +305,6 @@ static void *WatchdogFunc( void *userData )
     {
         pthread_exit( NULL );   /* Boost failed, might as well exit */
     }
-
-    sa.sa_handler = &HandleTerm;
-    err = sigaction( SIGTERM_THREAD, &sa, NULL );
-    sa.sa_handler = &HandleThrottle;
-    sa.sa_flags = SA_RESTART;
-    err = sigaction( SIGTHROTTLE_THREAD, &sa, NULL );
 
     cpuTimeThen = th->callbackCpuTime;
 
@@ -370,11 +328,11 @@ static void *WatchdogFunc( void *userData )
         {
             PA_DEBUG(( "Watchdog: Terminating callback thread\n" ));
             /* Tell thread to terminate */
-            err = pthread_kill( th->callbackThread, SIGTERM_THREAD );
+            err = pthread_kill( th->callbackThread, SIGKILL );
             pthread_exit( NULL );
         }
 
-        PA_DEBUG(( "PortAudio reports CPU load: %g\n", PaUtil_GetCpuLoad( th->cpuLoadMeasurer ) ));
+        PA_DEBUG(( "%s: PortAudio reports CPU load: %g\n", __FUNCTION__, PaUtil_GetCpuLoad( th->cpuLoadMeasurer ) ));
 
         /* Check if we should throttle, or unthrottle :P */
         cpuTimeNow = th->callbackCpuTime;
@@ -395,10 +353,9 @@ static void *WatchdogFunc( void *userData )
             static int policy;
             static struct sched_param spm = { 0 };
             static const struct sched_param defaultSpm = { 0 };
-            PA_DEBUG(( "Watchdog: Throttling audio thread\n" ));
+            PA_DEBUG(( "%s: Throttling audio thread, priority %d\n", __FUNCTION__, spm.sched_priority ));
 
             pthread_getschedparam( th->callbackThread, &policy, &spm );
-            PA_DEBUG(( "Priority now: %d\n", spm.sched_priority ));
             if( !pthread_setschedparam( th->callbackThread, SCHED_OTHER, &defaultSpm ) )
             {
                 throttled = 1;
@@ -406,7 +363,15 @@ static void *WatchdogFunc( void *userData )
             else
                 PA_DEBUG(( "Watchdog: Couldn't lower priority of audio thread: %s\n", strerror( errno ) ));
 
-            err = pthread_kill( th->callbackThread, SIGTHROTTLE_THREAD );
+            /* Give other processes a go, before raising priority again */
+            PA_DEBUG(( "%s: Watchdog sleeping for %lu msecs before unthrottling\n", __FUNCTION__, th->throttledSleepTime ));
+            Pa_Sleep( th->throttledSleepTime );
+
+            /* Reset callback priority */
+            if( pthread_setschedparam( th->callbackThread, SCHED_FIFO, &spm ) != 0 )
+            {
+                PA_DEBUG(( "%s: Couldn't raise priority of audio thread: %s\n", __FUNCTION__, strerror( errno ) ));
+            }
 
             if( PaUtil_GetCpuLoad( th->cpuLoadMeasurer ) >= .99 )
                 intervalMsec = 50;
@@ -1608,6 +1573,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     /* Should be exact now */
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+    /* Time before watchdog unthrottles realtime thread == 1/4 of period time in msecs */
+    stream->threading.throttledSleepTime = (unsigned long) (framesPerHostBuffer / sampleRate / 4 * 1000);
 
     PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
