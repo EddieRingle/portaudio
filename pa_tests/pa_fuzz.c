@@ -48,9 +48,11 @@
 typedef float SAMPLE;
 
 float CubicAmplifier( float input );
-static int fuzzCallback( void *inputBuffer, void *outputBuffer,
+static PaStreamCallbackResult fuzzCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
-                         PaTimestamp outTime, void *userData );
+                         const PaStreamCallbackTimeInfo* timeInfo,
+                         unsigned long statusFlags,
+                         void *userData );
 
 /* Non-linear amplifier with soft distortion curve. */
 float CubicAmplifier( float input )
@@ -78,12 +80,15 @@ static int gNumNoInputs = 0;
 */
 static int fuzzCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
-                         PaTimestamp outTime, void *userData )
+                         const PaStreamCallbackTimeInfo* timeInfo,
+                         unsigned long statusFlags,
+                         void *userData )
 {
     SAMPLE *out = (SAMPLE*)outputBuffer;
     SAMPLE *in = (SAMPLE*)inputBuffer;
     unsigned int i;
-    (void) outTime; /* Prevent unused variable warnings. */
+    (void) timeInfo; /* Prevent unused variable warnings. */
+    (void) statusFlags;
     (void) userData;
 
     if( inputBuffer == NULL )
@@ -103,31 +108,38 @@ static int fuzzCallback( void *inputBuffer, void *outputBuffer,
             *out++ = *in++;          /* right - clean */
         }
     }
-    return 0;
+    
+    return paContinue;
 }
 
 /*******************************************************************/
 int main(void);
 int main(void)
 {
+    PaStreamParameters inputParameters, outputParameters;
     PaStream *stream;
     PaError err;
 
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
+
+    inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    inputParameters.numChannels = 2;       /* stereo input */
+    inputParameters.sampleFormat = PA_SAMPLE_TYPE;
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
+    inputParameters.hostApiSpecificStreamInfo = NULL;
+
+    outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    outputParameters.numChannels = 2;       /* stereo output */
+    outputParameters.sampleFormat = PA_SAMPLE_TYPE;
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDevice(), /* default output device */
-              2,               /* stereo input */
-              PA_SAMPLE_TYPE,
-              0, /* use default input latency */
-              NULL,
-              Pa_GetDefaultOutputDevice(), /* default output device */
-              2,               /* stereo output */
-              PA_SAMPLE_TYPE,
-              0, /* use default output latency */
-              NULL,
+              &inputParameters,
+              &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
               0, // paClipOff,     /* we won't output out of range samples so don't bother clipping them */
