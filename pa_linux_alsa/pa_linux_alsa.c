@@ -1463,7 +1463,7 @@ static void PaAlsaStream_Terminate( PaAlsaStream *self )
  */
 static int CalculatePollTimeout( const PaAlsaStream *stream, unsigned long frames )
 {
-    assert( stream->streamRepresentation.streamInfo.sampleRate > 0 );
+    assert( stream->streamRepresentation.streamInfo.sampleRate > 0.0 );
     /* Period in msecs, rounded up */
     return (int)ceil( 1000 * frames / stream->streamRepresentation.streamInfo.sampleRate );
 }
@@ -1957,7 +1957,7 @@ static PaError StartStream( PaStream *s )
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
         ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
-        while( !IsRunning( stream ) && IsStreamActive( s ) /* XXX && !res*/ )    /* Due to possible spurious wakeups, we enclose in a loop */
+        while( !IsRunning( stream ) && IsStreamActive( s ) && !res )    /* Due to possible spurious wakeups, we enclose in a loop */
         {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
         }
@@ -1968,7 +1968,7 @@ static PaError StartStream( PaStream *s )
 
         if( res == ETIMEDOUT )
         {
-            /* XXX: PA_ENSURE( paTimedOut );*/
+            PA_ENSURE( paTimedOut );
         }
     }
     else
