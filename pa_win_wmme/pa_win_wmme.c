@@ -73,6 +73,7 @@ TODO:
     - add bufferslip management
     - add multidevice multichannel support
     - add thread throttling on overload
+    - buffer time stamps
 */
 
 #include <stdio.h>
@@ -1362,6 +1363,30 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         - handle buffer slips
                     */
                     PaTimestamp outTime = 0; /* FIXME */
+
+                    if( hostOutputBuffer ){
+                        MMTIME time;
+                        double now;
+                        long totalRingFrames;
+                        long ringPosition;
+                        long playbackPosition;
+
+                        time.wType = TIME_SAMPLES;
+                        waveOutGetPosition( stream->hWaveOut, &time, sizeof(MMTIME) );
+                        now = PaUtil_GetTime();
+
+                        totalRingFrames = stream->numOutputBuffers * stream->bufferProcessor.framesPerHostBuffer;
+
+                        ringPosition = stream->currentOutputBufferIndex * stream->bufferProcessor.framesPerHostBuffer;
+                        
+                        playbackPosition = time.u.sample % totalRingFrames;
+
+                        if( playbackPosition >= ringPosition )
+                            outTime = now + ((double)( ringPosition + (totalRingFrames - playbackPosition) ) * stream->bufferProcessor.samplePeriod );
+                        else
+                            outTime = now + ((double)( ringPosition - playbackPosition ) * stream->bufferProcessor.samplePeriod );
+                    }
+
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer /*FIXME: this is a bit of a hack*/ );
 

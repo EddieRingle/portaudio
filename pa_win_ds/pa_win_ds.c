@@ -845,7 +845,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     long              numChunks;
     HRESULT           hresult;
     short            *nativeBufPtr;
-
+    double            latency, outTime;
 
     /* How much input data is available? */
     if( stream->bufferProcessor.numInputChannels > 0 )
@@ -897,10 +897,19 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
                 }
             }
 
+            /*
+            FIXME: the outTime parameter should indicate the time at which
+            the first sample of the output buffer is heard at the dacs. At the
+            moment it's just a rough estimate.
+            */
+
+            latency = 0;
+            outTime = PaUtil_GetTime() + latency;
+
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer );
 
             result = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor,
-                nativeBufPtr, nativeBufPtr, stream->frameCount );
+                nativeBufPtr, nativeBufPtr, outTime );
             stream->frameCount += stream->bufferProcessor.framesPerHostBuffer;
 
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );

@@ -167,6 +167,8 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
 
     PaUtil_InitializeTriangularDitherState( &bp->ditherGenerator );
 
+    bp->samplePeriod = 1. / sampleRate;
+
     bp->userCallback = userCallback;
     bp->userData = userData;
 
@@ -374,7 +376,7 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bp,
                          bp->framesPerUserBuffer * bp->numOutputChannels * bp->bytesPerHostOutputSample;
         }
 
-        outTime += bp->framesPerUserBuffer;
+        outTime += bp->framesPerUserBuffer * bp->samplePeriod;
         hostFramesRemaining -= bp->framesPerUserBuffer;
     }
 
@@ -511,7 +513,7 @@ int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
             }
         }
 
-        outTime += bp->framesPerUserBuffer;
+        outTime += bp->framesPerUserBuffer * bp->samplePeriod;
         hostFramesRemaining -= bp->framesPerUserBuffer;
     }
 
@@ -672,7 +674,7 @@ int PaUtil_ProcessBuffers( PaUtilBufferProcessor* bp, /* bp => buffer processor 
             }
         }
 
-        outTime += bp->framesPerUserBuffer;
+        outTime += bp->framesPerUserBuffer * bp->samplePeriod;
         hostFramesRemaining -= bp->framesPerUserBuffer;
     }
 

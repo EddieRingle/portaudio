@@ -88,6 +88,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <values.h>
 
 #include "portaudio.h"
 #include "pa_asio.h"
@@ -191,6 +192,7 @@ typedef struct
         driver is already open.
     */
     int driverOpen;
+    double timeBaseOffset;
 }
 PaAsioHostApiRepresentation;
 
@@ -870,6 +872,50 @@ error:
 }
 
 
+static double MeasureTimebaseOffset()
+{
+    DWORD t1, t2;
+    t1 = timeGetTime();
+    do{
+        t2 = timeGetTime();
+    } while( t2 == t1 ); /* wait until the millisecond ticks over */
+    double t3 = PaUtil_GetTime();
+
+    t2 *= .001; /* convert to seconds */
+
+    return t2 - t3;
+}
+
+static double CalculateTimeBaseOffset()
+{
+#if MAC
+
+    return 0.; /* FIXME */
+
+#elif WINDOWS
+#define PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_    100
+    int i;
+    double sum = 0;
+    double result;
+    /* determine the difference between the portaudio time base (PaUtil_GetTime() and
+        the ASIO time base (timeGetTime() on windows) */
+
+    timeBeginPeriod(1);
+
+    // FIXME: should probably do something a little more complex that
+    // a simple average since we know there will be outliers due to scheduling interruptions
+    for( i = 0; i< PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_; ++i )
+        sum += MeasureTimebaseOffset();
+
+    timeEndPeriod(1);
+    
+    result = sum / (double)(PA_NUM_TIMEBASE_OFFSET_MEASUREMENTS_ );
+    
+    return result;
+#endif
+}
+
+
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
 static ASIOSampleRate possibleSampleRates_[]
     = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
@@ -1062,6 +1108,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
+    asioHostApi->timeBaseOffset = CalculateTimeBaseOffset();
+
     return result;
 
 error:
@@ -1116,7 +1164,8 @@ typedef struct PaAsioStream
     ASIOBufferInfo *asioBufferInfos;
     ASIOChannelInfo *asioChannelInfos;
     long inputLatency, outputLatency;
-
+    double outputLatencySeconds;
+    
     long numInputChannels, numOutputChannels;
     bool postOutput;
 
@@ -1304,7 +1353,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     */
 
     framesPerHostBuffer = SelectHostBufferSize( inputLatency, outputLatency, &driverInfo );
-    framesPerCallback = framesPerHostBuffer;
+    //framesPerCallback = framesPerHostBuffer;
     
     /*
         IMPLEMENT ME:
@@ -1457,6 +1506,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 
     ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
+    stream->outputLatencySeconds = (double)stream->outputLatency / sampleRate;
+
 
     PA_DEBUG(("PaAsio : InputLatency = %ld latency = %ld msec \n",
             stream->inputLatency,
@@ -1475,6 +1526,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         SelectAsioToPaConverter( inputType, &stream->inputBufferConverter, &stream->inputShift );
     }
+    else
+    {
+        stream->inputBufferConverter = 0;
+    }
 
     if( numOutputChannels > 0 )
     {
@@ -1484,6 +1539,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         hostOutputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( outputType );
 
         SelectPaToAsioConverter( outputType, &stream->outputBufferConverter, &stream->outputShift );
+    }
+    else
+    {
+        stream->outputBufferConverter = 0;
     }
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
@@ -1589,6 +1648,14 @@ static void bufferSwitch(long index, ASIOBool processNow)
 }
 
 
+// conversion from 64 bit ASIOSample/ASIOTimeStamp to double float
+#if NATIVE_INT64
+	#define ASIO64toDouble(a)  (a)
+#else
+	const double twoRaisedTo32 = 4294967296.;
+	#define ASIO64toDouble(a)  ((a).lo + (a).hi * twoRaisedTo32)
+#endif
+
 static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool processNow )
 {
     // the actual processing callback.
@@ -1649,10 +1716,11 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     {
         PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, theAsioStream->framesPerHostCallback );
 
+        PaTimestamp outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
+                theAsioStream->asioHostApi->timeBaseOffset +
+                theAsioStream->outputLatencySeconds;
 
-        PaTimestamp outTime = 0; /* FIXME */
-
-        if( theAsioStream->numInputChannels > 0 && theAsioStream->inputBufferConverter )
+        if( theAsioStream->inputBufferConverter )
         {
             for( int i=0; i<theAsioStream->numInputChannels; i++ )
             {
@@ -1666,7 +1734,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             theAsioStream->inputBufferPtrs[index], theAsioStream->outputBufferPtrs[index], outTime );
 
 
-        if( theAsioStream->numOutputChannels > 0 && theAsioStream->outputBufferConverter )
+        if( theAsioStream->outputBufferConverter )
         {
             for( int i=0; i<theAsioStream->numOutputChannels; i++ )
             {
@@ -1674,7 +1742,6 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                         theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
             }
         }
-
 
         PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 

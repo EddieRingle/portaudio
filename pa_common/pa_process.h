@@ -64,6 +64,8 @@ typedef struct {
 
     PaUtilTriangularDitherGenerator ditherGenerator;
 
+    double samplePeriod;
+
     PortAudioCallback *userCallback;
     void *userData;
 } PaUtilBufferProcessor;
