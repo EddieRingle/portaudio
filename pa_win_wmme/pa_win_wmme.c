@@ -1,7 +1,7 @@
 /*
  * $Id$
  * pa_win_wmme.c
- * Implementation of PortAudio for Windows MultiMedia Extensions (WMME)
+ * Implementation of PortAudio for Windows MultiMedia Extensions (WMME)       
  *
  * PortAudio Portable Real-Time Audio Library
  * Latest Version at: http://www.portaudio.com
@@ -2544,7 +2544,10 @@ static PaError StartStream( PaStream *s )
                 stream->framesUsedInCurrentOutputBuffer = 0;
                 do{
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, paPrimingOutput );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor,
+                            &timeInfo,
+                            paPrimingOutput || ((stream->numInputBuffers > 0 ) ? paInputUnderflow : 0));
+
                     if( stream->numInputBuffers > 0 )
                         PaUtil_SetNoInput( &stream->bufferProcessor );
 
