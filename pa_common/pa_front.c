@@ -970,11 +970,11 @@ static PaError ValidateOpenStreamParameters(
     PaDeviceIndex inputDevice,
     int numInputChannels,
     PaSampleFormat inputSampleFormat,
-    void *inputStreamInfo,
+    PaHostApiSpecificStreamInfo *inputStreamInfo,
     PaDeviceIndex outputDevice,
     int numOutputChannels,
     PaSampleFormat outputSampleFormat,
-    void *outputStreamInfo,
+    PaHostApiSpecificStreamInfo *outputStreamInfo,
     double sampleRate,
     PaStreamFlags streamFlags,
     PaUtilHostApiRepresentation **hostApi,
@@ -995,16 +995,16 @@ static PaError ValidateOpenStreamParameters(
         {
             *hostApiInputDevice = paNoDevice;
         }
-        else if( inputDevice == paUseAlternateDeviceSpecification )
+        else if( inputDevice == paUseHostApiSpecificDeviceSpecification )
         {
             if( inputStreamInfo )
             {
                 inputHostApiIndex = Pa_HostApiTypeIdToHostApiIndex(
-                        ((PaHostApiSpecificStreamInfo*)inputStreamInfo)->hostApiType );
+                        inputStreamInfo->hostApiType );
 
                 if( inputHostApiIndex != -1 )
                 {
-                    *hostApiInputDevice = paUseAlternateDeviceSpecification;
+                    *hostApiInputDevice = paUseHostApiSpecificDeviceSpecification;
                     *hostApi = hostApis_[inputHostApiIndex];
                 }
                 else
@@ -1036,7 +1036,7 @@ static PaError ValidateOpenStreamParameters(
 
             if( inputStreamInfo != NULL )
             {
-                if( ((PaHostApiSpecificStreamInfo*)inputStreamInfo)->hostApiType != (*hostApi)->info.type )
+                if( inputStreamInfo->hostApiType != (*hostApi)->info.type )
                     return paIncompatibleStreamInfo;
             }
         }
@@ -1045,16 +1045,16 @@ static PaError ValidateOpenStreamParameters(
         {
             *hostApiOutputDevice = paNoDevice;
         }
-        else if( outputDevice == paUseAlternateDeviceSpecification  )
+        else if( outputDevice == paUseHostApiSpecificDeviceSpecification  )
         {
             if( outputStreamInfo )
             {
                 outputHostApiIndex = Pa_HostApiTypeIdToHostApiIndex(
-                        ((PaHostApiSpecificStreamInfo*)outputStreamInfo)->hostApiType );
+                        outputStreamInfo->hostApiType );
 
                 if( outputHostApiIndex != -1 )
                 {
-                    *hostApiOutputDevice = paUseAlternateDeviceSpecification;
+                    *hostApiOutputDevice = paUseHostApiSpecificDeviceSpecification;
                     *hostApi = hostApis_[outputHostApiIndex];
                 }
                 else
@@ -1086,7 +1086,7 @@ static PaError ValidateOpenStreamParameters(
 
             if( outputStreamInfo != NULL )
             {
-                if( ((PaHostApiSpecificStreamInfo*)outputStreamInfo)->hostApiType != (*hostApi)->info.type )
+                if( outputStreamInfo->hostApiType != (*hostApi)->info.type )
                     return paIncompatibleStreamInfo;
             }
         }   
@@ -1115,12 +1115,12 @@ PaError Pa_OpenStream( PaStream** stream,
                        int numInputChannels,
                        PaSampleFormat inputSampleFormat,
                        unsigned long inputLatency,
-                       void *inputStreamInfo,
+                       PaHostApiSpecificStreamInfo *inputStreamInfo,
                        PaDeviceIndex outputDevice,
                        int numOutputChannels,
                        PaSampleFormat outputSampleFormat,
                        unsigned long outputLatency,
-                       void *outputStreamInfo,
+                       PaHostApiSpecificStreamInfo *outputStreamInfo,
                        double sampleRate,
                        unsigned long framesPerCallback,
                        PaStreamFlags streamFlags,

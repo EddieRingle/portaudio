@@ -127,9 +127,9 @@ const char *Pa_GetErrorText( PaError errnum );
 typedef int PaDeviceIndex;
 /**< The type used to refer to audio devices. Values of this type usually
  range from 0 to (Pa_DeviceCount-1), and may also take on the PaNoDevice
- and paUseAlternateDeviceSpecification values.
+ and paUseHostApiSpecificDeviceSpecification values.
      
- @see Pa_DeviceCount, paNoDevice, paUseAlternateDeviceSpecification
+ @see Pa_DeviceCount, paNoDevice, paUseHostApiSpecificDeviceSpecification
 */
 
 
@@ -140,7 +140,8 @@ typedef int PaDeviceIndex;
  @see PaDeviceIndex
 */
 
-#define paUseAlternateDeviceSpecification (-2)
+
+#define paUseHostApiSpecificDeviceSpecification (-2)
 /**< A special PaDeviceIndex value indicating that the device(s) to be used
  are specified in the host api specific stream info structure.
 
@@ -516,12 +517,12 @@ PaError Pa_OpenStream( PaStream** stream,
                        int numInputChannels,
                        PaSampleFormat inputSampleFormat,
                        unsigned long inputLatency,
-                       void *inputStreamInfo,
+                       PaHostApiSpecificStreamInfo *inputStreamInfo,
                        PaDeviceIndex outputDevice,
                        int numOutputChannels,
                        PaSampleFormat outputSampleFormat,
                        unsigned long outputLatency,
-                       void *outputStreamInfo,
+                       PaHostApiSpecificStreamInfo *outputStreamInfo,
                        double sampleRate,
                        unsigned long framesPerCallback,
                        PaStreamFlags streamFlags,
