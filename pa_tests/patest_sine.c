@@ -86,7 +86,7 @@ static int patestCallback(   void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     paTestData data;
     int i;
@@ -105,7 +105,7 @@ int main(void)
               0,              /* no input */
               paFloat32,  /* 32 bit floating point input */
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,          /* stereo output */
               paFloat32,      /* 32 bit floating point output */
               NULL,

@@ -110,7 +110,7 @@ static int fuzzCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
 
     err = Pa_Initialize();
@@ -118,11 +118,11 @@ int main(void)
 
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDeviceID(), /* default output device */
+              Pa_GetDefaultInputDevice(), /* default output device */
               2,               /* stereo input */
               PA_SAMPLE_TYPE,
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,               /* stereo output */
               PA_SAMPLE_TYPE,
               NULL,

@@ -60,8 +60,8 @@ int main(int argc, char* argv[])
     PaError err;
     patest1data data;
     int i;
-    int inputDevice = Pa_GetDefaultInputDeviceID();
-    int outputDevice = Pa_GetDefaultOutputDeviceID();
+    int inputDevice = Pa_GetDefaultInputDevice();
+    int outputDevice = Pa_GetDefaultOutputDevice();
     /* initialise sinusoidal wavetable */
     for( i=0; i<100; i++ )
         data.sine[i] = sin( ((double)i/100.) * M_PI * 2. );
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
 
         printf( "Waiting for stream to complete...\n" );
 
-        while( Pa_StreamActive( stream ) )
+        while( Pa_IsStreamActive( stream ) )
             Pa_Sleep(1000); /* sleep until playback has finished */
 
         err = Pa_CloseStream( stream );
@@ -103,9 +103,14 @@ int main(int argc, char* argv[])
     {
         fprintf( stderr, "An error occured while opening the portaudio stream\n" );
         if( err == paHostError )
+        {
             fprintf( stderr, "Host error number: %d\n", Pa_GetHostError() );
+        }
         else
+        {
             fprintf( stderr, "Error number: %d\n", err );
+            fprintf( stderr, "Error text: %s\n", Pa_GetErrorText( err ) );
+        }
     }
     Pa_Terminate();
     printf( "bye\n" );

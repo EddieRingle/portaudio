@@ -85,7 +85,7 @@ static int paminlatCallback( void *inputBuffer, void *outputBuffer,
 void main( int argc, char **argv );
 void main( int argc, char **argv )
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     paTestData data;
     int    go;
@@ -124,7 +124,7 @@ void main( int argc, char **argv )
                   0,              /* no input */
                   paFloat32,  /* 32 bit floating point input */
                   NULL,
-                  Pa_GetDefaultOutputDeviceID(), /* default output device */
+                  Pa_GetDefaultOutputDevice(), /* default output device */
                   2,              /* stereo output */
                   paFloat32,      /* 32 bit floating point output */
                   NULL,
