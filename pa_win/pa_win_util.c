@@ -30,6 +30,11 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file Win32 platform-specific support functions
+
+    @todo Implement workaround for QueryPerformanceCounter() skipping forward
+    bug. (see msdn kb Q274323).
+*/
  
 #include <windows.h>
 #include <mmsystem.h> /* for timeGetTime() */

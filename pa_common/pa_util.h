@@ -41,6 +41,13 @@ extern "C"
 
 struct PaUtilHostApiRepresentation;
 
+/** @file Utility functions used by PortAudio implementations.
+
+    @todo Document and adhere to the alignment guarantees provided by
+    PaUtil_AllocateMemory().
+*/
+
+
 
 /** Retrieve a specific host API representation. This function can be used
  by implementations to retrieve a pointer to their representation in
@@ -53,7 +60,8 @@ struct PaUtilHostApiRepresentation;
  @param type A valid host API type identifier.
 
  @returns An error code. If the result is PaNoError then a pointer to the
- requested host API representation will be stored in *hostApi.
+ requested host API representation will be stored in *hostApi. If the host API
+ specified by type is not found, this function returns paHostApiNotFound.
 */
 PaError PaUtil_GetHostApiRepresentation( struct PaUtilHostApiRepresentation **hostApi,
         PaHostApiTypeId type );
@@ -94,13 +102,12 @@ void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
 
 
         
-/**
-PA_DEBUG() provides a simple debug message printing facility. The macro
-passes it's argument to a printf-like function called PaUtil_DebugPrint()
-which prints to stderr and always flushes the stream after printing.
-Because preprocessor macros cannot directly accept variable length argument
-lists, calls to the macro must include an additional set of parenthesis, eg:
-PA_DEBUG(("errorno: %d", 1001 ));
+/** PA_DEBUG() provides a simple debug message printing facility. The macro
+ passes it's argument to a printf-like function called PaUtil_DebugPrint()
+ which prints to stderr and always flushes the stream after printing.
+ Because preprocessor macros cannot directly accept variable length argument
+ lists, calls to the macro must include an additional set of parenthesis, eg:
+ PA_DEBUG(("errorno: %d", 1001 ));
 */
 
 void PaUtil_DebugPrint( const char *format, ... );
@@ -112,26 +119,41 @@ void PaUtil_DebugPrint( const char *format, ... );
 #endif
 
 
-/* the following functions are implemented in a per-platform .c file */
-
-void *PaUtil_AllocateMemory( long size );
-/**< Allocate size bytes, guaranteed to be aligned to a FIXME byte boundary */
-
-void PaUtil_FreeMemory( void *block );
-/**< Realease block if non-NULL. block may be NULL */
-
-int PaUtil_CountCurrentlyAllocatedBlocks( void );
-/**<
-    Return the number of currently allocated blocks. This function can be
-    used for detecting memory leaks.
-
-    @note Allocations will only be tracked if PA_TRACK_MEMORY is #defined. If
-    it isn't, this function will always return 0.
+/* the following functions are implemented in a platform platform specific
+ .c file
 */
 
+/** Allocate size bytes, guaranteed to be aligned to a FIXME byte boundary */
+void *PaUtil_AllocateMemory( long size );
 
+
+/** Realease block if non-NULL. block may be NULL */
+void PaUtil_FreeMemory( void *block );
+
+
+/** Return the number of currently allocated blocks. This function can be
+ used for detecting memory leaks.
+
+ @note Allocations will only be tracked if PA_TRACK_MEMORY is #defined. If
+ it isn't, this function will always return 0.
+*/
+int PaUtil_CountCurrentlyAllocatedBlocks( void );
+
+
+/** Initialize the clock used by PaUtil_GetTime(). Call this before calling
+ PaUtil_GetTime.
+
+ @see PaUtil_GetTime
+*/
 void PaUtil_InitializeClock( void );
-double PaUtil_GetTime( void ); /* system time in seconds, used to implement CPU load functions */
+
+
+/** Return the system time in seconds. Used to implement CPU load functions
+
+ @see PaUtil_InitializeClock
+*/
+double PaUtil_GetTime( void );
+
 
 /* void Pa_Sleep( long msec );  must also be implemented in per-platform .c file */
 

@@ -30,6 +30,12 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+
+    @todo create a new error code such as paCantReadWriteToCallbackStream
+    and return it from the dummy read, write and get available methods.
+*/
+
 #include "pa_stream.h"
 
 void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
@@ -94,7 +100,7 @@ PaError PaUtil_DummyRead( PaStream* stream,
     (void)buffer; /* unused parameter */
     (void)frames; /* unused parameter */
 
-    return paNoError; /* @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
+    return paNoError; /** @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
 }
 
 
@@ -106,7 +112,7 @@ PaError PaUtil_DummyWrite( PaStream* stream,
     (void)buffer; /* unused parameter */
     (void)frames; /* unused parameter */
 
-    return paNoError; /* @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
+    return paNoError; /** @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
 }
 
 
@@ -114,7 +120,7 @@ signed long PaUtil_DummyGetAvailable( PaStream* stream )
 {
     (void)stream; /* unused parameter */
 
-    return 0;
+    return 0; /** @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
 }
 
 

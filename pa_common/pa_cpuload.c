@@ -30,6 +30,16 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file Functions to assist in measuring the CPU utilization of a callback
+ stream. Used to implement the Pa_GetStreamCpuLoad() function.
+
+ @todo Dynamically calculate the coefficients used to smooth the CPU Load
+ Measurements over time to provide a uniform characterisation of CPU Load
+ independent of rate at which PaUtil_BeginCpuLoadMeasurement /
+ PaUtil_EndCpuLoadMeasurement are called.
+*/
+
+
 #include "pa_cpuload.h"
 
 #include <assert.h>
@@ -65,6 +75,7 @@ void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned lon
         measuredLoad = (measurementEndTime - measurer->measurementStartTime) / secondsFor100Percent;
 
         /* Low pass filter the calculated CPU load to reduce jitter using a simple IIR low pass filter. */
+        /** FIXME @todo these coefficients shouldn't be hardwired */
 #define LOWPASS_COEFFICIENT_0   (0.9)
 #define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
 

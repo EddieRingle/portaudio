@@ -48,9 +48,44 @@ http://www.portaudio.com/docs/proposals/index.html
 This documentation is under construction. Things you might be interested in
 include:
 
-- The PortAudio API 2.0 documented in portaudio.h
+- The PortAudio API 2.0, as documented in portaudio.h
 
-- The possibly incomplete and totally unorganised <a href="todo.html">Todo List</a>
+- The <a href="todo.html">TODO List</a>
+
+Feel free to pick an item off TODO list and fix/implement it. You may want to
+enquire about status on the PortAudio mailing list first.
+*/
+
+
+/** @file
+ Implements the functions defined in the PortAudio API, checks for
+ some parameter and state inconsistencies and forwards API requests to
+ specific Host API implementations (via the interface declared in
+ pa_hostapi.h), and Streams (via the interface declared in pa_stream.h).
+
+ This file handles initialization and termination of Host API
+ implementations via initializers stored in the paHostApiInitializers
+ global variable.
+
+ Some utility functions declared in pa_util.h are implemented in this file.
+
+ All PortAudio API functions can be conditionally compiled with logging code.
+ To compile with logging, define the PA_LOG_API_CALLS precompiler symbol.
+
+    @todo Consider adding host API specific error text in Pa_GetErrorText() for
+    paUnanticipatedHostError
+
+    @todo Consider adding a new error code for when (inputParameters == NULL)
+    && (outputParameters == NULL)
+
+    @todo review use of defaultHighInputLatency for suggestedLatency in
+    Pa_OpenDefaultStream.
+
+    @todo review whether Pa_CloseStream() should call the interface's
+    CloseStream function if aborting the stream returns an error code.
+
+    @todo Consider returning an error code if a NULL buffer pointer, or a
+    zero or negative frame count, is passed to Pa_ReadStream or Pa_WriteStream.
 */
 
 #include <stdio.h>
@@ -76,37 +111,39 @@ include:
 /* #define PA_LOG_API_CALLS */
 
 /*
-    The basic format for log messages is as follows:
+    The basic format for log messages is described below. If you need to
+    add any log messages, please follow this format.
  
-    - entry (void function):
+    Function entry (void function):
  
-    "FunctionName called.\n"
+        "FunctionName called.\n"
  
-    - entry (non void function):
+    Function entry (non void function):
  
-    "FunctionName called:\n"
-    "\tParam1Type param1: param1Value\n"
-    "\tParam2Type param2: param2Value\n"      (etc...)
+        "FunctionName called:\n"
+        "\tParam1Type param1: param1Value\n"
+        "\tParam2Type param2: param2Value\n"      (etc...)
  
  
-    - exit (no return value)
+    Function exit (no return value):
  
-    "FunctionName returned.\n"
+        "FunctionName returned.\n"
  
-    - exit (simple return value)
+    Function exit (simple return value):
  
-    "FunctionName returned:\n"
-    "\tReturnType: returnValue\n\n"
+        "FunctionName returned:\n"
+        "\tReturnType: returnValue\n\n"
  
-    if the return type is an error code, the error text is displayed in ()
+    If the return type is an error code, the error text is displayed in ()
  
-    if the return type is not an error code, but has taken a special value
+    If the return type is not an error code, but has taken a special value
     because an error occurred, then the reason for the error is shown in []
  
-    if the return type is a struct ptr, the struct is dumped.
+    If the return type is a struct ptr, the struct is dumped.
  
-    see the code for more detailed examples
+    See the code below for examples
 */
+
 
 int Pa_GetVersion( void )
 {
@@ -480,7 +517,7 @@ PaError PaUtil_GetHostApiRepresentation( struct PaUtilHostApiRepresentation **ho
     }
     else
     {
-        result = paInternalError; /* @todo should return host API not found */
+        result = paHostApiNotFound;
                 
         for( i=0; i < hostApisCount_; ++i )
         {
@@ -910,7 +947,7 @@ static PaError ValidateOpenStreamParameters(
     if( (inputParameters == NULL) && (outputParameters == NULL) )
     {
 
-        return paInvalidDevice; /* @todo should be a new error code "invalid device parameters" or something */
+        return paInvalidDevice; /** @todo should be a new error code "invalid device parameters" or something */
 
     }
     else
@@ -1208,7 +1245,10 @@ PaError Pa_OpenStream( PaStream** stream,
         return result;
     }
 
-    /* Check for parameter errors. */
+    /* Check for parameter errors.
+        NOTE: make sure this validation list is kept syncronised with the one
+        in pa_hostapi.h
+    */
 
     if( stream == NULL )
     {
@@ -1316,7 +1356,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
         hostApiInputParameters.channelCount = inputChannelCount;
         hostApiInputParameters.sampleFormat = sampleFormat;
-        hostApiInputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
+        hostApiInputParameters.suggestedLatency =  /** @todo REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiInputParameters.device )->defaultHighInputLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiInputParametersPtr = &hostApiInputParameters;
@@ -1331,7 +1371,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
         hostApiOutputParameters.channelCount = outputChannelCount;
         hostApiOutputParameters.sampleFormat = sampleFormat;
-        hostApiOutputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
+        hostApiOutputParameters.suggestedLatency =  /** @todo REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiOutputParameters.device )->defaultHighOutputLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiOutputParametersPtr = &hostApiOutputParameters;
@@ -1392,7 +1432,7 @@ PaError Pa_CloseStream( PaStream* stream )
             result = interface->Abort( stream );
         }
 
-        if( result == paNoError )                 /* REVIEW: shouldn't we close anyway? */
+        if( result == paNoError )                 /** @todo REVIEW: shouldn't we close anyway? */
             result = interface->Close( stream );
     }
 
@@ -1693,7 +1733,7 @@ PaError Pa_ReadStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /* @todo should return an error if buffer is zero or frames <= 0 */
+    /** @todo should return an error if buffer is zero or frames <= 0 */
     if( frames > 0 && buffer != 0 )
         result = PA_STREAM_INTERFACE(stream)->Read( stream, buffer, frames );
 
@@ -1717,7 +1757,7 @@ PaError Pa_WriteStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /* @todo should return an error if buffer is zero or frames <= 0 */
+    /** @todo should return an error if buffer is zero or frames <= 0 */
     if( frames > 0 && buffer != 0 )
         result = PA_STREAM_INTERFACE(stream)->Write( stream, buffer, frames );
 

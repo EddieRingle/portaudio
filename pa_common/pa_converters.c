@@ -29,9 +29,14 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-/** @file
+/** @file Conversion functions used to convert buffers of samples from one
+ format to another.
  
- If the C9x function lrintf() is avaiable, define PA_USE_C99_LRINTF to use it
+ If the C9x function lrintf() is available, define PA_USE_C99_LRINTF to use it
+
+ @todo Consider whether functions which dither but don't clip should exist,
+ V18 automatically enabled clipping whenever dithering was selected. Perhaps
+ we should do the same.
 
  @todo implement the converters marked IMPLEMENT ME: Float32_To_UInt8_Dither,
  Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24,

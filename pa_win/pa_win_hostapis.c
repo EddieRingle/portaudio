@@ -29,6 +29,13 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file Win32 host API initialization function table.
+
+    @todo Consider using PA_USE_WMME etc instead of PA_NO_WMME. This is what
+    the Unix version does, we should consider being consistent.
+*/
+
+
 #include "pa_hostapi.h"
 
 #ifdef __cplusplus
