@@ -40,23 +40,26 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
+#include "pa_util.h"
 #define NUM_SECONDS   (8)
 #define SAMPLE_RATE   (44100)
 #define FRAMES_PER_BUFFER  (64)
 #define NUM_BUFFERS   (0)
+
 #ifndef M_PI
 #define M_PI  (3.14159265)
 #endif
+#define TWOPI (M_PI * 2.0)
+
 #define TABLE_SIZE   (200)
 typedef struct
 {
-    float         sine[TABLE_SIZE];
-    int           left_phase;
-    int           right_phase;
-    unsigned long framesToGo;
+    double           left_phase;
+    double           right_phase;
     volatile PaTimestamp   outTime;
 }
 paTestData;
+
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
@@ -67,42 +70,33 @@ static int patestCallback(   void *inputBuffer, void *outputBuffer,
 {
     paTestData *data = (paTestData*)userData;
     float *out = (float*)outputBuffer;
-    int i;
-    int framesToCalc;
-    int finished = 0;
+    unsigned int i;
+
+    double left_phaseInc = 0.02;
+    double right_phaseInc = 0.06;
+
+    double left_phase = data->left_phase;
+    double right_phase = data->right_phase;
+
     (void) outTime; /* Prevent unused variable warnings. */
     (void) inputBuffer;
+    data->outTime = outTime;\
 
-    data->outTime = outTime;
-    
-    if( data->framesToGo < framesPerBuffer )
+    for( i=0; i<framesPerBuffer; i++ )
     {
-        framesToCalc = data->framesToGo;
-        data->framesToGo = 0;
-        finished = 1;
-    }
-    else
-    {
-        framesToCalc = framesPerBuffer;
-        data->framesToGo -= framesPerBuffer;
+        left_phase += left_phaseInc;
+        if( left_phase > TWOPI ) left_phase -= TWOPI;
+        *out++ = (float) sin( left_phase );
+
+        right_phase += right_phaseInc;
+        if( right_phase > TWOPI ) right_phase -= TWOPI;
+        *out++ = (float) sin( right_phase );
     }
 
-    for( i=0; i<framesToCalc; i++ )
-    {
-        *out++ = data->sine[data->left_phase];  /* left */
-        *out++ = data->sine[data->right_phase];  /* right */
-        data->left_phase += 1;
-        if( data->left_phase >= TABLE_SIZE ) data->left_phase -= TABLE_SIZE;
-        data->right_phase += 3; /* higher pitch so we can distinguish left and right. */
-        if( data->right_phase >= TABLE_SIZE ) data->right_phase -= TABLE_SIZE;
-    }
-    /* zero remainder of final buffer */
-    for( ; i<(int)framesPerBuffer; i++ )
-    {
-        *out++ = 0; /* left */
-        *out++ = 0; /* right */
-    }
-    return finished;
+    data->left_phase = left_phase;
+    data->right_phase = right_phase;
+
+    return paContinue;
 }
 /*******************************************************************/
 static void ReportStreamTime( PaStream *stream, paTestData *data );
@@ -132,16 +126,10 @@ int main(void)
     PaStream *stream;
     PaError err;
     paTestData DATA;
-    int i;
     int totalSamps;
     printf("PortAudio Test: output sine wave. SR = %d, BufSize = %d\n", SAMPLE_RATE, FRAMES_PER_BUFFER);
-    /* initialise sinusoidal wavetable */
-    for( i=0; i<TABLE_SIZE; i++ )
-    {
-        DATA.sine[i] = (float) sin( ((double)i/(double)TABLE_SIZE) * M_PI * 2. );
-    }
     DATA.left_phase = DATA.right_phase = 0;
-    DATA.framesToGo = totalSamps =  NUM_SECONDS * SAMPLE_RATE; /* Play for a few seconds. */
+    totalSamps =  NUM_SECONDS * SAMPLE_RATE; /* Play for a few seconds. */
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
     err = Pa_OpenStream(
@@ -190,7 +178,7 @@ int main(void)
     {
         ReportStreamTime( stream, &DATA );
         Pa_Sleep(100);
-    } while( Pa_IsStreamActive( stream ) );
+    } while( Pa_GetStreamTime( stream ) < (totalSamps/2) );
     
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
