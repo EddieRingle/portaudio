@@ -469,8 +469,9 @@ typedef struct PaStreamParameters
      shouldround the suggestedLatency up to the next practial value - ie to
      provide an equal or higher latency than suggestedLatency whereever possibe.
      Actual latency values for an open stream may be retrieved using the
-     Pa_GetStreamInputLatency and Pa_GetStreamInputLatency functions.
-     @see default*Latency in PaDeviceInfo
+     inputLatency and outputLatency fields of the PaStreamInfo structure
+     returned by Pa_GetStreamInfo().
+     @see default*Latency in PaDeviceInfo, *Latency in PaStreamInfo
     */
     PaTime suggestedLatency;
 
