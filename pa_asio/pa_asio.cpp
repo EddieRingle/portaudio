@@ -887,7 +887,7 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
             &info->bufferGranularity)) != ASE_OK )
     {
         result = paUnanticipatedHostError;
-         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
@@ -950,7 +950,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     (*hostApi)->info.deviceCount = 0;
 
     #ifdef WINDOWS
-        CoInitialize(0);
+        CoInitialize(NULL);
     #endif
     
     /* MUST BE CHECKED : to force fragments loading on Mac */
@@ -1018,8 +1018,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 deviceInfo->maxInputChannels = paAsioDriverInfo.numInputChannels;
                 deviceInfo->maxOutputChannels = paAsioDriverInfo.numOutputChannels;
 
-                PA_DEBUG(("PaAsio_Initialize: inputChannels = %d\n", inputChannels ));
-                PA_DEBUG(("PaAsio_Initialize: outputChannels = %d\n", outputChannels ));
+                PA_DEBUG(("PaAsio_Initialize: inputChannels = %d\n",  paAsioDriverInfo.numInputChannels ));
+                PA_DEBUG(("PaAsio_Initialize: outputChannels = %d\n", paAsioDriverInfo.numOutputChannels));
 
                 
                 deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
@@ -2103,5 +2103,59 @@ static signed long GetStreamWriteAvailable( PaStream* s )
     (void) stream; /* unused parameter */
     
     return 0;
+}
+
+
+PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
+{
+	PaError result;
+    PaUtilHostApiRepresentation *hostApi;
+    PaDeviceIndex hostApiDevice;
+    ASIODriverInfo driverInfo;
+	ASIOError aerr;
+    
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
+    if( result == paNoError )
+    {
+        result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice, device, hostApi );
+
+        if( result == paNoError )
+        {
+            PaAsioDeviceInfo *asioDeviceInfo =
+                    (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+
+			if( !loadAsioDriver(
+                    const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
+			{
+				result = paUnanticipatedHostError;
+			}
+
+			/* CRUCIAL!!! */
+			memset(&driverInfo,0,sizeof(ASIODriverInfo));
+			driverInfo.sysRef = systemSpecific;
+			aerr = ASIOInit(&driverInfo);
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOInit(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+PA_DEBUG(("asioVersion: ASIOInit(): %ld\n", driverInfo.asioVersion ));
+PA_DEBUG(("driverVersion: ASIOInit(): %ld\n", driverInfo.driverVersion ));
+PA_DEBUG(("Name: ASIOInit(): %s\n", driverInfo.name ));
+PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n", driverInfo.errorMessage ));
+
+			aerr = ASIOControlPanel();
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+
+			aerr = ASIOExit();
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+
+      }
+    }
+	else
+    {
+PA_DEBUG(("PaAsio_ShowControlPanel: A\n" ));
+    }
+    
+	return result;
 }
 

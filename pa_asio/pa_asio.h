@@ -59,7 +59,14 @@ extern "C"
 PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
 		long *minLatency, long *maxLatency, long *preferredLatency, long *granularity );
 
+        
+/** Display the ASIO control panel for the specified device.
 
+  @param device The global index of the device whose control panel is to be displayed.
+  @param systemSpecific On Windows, the calling application's main window handle,
+  on Macintosh this value should be zero.
+*/
+PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
 
 #ifdef __cplusplus
 }
