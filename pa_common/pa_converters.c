@@ -40,15 +40,12 @@
 
  @todo implement the converters marked IMPLEMENT ME: Float32_To_UInt8_Dither,
  Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24_Dither,
- Int32_To_UInt8, Int32_To_UInt8_Dither, Int24_To_Int16_Dither, Int24_To_Int8, 
- Int24_To_Int8_Dither, Int24_To_UInt8, Int24_To_UInt8_Dither, Int16_To_Int32,  
- Int16_To_Int8, Int16_To_Int8_Dither, Int16_To_UInt8, Int16_To_UInt8_Dither,
- Int8_To_Int32, Int8_To_Int24, Int8_To_Int16, Int8_To_UInt8, UInt8_To_Int32,
- UInt8_To_Int24, UInt8_To_Int16, UInt8_To_Int8
+ Int32_To_UInt8_Dither, Int24_To_Int16_Dither, Int24_To_Int8_Dither, 
+ Int24_To_UInt8_Dither, Int16_To_Int8_Dither, Int16_To_UInt8_Dither,
 
  @todo review the converters marked REVIEW: Float32_To_Int32,
  Float32_To_Int32_Dither, Float32_To_Int32_Clip, Float32_To_Int32_DitherClip,
- Int32_To_Int16_Dither, Int32_To_Int8_Dither
+ Int32_To_Int16_Dither, Int32_To_Int8_Dither, Int16_To_Int32
 */
 
 
@@ -132,15 +129,15 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat(
 #define PA_SELECT_CONVERTER_DITHER_CLIP_( flags, source, destination )         \
     if( flags & paClipOff ){ /* no clip */                                     \
         if( flags & paDitherOff ){ /* no dither */                             \
-            return paConverters. source ## _To_ ## destination;             \
+            return paConverters. source ## _To_ ## destination;                \
         }else{ /* dither */                                                    \
-            return paConverters. source ## _To_ ## destination ## _Dither;  \
+            return paConverters. source ## _To_ ## destination ## _Dither;     \
         }                                                                      \
     }else{ /* clip */                                                          \
         if( flags & paDitherOff ){ /* no dither */                             \
-            return paConverters. source ## _To_ ## destination ## _Clip;    \
+            return paConverters. source ## _To_ ## destination ## _Clip;       \
         }else{ /* dither */                                                    \
-            return paConverters. source ## _To_ ## destination ## _DitherClip;\
+            return paConverters. source ## _To_ ## destination ## _DitherClip; \
         }                                                                      \
     }
 
@@ -148,9 +145,9 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat(
 
 #define PA_SELECT_CONVERTER_DITHER_( flags, source, destination )              \
     if( flags & paDitherOff ){ /* no dither */                                 \
-        return paConverters. source ## _To_ ## destination;                 \
+        return paConverters. source ## _To_ ## destination;                    \
     }else{ /* dither */                                                        \
-        return paConverters. source ## _To_ ## destination ## _Dither;      \
+        return paConverters. source ## _To_ ## destination ## _Dither;         \
     }
 
 /* -------------------------------------------------------------------------- */
@@ -814,7 +811,6 @@ static void Float32_To_UInt8_Dither(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -835,7 +831,6 @@ static void Float32_To_UInt8_Clip(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -856,7 +851,6 @@ static void Float32_To_UInt8_DitherClip(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -1025,8 +1019,7 @@ static void Int32_To_UInt8(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = ((*src) >> 24) + 128; 
 
         src += sourceStride;
         dest += destinationStride;
@@ -1046,7 +1039,6 @@ static void Int32_To_UInt8_Dither(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -1177,13 +1169,27 @@ static void Int24_To_Int8(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    signed char  *dest = (signed short*)destinationBuffer;
+    
+    (void) ditherGenerator; /* unused parameter */
+        
+    while( count-- )
+    {	
+	
+#if defined(PA_LITTLE_ENDIAN)
+		/* src[0] is discarded */
+		/* src[1] is discarded */
+        *dest = src[2];
+#elif defined(PA_BIG_ENDIAN)
+		/* src[2] is discarded */
+		/* src[1] is discarded */
+		*dest = src[0];
+#endif
+
+        src += sourceStride * 3;
+        dest += destinationStride;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1209,13 +1215,27 @@ static void Int24_To_UInt8(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
-    (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    unsigned char *dest = (signed short*)destinationBuffer;
+    
+    (void) ditherGenerator; /* unused parameter */
+        
+    while( count-- )
+    {
+		
+#if defined(PA_LITTLE_ENDIAN)
+		/* src[0] is discarded */
+		/* src[1] is discarded */
+        *dest = src[2] + 128;
+#elif defined(PA_BIG_ENDIAN)
+        *dest = src[0] + 128;
+		/* src[1] is discarded */
+		/* src[2] is discarded */		
+#endif
+
+        src += sourceStride * 3;
+        dest += destinationStride;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1268,7 +1288,9 @@ static void Int16_To_Int32(
 
     while( count-- )
     {
-        /* REVIEW */
+        /* REVIEW: we should consider something like
+            (*src << 16) | (*src & 0xFFFF)
+        */
         
         *dest = *src << 16;
 
@@ -1322,8 +1344,7 @@ static void Int16_To_Int8(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        (*dest) = (*src) >> 8; 
 
         src += sourceStride;
         dest += destinationStride;
@@ -1343,7 +1364,6 @@ static void Int16_To_Int8_Dither(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -1364,8 +1384,7 @@ static void Int16_To_UInt8(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = ((*src) >> 8) + 128; 
 
         src += sourceStride;
         dest += destinationStride;
@@ -1385,7 +1404,6 @@ static void Int16_To_UInt8_Dither(
 
     while( count-- )
     {
-
         /* IMPLEMENT ME */
 
         src += sourceStride;
@@ -1427,8 +1445,7 @@ static void Int8_To_Int32(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = (*src) << 24;
 
         src += sourceStride;
         dest += destinationStride;
@@ -1449,7 +1466,15 @@ static void Int8_To_Int24(
     while( count-- )
     {
 
-        /* IMPLEMENT ME */
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = 0;
+        dest[1] = 0;
+        dest[2] = (*src);
+#elif defined(PA_BIG_ENDIAN)
+        dest[0] = (*src);
+        dest[1] = 0;
+        dest[2] = 0;
+#endif
 
         src += sourceStride;
         dest += destinationStride * 3;
@@ -1469,8 +1494,7 @@ static void Int8_To_Int16(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = (*src) << 8;
 
         src += sourceStride;
         dest += destinationStride;
@@ -1490,8 +1514,7 @@ static void Int8_To_UInt8(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        (*src) = (*dest + 128);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1511,7 +1534,6 @@ static void UInt8_To_Float32(
 
     while( count-- )
     {
-
         float samp = (*src - 128) * const_1_div_128_;
         *dest = samp;
 
@@ -1533,8 +1555,7 @@ static void UInt8_To_Int32(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = (*src - 128) << 24;
 
         src += sourceStride;
         dest += destinationStride;
@@ -1548,13 +1569,26 @@ static void UInt8_To_Int24(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    (void) destinationBuffer; /* unused parameters */
-    (void) destinationStride; /* unused parameters */
-    (void) sourceBuffer; /* unused parameters */
-    (void) sourceStride; /* unused parameters */
-    (void) count; /* unused parameters */
+	unsigned char *src  = (unsigned char*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
     (void) ditherGenerator; /* unused parameters */
-    /* IMPLEMENT ME */
+    
+	while( count-- )
+    {
+
+#if defined(PA_LITTLE_ENDIAN)
+        dest[0] = 0;
+        dest[1] = 0;
+        dest[2] = (*src - 128);
+#elif defined(PA_BIG_ENDIAN)
+        dest[0] = (*src - 128);
+        dest[1] = 0;
+        dest[2] = 0;
+#endif
+		
+        src += sourceStride;
+        dest += destinationStride * 3;    
+	}
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1570,8 +1604,7 @@ static void UInt8_To_Int16(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+		(*dest) = (*src - 128) << 8;
 
         src += sourceStride;
         dest += destinationStride;
@@ -1586,13 +1619,12 @@ static void UInt8_To_Int8(
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
     unsigned char *src = (unsigned char*)sourceBuffer;
-    float *dest =  (float*)destinationBuffer;
+    signed char  *dest = (signed char*)destinationBuffer;
     (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        (*dest) = (*src - 128);
 
         src += sourceStride;
         dest += destinationStride;
