@@ -101,6 +101,10 @@ static unsigned long CalculateFrameShift( unsigned long M, unsigned long N )
     unsigned long result = 0;
     unsigned long i;
     unsigned long lcm;
+
+    assert( M > 0 );
+    assert( N > 0 );
+
     lcm = LCM( M, N );
     for( i = M; i < lcm; i += M )
         result = PA_MAX_( result, i % N );
