@@ -993,12 +993,12 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, PaUtilH
 
     assert( deviceInfo );
     assert( parameters->hostApiSpecificStreamInfo == NULL );
-    maxChans = (mode == StreamDirection_In ? deviceInfo->commonDeviceInfo.maxInputChannels :
+    maxChans = (StreamDirection_In == mode ? deviceInfo->commonDeviceInfo.maxInputChannels :
         deviceInfo->commonDeviceInfo.maxOutputChannels);
     PA_UNLESS( parameters->channelCount <= maxChans, paInvalidChannelCount );
 
 error:
-    return paNoError;
+    return result;
 }
 
 /* Given an open stream, what sample formats are available? */
@@ -1326,7 +1326,6 @@ static PaError PaAlsaStreamComponent_Configure( PaAlsaStreamComponent *self, con
         PA_ENSURE( paInvalidSampleRate );
     }
 
-    /* ... set the number of channels */
     ENSURE_( snd_pcm_hw_params_set_channels( pcm, hwParams, self->numHostChannels ), paInvalidChannelCount );
 
     /* I think there should be at least 2 periods (even though ALSA doesn't appear to enforce this) */
@@ -1957,7 +1956,9 @@ static PaError StartStream( PaStream *s )
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
         ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
-        while( !IsRunning( stream ) && IsStreamActive( s ) && !res )    /* Due to possible spurious wakeups, we enclose in a loop */
+
+        /* Due to possible spurious wakeups, we enclose in a loop */
+        while( !IsRunning( stream ) && IsStreamActive( s ) && !res )
         {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
         }
