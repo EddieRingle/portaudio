@@ -40,7 +40,45 @@ extern "C"
 #endif /* __cplusplus */
 
 
-void PaUtil_SetHostError( long error ); /* deprecated */
+/** Retrieve a specific host API representation. This function can be used
+ by implementations to retrieve a pointer to their representation in
+ host api specific extension functions which aren't passed a rep pointer
+ by pa_front.c.
+
+ @param hostApi A pointer to a host API represenation pointer. Apon success
+ this will receive the requested representation pointer.
+
+ @param type A valid host API type identifier.
+
+ @returns An error code. If the result is PaNoError then a pointer to the
+ requested host API representation will be stored in *hostApi.
+*/
+PaError PaUtil_GetHostApiRepresentation( struct PaUtilHostApiRepresentation **hostApi,
+        PaHostApiTypeId type );
+
+
+/** Convert a PortAudio device index into a host API specific device index.
+ @param hostApiDevice Pointer to a device index, on success this will recieve the
+ converted device index value.
+ @param device The PortAudio device index to convert.
+ @param hostApi The host api which the index should be converted for.
+
+ @returns On success returns PaNoError and places the converted index in the
+ hostApiDevice parameter.
+*/
+PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
+        PaDeviceIndex *hostApiDevice, PaDeviceIndex device,
+        struct PaUtilHostApiRepresentation *hostApi );
+
+
+/** Set the host error value returned by Pa_GetHostError(). This function
+ should be used as a last resort. Implementors should use existing PA
+ error codes where possible, or nominate new ones. Note that at this stage
+ it is better to use PaUtil_SetHostError() than to return an ambiguous or
+ inaccurate PaError code.
+ @note this function is deprecated and is marked for removal from the API.
+*/
+void PaUtil_SetHostError( long error );
 
 
 /**

@@ -40,6 +40,16 @@ extern "C"
 #endif /* __cplusplus */
 
 
+typedef struct PaUtilPrivatePaFrontHostApiInfo {
+/* **for the use of pa_front.c only**
+    don't use fields in this structure, they my change at any time
+    use functions defined in pa_util.h if you think you need functionality
+    which can be derived from here
+*/
+
+    unsigned long baseDeviceIndex;
+}PaUtilPrivatePaFrontHostApiInfo;
+
 
 /*
  PaUtilHostApiRepresentation must be implemented by each host api implementation.
@@ -47,6 +57,7 @@ extern "C"
 */
 
 typedef struct PaUtilHostApiRepresentation {
+    PaUtilPrivatePaFrontHostApiInfo privatePaFrontInfo;
     PaHostApiInfo info;
         
     int deviceCount;

@@ -97,15 +97,7 @@ void PaUtil_DebugPrint( const char *format, ... )
 }
 
 
-typedef struct
-{
-    PaUtilHostApiRepresentation *representation;
-    int baseDeviceIndex;
-}
-PaUtilHostAPI;
-
-
-static PaUtilHostAPI *hostApis_ = 0;
+static PaUtilHostApiRepresentation **hostApis_ = 0;
 static int hostApisCount_ = 0;
 static int initializationCount_ = 0;
 static int deviceCount_ = 0;
@@ -133,7 +125,7 @@ static void TerminateHostApis( void )
     while( hostApisCount_ > 0 )
     {
         --hostApisCount_;
-        hostApis_[hostApisCount_].representation->Terminate( hostApis_[hostApisCount_].representation );
+        hostApis_[hostApisCount_]->Terminate( hostApis_[hostApisCount_] );
     }
     hostApisCount_ = 0;
     deviceCount_ = 0;
@@ -151,7 +143,7 @@ static PaError InitializeHostApis( void )
 
     initializerCount = CountHostApiInitializers();
 
-    hostApis_ = PaUtil_AllocateMemory( sizeof(PaUtilHostAPI) * initializerCount );
+    hostApis_ = PaUtil_AllocateMemory( sizeof(PaUtilHostApiRepresentation*) * initializerCount );
     if( !hostApis_ )
     {
         result = paInsufficientMemory;
@@ -164,17 +156,17 @@ static PaError InitializeHostApis( void )
 
     for( i=0; i< initializerCount; ++i )
     {
-        hostApis_[hostApisCount_].representation = NULL;
-        result = paHostApiInitializers[i]( &hostApis_[hostApisCount_].representation, hostApisCount_ );
+        hostApis_[hostApisCount_] = NULL;
+        result = paHostApiInitializers[i]( &hostApis_[hostApisCount_], hostApisCount_ );
         if( result != paNoError )
             goto error;
 
-        if( hostApis_[hostApisCount_].representation )
+        if( hostApis_[hostApisCount_] )
         {
 
-            hostApis_[hostApisCount_].baseDeviceIndex = baseDeviceIndex;
-            baseDeviceIndex += hostApis_[hostApisCount_].representation->deviceCount;
-            deviceCount_ += hostApis_[hostApisCount_].representation->deviceCount;
+            hostApis_[hostApisCount_]->privatePaFrontInfo.baseDeviceIndex = baseDeviceIndex;
+            baseDeviceIndex += hostApis_[hostApisCount_]->deviceCount;
+            deviceCount_ += hostApis_[hostApisCount_]->deviceCount;
 
             ++hostApisCount_;
         }
@@ -206,10 +198,10 @@ static int FindHostApi( PaDeviceIndex device, int *hostSpecificDeviceIndex )
         return -1;
 
     while( i < hostApisCount_
-            && device >= hostApis_[i].representation->deviceCount )
+            && device >= hostApis_[i]->deviceCount )
     {
 
-        device -= hostApis_[i].representation->deviceCount;
+        device -= hostApis_[i]->deviceCount;
         ++i;
     }
 
@@ -399,7 +391,7 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
         
         for( i=0; i < hostApisCount_; ++i )
         {
-            if( hostApis_[i].representation->info.type == type )
+            if( hostApis_[i]->info.type == type )
             {
                 result = i;
                 break;
@@ -414,6 +406,58 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
 
     return result;
 }
+
+
+PaError PaUtil_GetHostApiRepresentation( struct PaUtilHostApiRepresentation **hostApi,
+        PaHostApiTypeId type )
+{
+    PaError result;
+    int i;
+    
+    if( !PA_IS_INITIALISED_ )
+    {
+        result = paNotInitialized;
+    }
+    else
+    {
+        result = paInternalError; // FIXME: should return host API not found
+                
+        for( i=0; i < hostApisCount_; ++i )
+        {
+            if( hostApis_[i]->info.type == type )
+            {
+                *hostApi = hostApis_[i];
+                result = paNoError;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+
+PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
+        PaDeviceIndex *hostApiDevice, PaDeviceIndex device, struct PaUtilHostApiRepresentation *hostApi )
+{
+    PaError result;
+    PaDeviceIndex x;
+    
+    x = device - hostApi->privatePaFrontInfo.baseDeviceIndex;
+
+    if( x < 0 || x >= hostApi->deviceCount )
+    {
+        result = paInvalidDevice;
+    }
+    else
+    {
+        *hostApiDevice = x;
+        result = paNoError;
+    }
+
+    return result;
+}
+
 
 PaHostApiIndex Pa_CountHostApis( void )
 {
@@ -476,7 +520,7 @@ const PaHostApiInfo* Pa_GetHostApiInfo( PaHostApiIndex hostApi )
     }
     else
     {
-        info = &hostApis_[hostApi].representation->info;
+        info = &hostApis_[hostApi]->info;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetHostApiInfo returned:\n" );
@@ -523,7 +567,7 @@ PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi )
 #endif
 
     }
-    else if( hostApis_[hostApi].representation->defaultOutputDeviceIndex == paNoDevice )
+    else if( hostApis_[hostApi]->defaultOutputDeviceIndex == paNoDevice )
     {
         result = paNoDevice;
 
@@ -535,8 +579,8 @@ PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi )
     }
     else
     {
-        result = hostApis_[hostApi].baseDeviceIndex
-                 + hostApis_[hostApi].representation->defaultInputDeviceIndex;
+        result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex
+                 + hostApis_[hostApi]->defaultInputDeviceIndex;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice returned:\n" );
@@ -578,7 +622,7 @@ PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi )
 #endif
 
     }
-    else if( hostApis_[hostApi].representation->defaultOutputDeviceIndex == paNoDevice )
+    else if( hostApis_[hostApi]->defaultOutputDeviceIndex == paNoDevice )
     {
         result = paNoDevice;
 
@@ -590,8 +634,8 @@ PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi )
     }
     else
     {
-        result = hostApis_[hostApi].baseDeviceIndex
-                 + hostApis_[hostApi].representation->defaultOutputDeviceIndex;
+        result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex
+                 + hostApis_[hostApi]->defaultOutputDeviceIndex;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
@@ -635,7 +679,7 @@ int Pa_HostApiCountDevices( PaHostApiIndex hostApi )
     }
     else
     {
-        result = hostApis_[hostApi].representation->deviceCount;
+        result = hostApis_[hostApi]->deviceCount;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
@@ -684,7 +728,7 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int ho
         else
         {
             if( hostApiDeviceIndex < 0 ||
-                    hostApiDeviceIndex >= hostApis_[hostApi].representation->deviceCount )
+                    hostApiDeviceIndex >= hostApis_[hostApi]->deviceCount )
             {
                 result = paNoDevice;
 
@@ -696,7 +740,7 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int ho
             }
             else
             {
-                result = hostApis_[hostApi].baseDeviceIndex + hostApiDeviceIndex;
+                result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex + hostApiDeviceIndex;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_HostApiDeviceIndexToPaDeviceIndex returned:\n" );
@@ -806,7 +850,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
     }
     else
     {
-        result = hostApis_[hostApiIndex].representation->deviceInfos[ hostSpecificDeviceIndex ];
+        result = hostApis_[hostApiIndex]->deviceInfos[ hostSpecificDeviceIndex ];
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetDeviceInfo returned:\n" );
@@ -957,7 +1001,7 @@ static PaError ValidateOpenStreamParameters(
             if( inputHostApiIndex < 0 )
                 return paInternalError;
 
-            *hostApi = hostApis_[inputHostApiIndex].representation;
+            *hostApi = hostApis_[inputHostApiIndex];
 
             if( numInputChannels <= 0 )
                 return paInvalidChannelCount;
@@ -985,7 +1029,7 @@ static PaError ValidateOpenStreamParameters(
             if( outputHostApiIndex < 0 )
                 return paInternalError;
 
-            *hostApi = hostApis_[outputHostApiIndex].representation;
+            *hostApi = hostApis_[outputHostApiIndex];
 
             if( numOutputChannels <= 0 )
                 return paInvalidChannelCount;
