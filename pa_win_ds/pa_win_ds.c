@@ -31,7 +31,9 @@
 
 /** @file
 
-    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+    @todo implement paInputOverflow callback status flag
+    
+    @todo implement paNeverDropInput.
 
     @todo implement host api specific extension to set i/o buffer sizes in frames
 
@@ -56,7 +58,6 @@
 
     old TODOs from phil, need to work out if these have been done:
         O- fix "patest_stop.c"
-        O- Handle buffer underflow, overflow, etc.
 */
 
 #include <stdio.h>
@@ -188,6 +189,8 @@ typedef struct PaWinDsStream
     double           framesWritten;
     double           secondsPerHostByte; /* Used to optimize latency calculation for outTime */
 
+    PaStreamCallbackFlags callbackFlags;
+    
 /* FIXME - move all below to PaUtilStreamRepresentation */
     volatile int     isStarted;
     volatile int     isActive;
@@ -1252,6 +1255,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     HRESULT           hresult;
     double            outputLatency = 0;
     PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime */
+    
 /* Input */
     LPBYTE            lpInBuf1 = NULL;
     LPBYTE            lpInBuf2 = NULL;
@@ -1271,13 +1275,20 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         DSW_QueryInputFilled( dsw, &bytesFilled );
         framesToXfer = numInFramesReady = bytesFilled / dsw->dsw_BytesPerInputFrame;
         outputLatency = ((double)bytesFilled) * stream->secondsPerHostByte;
+
+        /** @todo Check for overflow */
     }
 
     /* How much output room is available? */
     if( stream->bufferProcessor.outputChannelCount > 0 )
     {
+        UINT previousUnderflowCount = dsw->dsw_OutputUnderflows;
         DSW_QueryOutputSpace( dsw, &bytesEmpty );
         framesToXfer = numOutFramesReady = bytesEmpty / dsw->dsw_BytesPerOutputFrame;
+
+        /* Check for underflow */
+        if( dsw->dsw_OutputUnderflows != previousUnderflowCount )
+            stream->callbackFlags |= paOutputUnderflow;
     }
 
     if( (numInFramesReady > 0) && (numOutFramesReady > 0) )
@@ -1296,8 +1307,9 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         timeInfo.outputBufferDacTime = timeInfo.currentTime + outputLatency;
 
 
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /** @todo pass underflow/overflow flags when necessary */ );
-
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, stream->callbackFlags );
+        stream->callbackFlags = 0;
+        
     /* Input */
         if( stream->bufferProcessor.inputChannelCount > 0 )
         {
@@ -1361,6 +1373,8 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         
         if( stream->bufferProcessor.outputChannelCount > 0 )
         {
+        /* FIXME: an underflow could happen here */
+
         /* Update our buffer offset and unlock sound buffer */
             bytesProcessed = numFrames * dsw->dsw_BytesPerOutputFrame;
             dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + bytesProcessed) % dsw->dsw_OutputSize;
@@ -1371,6 +1385,8 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
 error1:
         if( stream->bufferProcessor.inputChannelCount > 0 )
         {
+        /* FIXME: an overflow could happen here */
+
         /* Update our buffer offset and unlock sound buffer */
             bytesProcessed = numFrames * dsw->dsw_BytesPerInputFrame;
             dsw->dsw_ReadOffset = (dsw->dsw_ReadOffset + bytesProcessed) % dsw->dsw_InputSize;
@@ -1477,6 +1493,7 @@ static PaError StartStream( PaStream *s )
     }
 
     stream->framesWritten = 0;
+    stream->callbackFlags = 0;
 
     stream->abortProcessing = 0;
     stream->stopProcessing = 0;
