@@ -106,8 +106,6 @@ typedef struct PaAlsaStream
     snd_pcm_t *pcm_capture;
     snd_pcm_t *pcm_playback;
 
-    int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
-
     snd_pcm_uframes_t frames_per_period;
     snd_pcm_uframes_t playbackBufferSize;
     snd_pcm_uframes_t captureBufferSize;
@@ -120,6 +118,7 @@ typedef struct PaAlsaStream
     int playback_interleaved;   /* bool: is playback interleaved? */
 
     int callback_mode;          /* bool: are we running in callback mode? */
+    int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
     pthread_t callback_thread;
 
     /* the callback thread uses these to poll the sound device(s), waiting
@@ -135,6 +134,7 @@ typedef struct PaAlsaStream
 
     int pcmsSynced;	            /* Have we successfully synced pcms */
     int callbackAbort;		    /* Drop frames? */
+    int isActive;                   /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
     snd_pcm_uframes_t startThreshold;
     pthread_mutex_t stateMtx;      /* Used to synchronize access to stream state */
     pthread_mutex_t startMtx;      /* Used to synchronize stream start */
@@ -861,6 +861,7 @@ static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags 
     stream->pollTimeout = 0;
     stream->pcmsSynced = 0;
     stream->callbackAbort = 0;
+    stream->isActive = 0;
     stream->startThreshold = 0;
     pthread_mutex_init( &stream->stateMtx, NULL );
     pthread_mutex_init( &stream->startMtx, NULL );
@@ -932,12 +933,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* allocate and do basic initialization of the stream structure */
 
-    stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) );
-    if( !stream )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
+    UNLESS( stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) ), paInsufficientMemory );
     InitializeStream( stream, (int) callback, streamFlags );    /* Initialize structure */
 
     if( callback )
@@ -1284,6 +1280,17 @@ static void SilenceBuffer( PaAlsaStream *stream )
     snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames );
 }
 
+/*! \brief Start/prepare pcm(s) for streaming
+ *
+ * Depending on wether the stream is in callback or blocking mode, we will respectively start or simply
+ * prepare the playback pcm. If the buffer has _not_ been primed, we will in callback mode prepare and
+ * silence the buffer before starting playback. In blocking mode we simply prepare, as the playback will
+ * be started automatically as the user writes to output. 
+ *
+ * The capture pcm, however, will simply be prepared and started.
+ *
+ * PaAlsaStream::startMtx makes sure access is synchronized (useful in callback mode)
+ */
 static PaError AlsaStart( PaAlsaStream *stream, int priming )
 {
     PaError result = paNoError;
@@ -1318,6 +1325,42 @@ error:
     goto end;
 }
 
+/*! \brief Utility function for determining if pcms are in running state
+ * */
+static int IsRunning( PaAlsaStream *stream )
+{
+    int result = 0;
+
+    pthread_mutex_lock( &stream->stateMtx ); /* Synchronize access to pcm state */
+    if( stream->pcm_capture )
+    {
+        snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
+
+        if( capture_state == SND_PCM_STATE_RUNNING || capture_state == SND_PCM_STATE_XRUN
+                || capture_state == SND_PCM_STATE_DRAINING )
+        {
+            result = 1;
+            goto end;
+        }
+    }
+
+    if( stream->pcm_playback )
+    {
+        snd_pcm_state_t playback_state = snd_pcm_state( stream->pcm_playback );
+
+        if( playback_state == SND_PCM_STATE_RUNNING || playback_state == SND_PCM_STATE_XRUN
+                || playback_state == SND_PCM_STATE_DRAINING )
+        {
+            result = 1;
+            goto end;
+        }
+    }
+
+end:
+    pthread_mutex_unlock( &stream->stateMtx );
+    return result;
+}
+
 static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
@@ -1339,7 +1382,7 @@ static PaError StartStream( PaStream *s )
         ts.tv_sec = (__time_t) pt + 1;
         ts.tv_nsec = (long) pt * 1000000000;
 
-        while( !IsStreamActive( stream ) && res != ETIMEDOUT )
+        while( !IsRunning( stream ) && res != ETIMEDOUT )
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
         pthread_mutex_unlock( &stream->startMtx );
         PA_DEBUG(( "Waited for %g seconds for stream to start\n", PaUtil_GetTime() - pt ));
@@ -1353,6 +1396,8 @@ static PaError StartStream( PaStream *s )
     }
     else
         PA_ENSURE( AlsaStart( stream, 0 ) );
+
+    stream->isActive = 1;
 
 end:
     return result;
@@ -1387,6 +1432,15 @@ error:
     goto end;
 }
 
+/*! \brief Stop or abort stream
+ *
+ * If a stream is in callback mode we will have to inspect wether the background thread has
+ * finished, or we will have to take it out. In either case we join the thread before
+ * returning. In blocking mode, we simply tell ALSA to stop abruptly (abort) or finish
+ * buffers (drain)
+ *
+ * Stream will be considered inactive (!PaAlsaStream::isActive) after a call to this function
+ */
 static PaError RealStop( PaStream *s, int abort )
 {
     PaError result = paNoError;
@@ -1428,6 +1482,8 @@ static PaError RealStop( PaStream *s, int abort )
         PA_ENSURE( AlsaStop( stream, abort ) );
     }
 
+    stream->isActive = 0;
+
 end:
     return result;
 
@@ -1447,13 +1503,17 @@ static PaError AbortStream( PaStream *s )
     return RealStop( s, 1);
 }
 
+/*!
+ * The stream is considered stopped before StartStream, or AFTER a call to Abort/StopStream (callback
+ * returning !paContinue is not considered)
+ */
 static PaError IsStreamStopped( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
-    int res;
+    PaError res;
 
     /* callback_finished indicates we need to join callback thread (ie. in Abort/StopStream) */
-    res = !(IsStreamActive(s) || stream->callback_finished);
+    res = !IsStreamActive(s) && !stream->callback_finished;
 
     return res;
 }
@@ -1461,36 +1521,9 @@ static PaError IsStreamStopped( PaStream *s )
 static PaError IsStreamActive( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
-    PaError result = 0;
 
-    pthread_mutex_lock( &stream->stateMtx ); /* Synchronize access to stream state */
-    if( stream->pcm_capture )
-    {
-        snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
+    return stream->isActive;
 
-        if( capture_state == SND_PCM_STATE_RUNNING || capture_state == SND_PCM_STATE_XRUN
-                || capture_state == SND_PCM_STATE_DRAINING )
-        {
-            result = 1;
-            goto end;
-        }
-    }
-
-    if( stream->pcm_playback )
-    {
-        snd_pcm_state_t playback_state = snd_pcm_state( stream->pcm_playback );
-
-        if( playback_state == SND_PCM_STATE_RUNNING || playback_state == SND_PCM_STATE_XRUN
-                || playback_state == SND_PCM_STATE_DRAINING )
-        {
-            result = 1;
-            goto end;
-        }
-    }
-
-end:
-    pthread_mutex_unlock( &stream->stateMtx );
-    return result;
 }
 
 
@@ -1954,16 +1987,15 @@ static void OnExit( void *data )
     assert( data );
 
     stream->callback_finished = 1;  /* Let the outside world know stream was stopped in callback */
-
     AlsaStop( stream, stream->callbackAbort );
-    if( stream->callbackAbort )
-        stream->callbackAbort = 0;
+    stream->callbackAbort = 0;      /* Clear state */
     
     PA_DEBUG(( "Stoppage\n" ));
 
     /* Eventually notify user all buffers have played */
     if( stream->streamRepresentation.streamFinishedCallback )
         stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+    stream->isActive = 0;
 }
 
 void *CallbackThread( void *userData )
