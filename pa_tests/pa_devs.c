@@ -61,6 +61,7 @@ int main(void)
         if( i == Pa_GetDefaultInputDevice() ) printf(" DefaultInput");
         if( i == Pa_GetDefaultOutputDevice() ) printf(" DefaultOutput");
         printf("\nName         = %s\n", deviceInfo->name );
+        printf("Host API     = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
         printf("Max Inputs   = %d", deviceInfo->maxInputChannels  );
         printf(", Max Outputs = %d\n", deviceInfo->maxOutputChannels  );
         if( deviceInfo->numSampleRates == -1 )
