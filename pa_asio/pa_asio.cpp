@@ -944,7 +944,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     (*hostApi)->info.type = paASIO;
     (*hostApi)->info.name = "ASIO";
-    (*hostApi)->deviceCount = 0;
+    (*hostApi)->info.deviceCount = 0;
 
     #ifdef WINDOWS
         CoInitialize(0);
@@ -1004,7 +1004,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             /* Attempt to load the asio driver... */
             if( LoadAsioDriver( names[i], &paAsioDriverInfo ) == paNoError )
             {
-                PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->deviceCount ];
+                PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
                 PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
 
                 deviceInfo->structVersion = 2;
@@ -1049,13 +1049,13 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 /* unload the driver */
                 ASIOExit();
 
-                (*hostApi)->deviceInfos[ (*hostApi)->deviceCount ] = deviceInfo;
-                ++(*hostApi)->deviceCount;
+                (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
+                ++(*hostApi)->info.deviceCount;
             }
         }
     }
 
-    if( (*hostApi)->deviceCount > 0 )
+    if( (*hostApi)->info.deviceCount > 0 )
     {
         (*hostApi)->info.defaultInputDevice = 0;
         (*hostApi)->info.defaultOutputDevice = 0;
@@ -1127,7 +1127,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numberOfChannels;
+        numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
@@ -1341,7 +1341,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numberOfChannels;
+        numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
         suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
         
@@ -1364,7 +1364,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numberOfChannels;
+        numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         suggestedOutputLatencyFrames = outputParameters->suggestedLatency;
 
@@ -1528,7 +1528,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( asioError != ASE_OK )
         {
             result = paUnanticipatedHostError;
-             PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+            PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
             goto error;
         }
     }
