@@ -1,11 +1,11 @@
 /*
  * $Id$
- * PortAudio Portable Real-Time Audio Library. Copyright (c) 1999-2001 Phil Burk.
- * Latest Version at: http://www.portaudio.com
+ * PortAudio Portable Real-Time Audio Library. 
+ * Latest Version at: http://www.portaudio.com.
+ * Silicon Graphics (SGI) IRIX implementation by Pieter Suurmond.
  *
- * Silicon Graphics IRIX implementation by Pieter Suurmond, september 23, 2001.
- * pa_sgi-sub-version number 0.21, for PortAudio v15.
- * This implementation uses the sproc()-method, not the POSIX method.
+ * Based on the Open Source API proposed by Ross Bencina
+ * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -30,970 +30,1004 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
-Modfication History:
-  8/12/2001 - Pieter Suurmond - took the v15 pa_linux_oss.c file and started to adapt for IRIX 6.2.
-  8/17/2001 - v15 pa_sgi sub-version #0.04 (unstable alpha release) Sent to Phil & Ross. 
-  9/23/2001 - #0.21 Many fixes and changes: POLLIN for input, not POLLOUT.
-              Open and close ALports in the audio-process-thread.
-              Proper semaphore communication now.
-              Hopefully stable enough now (for beta release?).
-TODO:
-  - Test under IRIX 6.5.
-  - Dynamically switch to 32 bit float as native format when appropriate (let SGI do the conversion), 
-    and maybe also the other natively supported formats? (might increase performance)
-  - The minimal number of buffers setting... I do not yet fully understand it.. I now just take *4.
-REFERENCES:
-  - IRIX 6.2 man pages regarding SGI AL library.
-  - IRIS Digital MediaProgramming Guide (online books and man-pages come
-    with IRIX 6.2 and may not be publically available on the internet).
+ */
+/** @file
+ @brief SGI IRIX AL implementation (according to V19 API version 2.0).
+
+ @note This file started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
+ Nothing to do with the old V18 version: using the newer AL calls now and 
+ pthreads instead of sproc.
+ 
+ Todo: - Find out why Pa_sleep doesn't work (probably us > 1000000).
+       - Set queue sizes and latencies.
+       - Implement blocking i/o properly.
 */
 
-#include <stdio.h>              /* Standard libraries. */
-#include <stdlib.h>
+#include <string.h>         /* strlen() */
+#include <stdio.h>          /* printf() */
+#include <math.h>           /* fabs()   */
 
-#include "../pa_common/portaudio.h"          /* BETTER PATH !!!???? Portaudio headers. */
-#include "../pa_common/pa_host.h"
-#include "../pa_common/pa_trace.h"
+#include <dmedia/audio.h>   /* IRIX AL (audio library). */
+#include <errno.h>          /* To catch 'oserror' after AL-calls. */
+#include <pthread.h>        /* POSIX threads. */
+#include <unistd.h>
 
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/prctl.h>
-#include <sys/schedctl.h>       /* For schedctl(NDPRI, NDPHIMIN). */
-#include <fcntl.h>              /* fcntl.h needed.                */
-#include <unistd.h>             /* For streams, ioctl(), etc.     */
-#include <ulocks.h>
-#include <poll.h>
-#include <dmedia/audio.h>      /* System specific (IRIX 6.2). */
+#include "pa_util.h"
+#include "pa_allocation.h"
+#include "pa_hostapi.h"
+#include "pa_stream.h"
+#include "pa_cpuload.h"
+#include "pa_process.h"
 
-/*--------------------------------------------*/
-#define PRINT(x)   { printf x; fflush(stdout); }
-#define ERR_RPT(x) PRINT(x)
-#define DBUG(x)    /* PRINT(x) */
-#define DBUGX(x)   /* PRINT(x) */
+                            /* Uncomment for diagnostics: */
+#define DBUG(x) { printf x; fflush(stdout); }
 
-#define MAX_CHARS_DEVNAME           (16)        /* Was 32 in OSS (20 for AL but "in"/"out" is concat. */
-#define MAX_SAMPLE_RATES            (8)         /* Known from SGI AL there are 7 (was 10 in OSS v15). */
 
-typedef struct                    internalPortAudioDevice                 /* IRIX specific device info:      */
+/* prototypes for functions declared in this file */
+
+#ifdef __cplusplus
+extern "C"
 {
-  PaDeviceID           /* NEW: */ pad_DeviceID;                           /* THIS "ID" IS NEW HERE (Pieter)! */
-  long                            pad_ALdevice;                           /* SGI-number!                     */
-  double                          pad_SampleRates[MAX_SAMPLE_RATES];      /* for pointing to from pad_Info   */
-  char                            pad_DeviceName[MAX_CHARS_DEVNAME+1];    /* +1 for \0, one more than OSS.   */
-  PaDeviceInfo                    pad_Info;                               /* pad_Info (v15) contains:        */
-   	                              /* int            structVersion;                                           */
-	                              /* const char*    name;                                                    */
-	                              /* int            maxInputChannels, maxOutputChannels;                     */
-	                              /* int            numSampleRates;       Num rates, or -1 if range supprtd. */
-                                  /* const double*  sampleRates;          Array of supported sample rates,   */
-	                              /* PaSampleFormat nativeSampleFormats;  or {min,max} if range supported.   */
-  struct internalPortAudioDevice* pad_Next;                               /* Singly linked list, (NULL=end). */
-} internalPortAudioDevice;
+#endif /* __cplusplus */
 
-typedef struct      PaHostSoundControl              /* Structure to contain all SGI IRIX specific data. */
-{
-  ALconfig          pahsc_ALconfigIN,               /* IRIX-audio-library-datatype. Configuration       */
-                    pahsc_ALconfigOUT;              /* stucts separate for input and output ports.      */
-  ALport            pahsc_ALportIN,                 /* IRIX-audio-library-datatype. ALports can only be */
-                    pahsc_ALportOUT;                /* unidirectional, so we sometimes need 2 of them.  */
-  int               pahsc_threadPID;                /* Sproc()-result, written by PaHost_StartEngine(). */
-  short             *pahsc_NativeInputBuffer,       /* Allocated here, in this file, if necessary.      */
-                    *pahsc_NativeOutputBuffer;
-  unsigned int      pahsc_BytesPerInputBuffer,      /* Native buffer sizes in bytes, really needed here */
-                    pahsc_BytesPerOutputBuffer;     /* to free FAST memory, if buffs were alloctd FAST. */
-  unsigned int      pahsc_SamplesPerInputBuffer,    /* These amounts are needed again and again in the  */
-                    pahsc_SamplesPerOutputBuffer;   /* audio-thread (don't need to be kept globally).   */
-  struct itimerval  pahsc_EntryTime,                /* For measuring CPU utilization (same as linux).   */
-                    pahsc_LastExitTime;
-  long              pahsc_InsideCountSum,
-                    pahsc_TotalCountSum;
-} PaHostSoundControl;
+PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
-/*-------------------------------------------------------- Shared Data -------------------------------*/
-static internalPortAudioDevice* sDeviceList = NULL;     /* FIXME - put Mutex around this shared data. */
-static int                      sPaHostError = 0;       /* Maybe more than one process writing errs!? */
-usema_t                         *SendSema,              /* These variables are shared between the     */
-                                *RcvSema;               /* audio handling process and main process.   */
-/*--------------------------*/
-long Pa_GetHostError(void)
-{
-    return (long)sPaHostError;
+#ifdef __cplusplus
 }
+#endif /* __cplusplus */
 
-/*----------------------------- BEGIN CPU UTILIZATION MEASUREMENT -----------------*/
-/*                              (copied from source pa_linux_oss/pa_linux_oss.c)   */
-static void Pa_StartUsageCalculation( internalPortAudioStream   *past )
+
+static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate );
+static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
+                           PaStream** s,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
+                           double sampleRate,
+                           unsigned long framesPerBuffer,
+                           PaStreamFlags streamFlags,
+                           PaStreamCallback *streamCallback,
+                           void *userData );
+static PaError CloseStream( PaStream* stream );
+static PaError StartStream( PaStream *stream );
+static PaError StopStream( PaStream *stream );
+static PaError AbortStream( PaStream *stream );
+static PaError IsStreamStopped( PaStream *s );
+static PaError IsStreamActive( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
+static double GetStreamCpuLoad( PaStream* stream );
+static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
+static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
+static signed long GetStreamReadAvailable( PaStream* stream );
+static signed long GetStreamWriteAvailable( PaStream* stream );
+
+
+/* IMPLEMENT ME: a macro like the following one should be used for reporting
+ host errors */
+#define PA_SGI_SET_LAST_HOST_ERROR( errorCode, errorText ) \
+    PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
+
+/* PaSGIHostApiRepresentation - host api datastructure specific to this implementation */
+
+typedef struct
 {
-	struct itimerval itimer;
-	PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-	if( pahsc == NULL ) return;
-/* Query system timer for usage analysis and to prevent overuse of CPU. */
-	getitimer( ITIMER_REAL, &pahsc->pahsc_EntryTime );
+    PaUtilHostApiRepresentation   inheritedHostApiRep;
+    PaUtilStreamInterface         callbackStreamInterface;
+    PaUtilStreamInterface         blockingStreamInterface;
+    PaUtilAllocationGroup*        allocations;
+                                                    /* implementation specific data goes here. */
+    ALvalue*                      sgiDeviceIDs;     /* Array of AL resource device numbers.    */
+ /* PaHostApiIndex                hostApiIndex;        Hu? As in the linux and oss files? */
 }
+PaSGIHostApiRepresentation;
 
-static long SubtractTime_AminusB( struct itimerval *timeA, struct itimerval *timeB )
+
+/*
+    TODO: Limit standard supported samplerates for digital i/o! Where does this list come from
+          anyway (showed by bin/pa_devs)?
+          Set latencies.
+*/
+PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
-	long secs = timeA->it_value.tv_sec - timeB->it_value.tv_sec;
-	long usecs = secs * 1000000;
-	usecs += (timeA->it_value.tv_usec - timeB->it_value.tv_usec);
-	return usecs;
-}
+    PaError                     result = paNoError;
+    int                         i, deviceCount, def_in, def_out;
+    PaSGIHostApiRepresentation* SGIHostApi;
+    PaDeviceInfo*               deviceInfoArray;    
+    static const short          numParams = 4;            /* Array with name, samplerate, channels */
+    ALpv                        y[numParams];             /* and type.                             */
+    static const short          maxDevNameChars = 32;     /* Including the terminating null char.  */
+    char                        devName[maxDevNameChars]; /* Too lazy for dynamic alloc.           */
 
-static void Pa_EndUsageCalculation( internalPortAudioStream   *past )
-{
-	struct itimerval currentTime;
-	long  insideCount;
-	long  totalCount;       /* Measure CPU utilization during this callback. */
+    DBUG(("PaSGI_Initialize() started.\n"));
 
-#define LOWPASS_COEFFICIENT_0   (0.95)
-#define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
-
-	PaHostSoundControl *pahsc = (PaHostSoundControl *) past->past_DeviceData;
-	if (pahsc == NULL)
-        return;
-	if (getitimer( ITIMER_REAL, &currentTime ) == 0 )
-	    {
-		if (past->past_IfLastExitValid)
-		    {
-			insideCount = SubtractTime_AminusB( &pahsc->pahsc_EntryTime, &currentTime );
-			pahsc->pahsc_InsideCountSum += insideCount;
-			totalCount =  SubtractTime_AminusB( &pahsc->pahsc_LastExitTime, &currentTime );
-			pahsc->pahsc_TotalCountSum += totalCount;
-		/*  DBUG(("insideCount = %d, totalCount = %d\n", insideCount, totalCount )); */
-            /* Low pass filter the result because sometimes we get called several times in a row. */
-            /* That can cause the TotalCount to be very low which can cause the usage to appear   */
-            /* unnaturally high. So we must filter numerator and denominator separately!!!        */
- 			if (pahsc->pahsc_InsideCountSum > 0)
-			    {
-				past->past_AverageInsideCount = ((LOWPASS_COEFFICIENT_0 * past->past_AverageInsideCount) +
-					                             (LOWPASS_COEFFICIENT_1 * pahsc->pahsc_InsideCountSum));
-				past->past_AverageTotalCount  = ((LOWPASS_COEFFICIENT_0 * past->past_AverageTotalCount) +
-					                             (LOWPASS_COEFFICIENT_1 * pahsc->pahsc_TotalCountSum));
-				past->past_Usage = past->past_AverageInsideCount / past->past_AverageTotalCount;
-				pahsc->pahsc_InsideCountSum = 0;
-				pahsc->pahsc_TotalCountSum = 0;
-			    }
-		    }
-		past->past_IfLastExitValid = 1;
-	    }
-	pahsc->pahsc_LastExitTime.it_value.tv_sec = 100;
-	pahsc->pahsc_LastExitTime.it_value.tv_usec = 0;
-	setitimer( ITIMER_REAL, &pahsc->pahsc_LastExitTime, NULL );
-	past->past_IfLastExitValid = 1;
-}   /*----------- END OF CPU UTILIZATION CODE (from pa_linux_oss/pa_linux_oss.c v15)--------------------*/
-
-
-/*--------------------------------------------------------------------------------------*/
-PaError translateSGIerror(void) /* Calls oserror(), may be used after an SGI AL-library */
-{                               /* call to report via ERR_RPT(), yields a PaError-num.  */
-    const char* a = "SGI AL ";  /* (Not absolutely sure errno came from THIS thread!    */
-    switch(oserror())           /* Read IRIX man-pages about the _SGI_MP_SOURCE macro.) */
+    SGIHostApi = (PaSGIHostApiRepresentation*)PaUtil_AllocateMemory(sizeof(PaSGIHostApiRepresentation));
+    if( !SGIHostApi )
         {
-        case AL_BAD_OUT_OF_MEM:
-             ERR_RPT(("%sout of memory.\n", a)); 
-             return paInsufficientMemory;                   /* Known PaError.   */
-        case AL_BAD_CONFIG:
-             ERR_RPT(("%sconfiguration invalid or NULL.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_CHANNELS:
-             ERR_RPT(("%schannels not 1,2 or 4.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_NO_PORTS:
-             ERR_RPT(("%sout of audio ports.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_DEVICE:
-             ERR_RPT(("%swrong device number.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_DEVICE_ACCESS:
-             ERR_RPT(("%swrong device access.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_DIRECTION:
-             ERR_RPT(("%sinvalid direction.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_SAMPFMT:
-             ERR_RPT(("%sdoesn't accept sampleformat.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_FLOATMAX:
-             ERR_RPT(("%smax float value is zero.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_WIDTH:
-             ERR_RPT(("%sunsupported samplewidth.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_QSIZE:
-             ERR_RPT(("%sinvalid queue size.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_PVBUFFER:
-             ERR_RPT(("%sPVbuffer null.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_BUFFERLENGTH_NEG:
-             ERR_RPT(("%snegative bufferlength.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_BUFFERLENGTH_ODD:
-             ERR_RPT(("%sodd bufferlength.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        case AL_BAD_PARAM:
-             ERR_RPT(("%sparameter not valid for device.\n", a));
-             return paHostError;                            /* Generic PaError. */
-        default:
-             ERR_RPT(("%sunknown error.\n", a));
-             return paHostError;                            /* Generic PaError. */
+        result = paInsufficientMemory;
+        goto cleanup;
         }
-}
-
-/*------------------------------------------------------------------------------------------*/
-/* Tries to set various rates and formats and fill in the device info structure.            */
-static PaError Pa_sgiQueryDevice(long                     ALdev,  /* (AL_DEFAULT_DEVICE)    */
-                                 PaDeviceID               id,     /* (DefaultI|ODeviceID()) */
-                                 char*                    name,   /* (for example "SGI AL") */
-                                 internalPortAudioDevice* pad)    /* Result written to pad. */
-{
-	int     format;
-    long    min, max;                           /* To catch hardware characteristics.       */
-    ALseterrorhandler(0);                       /* 0 = turn off the default error handler.  */
-    /*--------------------------------------------------------------------------------------*/
-    pad->pad_ALdevice = ALdev;                              /* Set the AL device number.    */
-    pad->pad_DeviceID = id;                                 /* Set the PA device number.    */
-    if (strlen(name) > MAX_CHARS_DEVNAME)                   /* MAX_CHARS defined above.     */
+    SGIHostApi->allocations = PaUtil_CreateAllocationGroup();
+    if( !SGIHostApi->allocations )
         {
-        ERR_RPT(("Pa_QueryDevice(): name too long (%s).\n", name));
-        return paHostError;
+        result = paInsufficientMemory;
+        goto cleanup;
         }
-    strcpy(pad->pad_DeviceName, name);                      /* Write name-string.           */
-	pad->pad_Info.name = pad->pad_DeviceName;               /* Set pointer,..hmmm.          */
-    /*--------------------------------- natively supported sample formats: -----------------*/
-    pad->pad_Info.nativeSampleFormats = paInt16; /* Later also include paFloat32 | ..| etc. */
-                                                 /* Then also choose other CallConvertXX()! */
-    /*--------------------------------- number of available i/o channels: ------------------*/
-    if (ALgetminmax(ALdev, AL_INPUT_COUNT, &min, &max))
-        return translateSGIerror();
-	pad->pad_Info.maxInputChannels = max;
-	DBUG(("Pa_QueryDevice: maxInputChannels = %d\n", pad->pad_Info.maxInputChannels))
-    if (ALgetminmax(ALdev, AL_OUTPUT_COUNT, &min, &max))
-        return translateSGIerror();
-	pad->pad_Info.maxOutputChannels = max;
-	DBUG(("Pa_QueryDevice: maxOutputChannels = %d\n", pad->pad_Info.maxOutputChannels))
-    /*--------------------------------- supported samplerates: ----------------------*/ 
-	pad->pad_Info.numSampleRates = 7;   
-	pad->pad_Info.sampleRates = pad->pad_SampleRates;
-    pad->pad_SampleRates[0] = (double)AL_RATE_8000;     /* long -> double. */
-    pad->pad_SampleRates[1] = (double)AL_RATE_11025;
-    pad->pad_SampleRates[2] = (double)AL_RATE_16000;
-    pad->pad_SampleRates[3] = (double)AL_RATE_22050;
-    pad->pad_SampleRates[4] = (double)AL_RATE_32000;
-    pad->pad_SampleRates[5] = (double)AL_RATE_44100;
-    pad->pad_SampleRates[6] = (double)AL_RATE_48000;
-    if (ALgetminmax(ALdev, AL_INPUT_RATE, &min, &max))  /* Ask INPUT rate-max.       */
-        return translateSGIerror();                     /* double -> long.           */
-    if (max != (long)(0.5 + pad->pad_SampleRates[6]))   /* FP-compare not recommndd. */
-        goto weird;
-    if (ALgetminmax(ALdev, AL_OUTPUT_RATE, &min, &max)) /* Ask OUTPUT rate-max.      */
-        return translateSGIerror();
-    if (max != (long)(0.5 + pad->pad_SampleRates[6]))
+    *hostApi = &SGIHostApi->inheritedHostApiRep;
+    (*hostApi)->info.structVersion = 1;
+    (*hostApi)->info.type = paInDevelopment;            /* Change to correct type id? */
+    (*hostApi)->info.name = "SGI IRIX AL";
+    (*hostApi)->info.defaultInputDevice  = paNoDevice;  /* Set later. */
+    (*hostApi)->info.defaultOutputDevice = paNoDevice;  /* Set later.  */
+    (*hostApi)->info.deviceCount = 0;                   /* We 'll increment in the loop below. */
+    
+    /* Determine the total number of input and output devices (thanks to Gary Scavone). */
+    deviceCount = alQueryValues(AL_SYSTEM, AL_DEVICES, 0, 0, 0, 0);
+    if (deviceCount < 0)        /* Returns -1 in case of failure. */
         {
-weird:  ERR_RPT(("Pa_sgiQueryDevice() did not confirm max samplerate (%ld)\n",max));
-        return paHostError;             /* Or make it a warning and just carry on... */
+        DBUG(("AL error counting devices: %s\n", alGetErrorString(oserror())));
+        result = paDeviceUnavailable;       /* Is this the right error return code? */
+        goto cleanup;
         }
-    /*-------------------------------------------------------------------------------*/ 
-	return paNoError;
-}
-
-
-/*--------------------------------------------------------------------------------*/
-int Pa_CountDevices()       /* Name of this function suggests it only counts and  */
-{                           /* is NOT destructive, it however resets whole PA !   */   
-    int                        numDevices = 0;        /* Let 's not do that here. */
-    internalPortAudioDevice*   currentDevice = sDeviceList;   /* COPY GLOBAL VAR. */
-#if 0                       /* Remains from linux_oss v15: Pa_Initialize(), on    */
-    if (!currentDevice)     /* its turn, calls PaHost_Init() via file pa_lib.c.   */
-        Pa_Initialize();    /* Isn't that a bit too 'rude'?        Don't be too   */
-#endif                      /* friendly to clients that forgot to initialize PA.  */
-    while (currentDevice)   /* Slower but more elegant than the sNumDevices-way:  */
+    if (deviceCount > 0)
         {
-        numDevices++;
-        currentDevice = currentDevice->pad_Next;
-        }
-	return numDevices;
-}
-
-/*-------------------------------------------------------------------------------*/
-static internalPortAudioDevice *Pa_GetInternalDevice(PaDeviceID id)
-{
-    int                         numDevices = 0;
-    internalPortAudioDevice     *res = (internalPortAudioDevice*)NULL;
-	internalPortAudioDevice     *pad = sDeviceList;         /* COPY GLOBAL VAR.  */
-    while (pad)                         /* pad may be NULL, that's ok, return 0. */
-        {  /* (Added ->pad_DeviceID field to the pad-struct, Pieter, 2001.)      */
-        if (pad->pad_DeviceID == id)    /* This the device we were looking for?  */
-            res = pad;                  /* But keep on(!) counting so we don't   */
-        numDevices++;                   /* have to call Pa_CountDevices() later. */
-        pad = pad->pad_Next;            /* Advance to the next device or NULL.   */
-        }                               /* No assumptions about order of ID's in */
-    if (!res)                           /* the list.                             */
-        ERR_RPT(("Pa_GetInternalDevice() could not find specified ID (%d).\n",id));
-    if ((id < 0) || (id >= numDevices))
-        {
-        ERR_RPT(("Pa_GetInternalDevice() supplied with an illegal ID (%d).\n",id));
-#if 1                                             /* Be strict, even when found, */
-        res = (internalPortAudioDevice*)NULL;     /* do not accept illegal ID's. */
-#endif
-        }
-	return res;
-}
-
-/*----------------------------------------------------------------------*/
-const PaDeviceInfo* Pa_GetDeviceInfo(PaDeviceID id)
-{
-    PaDeviceInfo*             res = (PaDeviceInfo*)NULL;
-	internalPortAudioDevice*  pad = Pa_GetInternalDevice(id);  /* Call. */
-    if (pad)
-	    res = &pad->pad_Info;   /* Not finding the specified ID is not  */
-    if (!res)                   /* the same as &pad->pad_Info == NULL.  */
-        ERR_RPT(("Pa_GetDeviceInfo() could not find it (ID=%d).\n", id));
-    return res;                 /* So (maybe) a second/third ERR_RPT(). */
-}
-
-/*------------------------------------------------*/
-PaDeviceID Pa_GetDefaultInputDeviceID(void)
-{
-	return 0;	/* 0 is the default device ID. */
-}
-/*------------------------------------------------*/
-PaDeviceID Pa_GetDefaultOutputDeviceID(void)
-{
-	return 0;
-}
-
-/*-------------------------------------------------------------------------------------------------*/
-/* Build linked a list with all the available audio devices on this SGI machine (only 1 for now).  */
-PaError PaHost_Init(void)                              /* Called by Pa_Initialize() from pa_lib.c. */
-{
-    internalPortAudioDevice*    pad;
-	PaError                     r = paNoError;
-    int                         audioLibFileID;             /* To test for the presence of audio.  */
-
-    if (sDeviceList)                                        /* Allow re-init, only warn, no error. */
-        {
-        ERR_RPT(("Warning: PaHost_Init() did not really re-init PA.\n"));
-        return r;
-        }
-    /*------------- ADD THE SGI DEFAULT DEVICE TO THE LIST: ---------------------------------------*/
-    audioLibFileID = open("/dev/hdsp/hdsp0master", O_RDONLY);   /* Try to open Indigo style audio  */
-    if (audioLibFileID < 0)                                     /* IO port. On failure, machine    */
-        {                                                       /* has no audio ability.           */
-        ERR_RPT(("PaHost_Init(): This machine has no (Indigo-style) audio abilities.\n"));
-        return paHostError;
-        }
-    close(audioLibFileID);                              /* Allocate fast mem to hold device info.  */
-	pad = PaHost_AllocateFastMemory(sizeof(internalPortAudioDevice));
-	if (pad == NULL)
-        return paInsufficientMemory;
-    memset(pad, 0, sizeof(internalPortAudioDevice));    /* "pad->pad_Next = NULL" is more elegant. */
-	r = Pa_sgiQueryDevice(AL_DEFAULT_DEVICE,            /* Set AL device num (AL_DEFAULT_DEVICE).  */
-                          Pa_GetDefaultOutputDeviceID(),/* Set PA device num (or InputDeviceID()). */
-                          "AL default",                 /* A suitable name.                        */
-                          pad);                         /* Write args and queried info into pad.   */
-	if (r != paNoError)
-		{
-        ERR_RPT(("Pa_QueryDevice for '%s' returned: %d\n", pad->pad_DeviceName, r));
-		PaHost_FreeFastMemory(pad, sizeof(internalPortAudioDevice));   /* sDeviceList still NULL ! */
-		}
-    else
-        sDeviceList = pad;            /* First element in linked list. pad->pad_Next already NULL. */
-    /*------------- QUERY AND ADD MORE POSSIBLE SGI DEVICES TO THE LINKED LIST: -------------------*/
-    /*---------------------------------------------------------------------------------------------*/
-	return r;
-}
-
-/*--------------------------------------------------------------------------------------------*/
-#define MIN(a,b)    ((a)<(b)?(a):(b))   /* MIN()-function is used below.                      */
-#define kPollSEMA   0                   /* To index the pollfd-array, reads nicer than just   */
-#define kPollOUT    1                   /* numbers.                                           */
-#define kPollIN     2
-void Pa_SgiAudioProcess(void *v)        /* This function is sproc-ed by PaHost_StartEngine()  */
-{                                       /* as a separate thread. (Argument must be void*).    */
-    short                   evtLoop;    /* Reset by parent indirectly, or at local errors.    */
-    PaError                 result;
-    struct pollfd           PollFD[3];  /* To catch kPollSEMA-, kPollOUT- and kPollIN-events. */
-    internalPortAudioStream *past  = (internalPortAudioStream*)v;   /* Copy void-ptr-argument.*/
-    PaHostSoundControl      *pahsc;
-    short                   inputEvent, outputEvent,   /* .revents members are of type short. */
-                            semaEvent = 0;
-    DBUG(("Entering sproc-thread.\n"));
-    if (!past)
-        {
-        sPaHostError = paInternalError;                 /* Or paBadStreamPtr ? */
-        ERR_RPT(("argument NULL!\n"));
-        goto skip;
-        }
-    pahsc = (PaHostSoundControl*)past->past_DeviceData;
-	if (!pahsc)
-        {
-        sPaHostError = paInternalError; /* The only way is to signal error to shared area?!   */
-        ERR_RPT(("past_DeviceData NULL!\n"));
-        goto skip;                      /* Sproc-ed threads MAY NOT RETURN paInternalError.   */
-        }
-    /*----------------------------- open AL-ports here, after sproc(): -----------------------*/
-    if (past->past_NumInputChannels > 0)                                  /* Open input port. */
-	    {	    
-        pahsc->pahsc_ALportIN = ALopenport("PA sgi in", "r", pahsc->pahsc_ALconfigIN);
-        if (!pahsc->pahsc_ALportIN)
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
+                                  SGIHostApi->allocations, sizeof(PaDeviceInfo*) * deviceCount);
+        if (!(*hostApi)->deviceInfos)
             {
-            ERR_RPT(("Failed to open AL input port.\n"));
-            sPaHostError = paInternalError;
-            goto skip;
+            result = paInsufficientMemory;
+            goto cleanup;
             }
-        DBUG(("Opened %d input channel(s).\n", past->past_NumInputChannels));
-	    }
-     if (past->past_NumOutputChannels > 0)                               /* Open output port. */
-	    {	    
-        pahsc->pahsc_ALportOUT = ALopenport("PA sgi out", "w", pahsc->pahsc_ALconfigOUT);
-        if (!pahsc->pahsc_ALportOUT)
+        /* Allocate all device info structs in a contiguous block. */
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
+                          SGIHostApi->allocations, sizeof(PaDeviceInfo) * deviceCount);
+        if (!deviceInfoArray)
             {
-            ERR_RPT(("Failed to open AL output port.\n"));
-            sPaHostError = paInternalError;                 /* Assume pahsc_ALconfigs are the */
-            goto skip;                                      /* same for IN and OUT in case    */
-            }                                               /* both ports are opened (bidir). */
-        DBUG(("Opened %d output channel(s).\n", past->past_NumOutputChannels));
-	    }    
-    /*-----------------------------------------------------------------------*/
-	past->past_IsActive = 1;            /* Wasn't this already done by the calling parent?!   */
-    PollFD[kPollIN].fd = ALgetfd(pahsc->pahsc_ALportIN);    /* ALgetfd returns -1 on failures */
-    PollFD[kPollIN].events = POLLIN;                        /* such as ALport not there.      */
-    PollFD[kPollOUT].fd = ALgetfd(pahsc->pahsc_ALportOUT);
-    PollFD[kPollOUT].events = POLLOUT;                      /* .events = POLLOUT is OK.       */
-    schedctl(NDPRI, NDPHIMIN);              /* Sets non-degrading priority for this process.  */
-    PollFD[kPollSEMA].fd = usopenpollsema(SendSema, 0777);  /* To communicate with parent.    */
-    PollFD[kPollSEMA].events = POLLIN;                      /* .events = POLLIN is OK.        */
-    uspsema(SendSema);              /* Blocks until ... MUST be here, this uspsema(). */
-    evtLoop = ((past->past_StopNow | past->past_StopSoon) == 0);
-    while (evtLoop)
-        {
-        /*---------------------------- SET FILLPOINTS AND WAIT UNTIL SOMETHING HAPPENS: ----------*/
-        if (pahsc->pahsc_NativeInputBuffer)         /* Then pahsc_ALportIN should also be there!  */
-            /* For input port, fill point is number of locations in the sample queue that must be */
-            /* filled in order to trigger a return from select(). (or poll())                     */
-            /* Notice IRIX docs mention number of samples as argument, not number of sampleframes.*/
-	        if (ALsetfillpoint(pahsc->pahsc_ALportIN, pahsc->pahsc_SamplesPerInputBuffer))
-                {                                       /* Same amount as transferred per time.   */
-                ERR_RPT(("ALsetfillpoint() for ALportIN failed.\n"));
-                sPaHostError = paInternalError;         /* (Using exit(-1) would be a bit rude.)  */
-                goto skip;
-                }
-        if (pahsc->pahsc_NativeOutputBuffer)        /* Then pahsc_ALportOUT should also be there! */
-            /* For output port, fill point is number of locations that must be free in order to   */
-            /* wake up from select(). (or poll())                                                 */
-	        if (ALsetfillpoint(pahsc->pahsc_ALportOUT, pahsc->pahsc_SamplesPerOutputBuffer))
+            result = paInsufficientMemory;
+            goto cleanup;
+            }                                               /* Store all AL device IDs in an array. */
+        SGIHostApi->sgiDeviceIDs = (ALvalue*)PaUtil_GroupAllocateMemory(SGIHostApi->allocations,
+                                                                        deviceCount * sizeof(ALvalue));
+        if (!SGIHostApi->sgiDeviceIDs)
+            {
+            result = paInsufficientMemory;
+            goto cleanup;
+            }
+        /* Same query again, but now store all IDs in array sgiDeviceIDs (still no qualifiers). */
+        if (deviceCount != alQueryValues(AL_SYSTEM, AL_DEVICES, SGIHostApi->sgiDeviceIDs, deviceCount, 0, 0))
+            {
+            DBUG(("Hu!? the number of devices suddenly changed!\n"));
+            result = paUnanticipatedHostError;  /* Hu?, the number of devices suddenly changed! */
+            goto cleanup;
+            }
+        y[0].param = AL_DEFAULT_INPUT;
+        y[1].param = AL_DEFAULT_OUTPUT;
+        if (2 != alGetParams(AL_SYSTEM, y, 2)) /* Get params global to the AL system. */
+            {
+            DBUG(("AL error: could not get default i/o!\n"));
+            result = paUnanticipatedHostError;
+            goto cleanup;
+            }
+        def_in  = y[0].value.i;         /* Remember both AL devices for a while. */
+        def_out = y[1].value.i;
+                                       
+        y[0].param = AL_NAME;
+        y[0].value.ptr = devName;
+        y[0].sizeIn = maxDevNameChars;  /* Including terminating null char. */
+        y[1].param = AL_RATE;
+        y[2].param = AL_CHANNELS;
+        y[3].param = AL_TYPE;           /* Subtype of AL_INPUT_DEVICE_TYPE or AL_OUTPUT_DEVICE_TYPE? */
+        for (i=0; i < deviceCount; ++i) /* Fill allocated deviceInfo structs. */
+            {
+            PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
+            deviceInfo->structVersion = 2;
+            deviceInfo->hostApi = hostApiIndex;
+                                                /* Retrieve name, samplerate, channels and type. */
+            if (numParams != alGetParams(SGIHostApi->sgiDeviceIDs[i].i, y, numParams))
                 {
-                ERR_RPT(("ALsetfillpoint() for ALportOUT failed.\n"));
-                sPaHostError = paInternalError;         /* (Using exit(-1) would be a bit rude.)  */
-                goto skip;
-                }                   /* poll() with timeout=-1 makes it block until a requested    */
-	    poll(PollFD, 3, -1);        /* event occurs or until call is interrupted. If fd-value in  */
-                                    /* array <0, events is ignored and revents is set to 0.       */
-        /*---------------------------- MESSAGE-EVENT FROM PARENT THREAD: -------------------------*/
-        semaEvent = PollFD[kPollSEMA].revents & POLLIN;
-        if (semaEvent)
-            {
-            if (past->past_StopSoon)
-                evtLoop = 0;
-            if (past->past_StopNow)
-                goto skip;
-	        }
-        /*------------------------------------- FILLED-EVENT FROM INPUT BUFFER: --------------------------*/
-        inputEvent = PollFD[kPollIN].revents & POLLIN;
-        if (inputEvent)         /* Don't need to check (pahsc->pahsc_NativeInputBuffer):  */
-            {                   /* if buffer was not there, ALport not there, no events!  */
-            if (ALreadsamps(pahsc->pahsc_ALportIN, (void*)pahsc->pahsc_NativeInputBuffer,
-                            pahsc->pahsc_SamplesPerInputBuffer))
-                {                           /* Here again: number of samples instead of number of frames. */
-                ERR_RPT(("ALreadsamps() failed.\n"));
-                sPaHostError = paInternalError;
-                goto skip;
+                result = paUnanticipatedHostError;
+                goto cleanup;
                 }
-            }
-        outputEvent = PollFD[kPollOUT].revents & POLLOUT;
-        /*------------------------------------- USER-CALLBACK-ROUTINE: -----------------------------------*/
-        if (inputEvent | outputEvent)           /* (Bitwise is ok.) */
-            { /* To be sure we that really DID input-transfer or gonna DO output-transfer, and that it is */
-              /* not just "sema"- (i.e. user)-event, or some other system-event that awakened the poll(). */
-		    Pa_StartUsageCalculation(past);                         /* Convert 16 bit native data to      */
-		    result = Pa_CallConvertInt16(past,                      /* user data and call user routine.   */
-				                         pahsc->pahsc_NativeInputBuffer,
-				                         pahsc->pahsc_NativeOutputBuffer);
-		    Pa_EndUsageCalculation(past);
-		    if (result) 
-		        {
-			    DBUG(("Pa_CallConvertInt16() returned %d, stopping...\n", result));
-                goto skip;                      /* This is apparently NOT an error!       */
-		        }                               /* Just letting the userCallBack stop us. */
-            }                 
-        /*------------------------------------- FREE-EVENT FROM OUTPUT BUFFER: ---------------------------*/
-        if (outputEvent)        /* Don't need to check (pahsc->pahsc_NativeOutputBuffer)  */
-            {                   /* because if filedescriptor not there, no event for it.  */
-            if (ALwritesamps(pahsc->pahsc_ALportOUT, (void*)pahsc->pahsc_NativeOutputBuffer,
-                             pahsc->pahsc_SamplesPerOutputBuffer))
+            deviceInfo->name = (char*)PaUtil_GroupAllocateMemory(SGIHostApi->allocations, strlen(devName) + 1);
+            if (!deviceInfo->name)
                 {
-                ERR_RPT(("ALwritesamps() failed.\n"));  /* Better use SEMAS for messaging back to parent! */
-                sPaHostError = paInternalError;
-                goto skip;
+                result = paInsufficientMemory;
+                goto cleanup;
                 }
-	        }
-        }
-skip:
-    /*------------------------------- close AL-ports ----------------------------*/
-    if (pahsc->pahsc_ALportIN)
-        {
-        if (ALcloseport(pahsc->pahsc_ALportIN))
-            translateSGIerror();   /* Translates SGI AL-code to PA-code and ERR_RPTs string. */
-        else                                /* But go on anyway... to release other stuff... */
-            pahsc->pahsc_ALportIN = (ALport)0;
-        }
-    if (pahsc->pahsc_ALportOUT)
-        {
-        if (ALcloseport(pahsc->pahsc_ALportOUT))
-            translateSGIerror();
-        else
-            pahsc->pahsc_ALportOUT = (ALport)0;
-        }
-    past->past_IsActive = 0;
-    if (semaEvent)
-        {
-        uspsema(SendSema);  /* StopEngine() was still waiting for this acknowledgement. */
-	    usvsema(RcvSema);   /* (semaEvent initialized with 0.)          */
-        }
-    DBUG(("Leaving sproc-thread.\n"));
-}
+            strcpy((char*)deviceInfo->name, devName);
 
-
-#define kALinternalQueuesizeFact    4L               /* Internal queue 4 times as large as transferSize. */
-                                                     /* Used below, twice: for input and for output.     */
-/*--------------------------------------------------------------------------------------*/
-PaError PaHost_OpenStream(internalPortAudioStream *past)
-{
-	PaError                 result = paNoError;
-	PaHostSoundControl      *pahsc;
-	unsigned int            minNumBuffers;
-	internalPortAudioDevice *padIN, *padOUT;        /* For looking up native AL-numbers. */
-    long                    pvbuf[8];               /* To get/set hardware configs.      */
-    long                    sr;
-    DBUG(("PaHost_OpenStream() called.\n"));        /* Alloc FASTMEM and init host data. */
-    if (!past)
-        {
-        ERR_RPT(("Streampointer NULL!\n"));
-        result = paBadStreamPtr;        goto done;
-        }
-	pahsc = (PaHostSoundControl*)PaHost_AllocateFastMemory(sizeof(PaHostSoundControl));
-	if (pahsc == NULL)
-	    {
-        ERR_RPT(("FAST Memory allocation failed.\n"));  /* Pass trough some ERR_RPT-exit-  */
-        result = paInsufficientMemory;  goto done;      /* code (nothing will be freed).   */
-	    }
-	memset(pahsc, 0, sizeof(PaHostSoundControl));
-    pahsc->pahsc_threadPID = -1;                    /* Should pahsc_threadPID be inited to */
-	past->past_DeviceData = (void*)pahsc;           /* -1 instead of 0 ??                  */
-    /*------------------------------------------ Manipulate hardware if necessary and allowed: --*/
-    ALseterrorhandler(0);                           /* 0 = turn off the default error handler.   */
-    pvbuf[0] = AL_INPUT_RATE;
-    pvbuf[2] = AL_INPUT_COUNT;
-    pvbuf[4] = AL_OUTPUT_RATE;              /* TO FIX: rates may be logically, not always in Hz! */
-    pvbuf[6] = AL_OUTPUT_COUNT;
-    sr = (long)(past->past_SampleRate + 0.5);   /* Common for input and output :-)               */
-    /*---------------------------------------------------- SET INPUT CONFIGURATION: ------------------------*/
-    if (past->past_NumInputChannels > 0)                                /* We need to lookup the corre-  */
-        {                                                               /* sponding native AL-number(s). */
-        /*--------------------------------------------------- Allocate native buffers: --------*/
-        pahsc->pahsc_SamplesPerInputBuffer = past->past_FramesPerUserBuffer * /* Needed by the */
-                                             past->past_NumInputChannels;     /* audio-thread. */
-	    pahsc->pahsc_BytesPerInputBuffer   = pahsc->pahsc_SamplesPerInputBuffer * sizeof(short);	    
-		pahsc->pahsc_NativeInputBuffer = (short*)PaHost_AllocateFastMemory(pahsc->pahsc_BytesPerInputBuffer);        
-		if (!pahsc->pahsc_NativeInputBuffer)
-		    {
-            ERR_RPT(("Fast memory allocation failed (in).\n"));
-			result = paInsufficientMemory; 
-            goto done;
-		    }
-        padIN = Pa_GetInternalDevice(past->past_InputDeviceID);
-        if (!padIN)
-            {
-            ERR_RPT(("Pa_GetInternalDevice() for input failed.\n"));
-	        result = paHostError;
-            goto done;
-            }
-        if (ALgetparams(padIN->pad_ALdevice, &pvbuf[0], 4)) /* Although input and output will both be on */
-            goto sgiError;                                  /* the same AL-device, the AL-library might  */
-        if (pvbuf[1] != sr)                                 /* contain more than AL_DEFAULT_DEVICE in    */
-            {  /* Rate different from current harware-rate?    the future. Therefore 2 seperate queries. */
-            if (pvbuf[3] > 0)     /* Means, there's other clients using AL-input-ports */
+            /* Determine whether the received number of channels belongs to an input or for output device. */
+            if (alIsSubtype(AL_INPUT_DEVICE_TYPE, y[3].value.i))
                 {
-                ERR_RPT(("Sorry, not allowed to switch input-hardware to %ld Hz because \
-another process is currently using input at %ld kHz.\n", sr, pvbuf[1]));
-                result = paHostError;
-                goto done;
+                deviceInfo->maxInputChannels  = y[2].value.i;
+                deviceInfo->maxOutputChannels = 0;
                 }
-            pvbuf[1] = sr;                  /* Then set input-rate. */
-            if (ALsetparams(padIN->pad_ALdevice, &pvbuf[0], 2))
-                goto sgiError;        /* WHETHER THIS SAMPLERATE WAS REALLY PRESENT IN OUR ARRAY OF RATES, */
-            }                         /* IS NOT CHECKED, AT LEAST NOT BY ME, WITHIN THIS FILE! Does PA do? */
-        pahsc->pahsc_ALconfigIN = ALnewconfig();                       /* Released at PaHost_CloseStream().  */
-        if (pahsc->pahsc_ALconfigIN == (ALconfig)0)
-            goto sgiError;
-        if (ALsetsampfmt(pahsc->pahsc_ALconfigIN, AL_SAMPFMT_TWOSCOMP))/* Choose paInt16 as native i/o-format.      */
-            goto sgiError;
-        if (ALsetwidth (pahsc->pahsc_ALconfigIN, AL_SAMPLE_16))        /* Only meaningful when sample format for    */
-            goto sgiError;                                      /* config is set to two's complement format. */
-        /************************ Future versions might (dynamically) switch to 32-bit floats? *******
-        if (ALsetsampfmt(pahsc_ALconfigIN, AL_SAMPFMT_FLOAT))    (Then also call another CallConvert-func.)
-            goto sgiError;
-        if (ALsetfloatmax (pahsc_ALconfigIN, 1.0))       Only meaningful when sample format for config 
-            goto sgiError;                               is set to AL_SAMPFMT_FLOAT or AL_SAMPFMT_DOUBLE. */
-        /*--------- Set internal AL queuesize (in samples) -------------------------------*/
-        if (ALsetqueuesize(pahsc->pahsc_ALconfigIN, (long)pahsc->pahsc_SamplesPerInputBuffer *
-                                                    (long)kALinternalQueuesizeFact))    
-            goto sgiError;                              /* Or should we use past_NumUserBuffers here?     */
-                                                        /* Do 4 timea, using 2 times may give glitches.   */
-        if (ALsetchannels (pahsc->pahsc_ALconfigIN, (long)(past->past_NumInputChannels)))
-            goto sgiError;                              /* Returns 0 on success, -1 on failure. */
-        }
-    /*---------------------------------------------------- SET OUTPUT CONFIGURATION: ------------------------*/
-    if (past->past_NumOutputChannels > 0)               /* CARE: padOUT/IN may NOT be NULL if Channels <= 0! */
-        {                                               /* We use padOUT/IN later on, or at least 1 of both. */
-        pahsc->pahsc_SamplesPerOutputBuffer = past->past_FramesPerUserBuffer * /* Needed by the */
-                                              past->past_NumOutputChannels;    /* audio-thread. */
-	    pahsc->pahsc_BytesPerOutputBuffer   = pahsc->pahsc_SamplesPerOutputBuffer * sizeof(short);
-
-	    pahsc->pahsc_NativeOutputBuffer = (short*)PaHost_AllocateFastMemory(pahsc->pahsc_BytesPerOutputBuffer);
-	    if (!pahsc->pahsc_NativeOutputBuffer)
-		    {
-            ERR_RPT(("Fast memory allocation failed (out).\n"));
-		    result = paInsufficientMemory;
-            goto done;
-		    }
-        padOUT = Pa_GetInternalDevice(past->past_OutputDeviceID);
-        if (!padOUT)
-            {
-            ERR_RPT(("Pa_GetInternalDevice() for output failed.\n"));
-	        result = paHostError;
-            goto done;
-            }
-        if (ALgetparams(padOUT->pad_ALdevice,&pvbuf[4], 4))
-            goto sgiError;
-        if (pvbuf[5] != sr)
-            {   /* Output needed and rate different from current harware-rate. */
-            if (pvbuf[7] > 0)     /* Means, there's other clients using AL-output-ports */
+            else if (alIsSubtype(AL_OUTPUT_DEVICE_TYPE, y[3].value.i))
                 {
-                ERR_RPT(("Sorry, not allowed to switch output-hardware to %ld Hz because \
-another process is currently using output at %ld kHz.\n", sr, pvbuf[5]));            
-                result = paHostError;
-                goto done;                              /* Will free again the inputbuffer */
-                }                                       /* that was just created above.    */
-            pvbuf[5] = sr;                  /* Then set output-rate. */
-            if (ALsetparams(padOUT->pad_ALdevice, &pvbuf[4], 2))
-                goto sgiError;
+                deviceInfo->maxInputChannels  = 0;
+                deviceInfo->maxOutputChannels = y[2].value.i;
+                }
+            else /* Should never occur. */
+                {
+                DBUG(("AL device '%s' is neither input nor output!\n", deviceInfo->name));
+                result = paUnanticipatedHostError;
+                goto cleanup;
+                }
+            
+            /* Determine if this device is the default (in or out). If so, assign. */
+            if (def_in == SGIHostApi->sgiDeviceIDs[i].i)
+                {
+                if ((*hostApi)->info.defaultInputDevice != paNoDevice)
+                    {
+                    DBUG(("Default input already assigned!\n"));
+                    result = paUnanticipatedHostError;
+                    goto cleanup;
+                    }
+                (*hostApi)->info.defaultInputDevice = i;
+                /* DBUG(("Default input assigned to pa device %d (%s).\n", i, deviceInfo->name)); */
+                }
+            else if (def_out == SGIHostApi->sgiDeviceIDs[i].i)
+                {
+                if ((*hostApi)->info.defaultOutputDevice != paNoDevice)
+                    {
+                    DBUG(("Default output already assigned!\n"));
+                    result = paUnanticipatedHostError;
+                    goto cleanup;
+                    }
+                (*hostApi)->info.defaultOutputDevice = i;
+                /* DBUG(("Default output assigned to pa device %d (%s).\n", i, deviceInfo->name)); */
+                }
+
+            deviceInfo->defaultLowInputLatency   = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultLowOutputLatency  = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultHighInputLatency  = 0.;  /* IMPLEMENT ME */
+            deviceInfo->defaultHighOutputLatency = 0.;  /* IMPLEMENT ME */
+
+            deviceInfo->defaultSampleRate = alFixedToDouble(y[1].value.ll); /* Read current sr. */
+            (*hostApi)->deviceInfos[i] = deviceInfo;
+            ++(*hostApi)->info.deviceCount;
             }
-        pahsc->pahsc_ALconfigOUT = ALnewconfig();                          /* Released at PaHost_CloseStream().  */
-        if (pahsc->pahsc_ALconfigOUT == (ALconfig)0)
-            goto sgiError;
-        if (ALsetsampfmt(pahsc->pahsc_ALconfigOUT, AL_SAMPFMT_TWOSCOMP))   /* Choose paInt16 as native i/o-format.      */
-            goto sgiError;
-        if (ALsetwidth (pahsc->pahsc_ALconfigOUT, AL_SAMPLE_16))           /* Only meaningful when sample format for    */
-            goto sgiError;                                          /* config is set to two's complement format. */
-        /************************************ Future versions might (dynamically) switch to 32-bit floats? *******/
-        if (ALsetqueuesize(pahsc->pahsc_ALconfigOUT, (long)pahsc->pahsc_SamplesPerOutputBuffer *
-                                                     (long)kALinternalQueuesizeFact))    
-            goto sgiError;                          /* Or should we use past_NumUserBuffers here?*/
-        if (ALsetchannels (pahsc->pahsc_ALconfigOUT, (long)(past->past_NumOutputChannels)))
-            goto sgiError;
         }
-    /*---------- ?? --------------------*/
-	/* DBUG(("PaHost_OpenStream: pahsc_MinFramesPerHostBuffer = %d\n", pahsc->pahsc_MinFramesPerHostBuffer )); */
-    minNumBuffers = Pa_GetMinNumBuffers(past->past_FramesPerUserBuffer, past->past_SampleRate);
-	past->past_NumUserBuffers = (minNumBuffers > past->past_NumUserBuffers) ? 
-                                 minNumBuffers : past->past_NumUserBuffers; /* I don't yet use past_NumUserBuffers */
-    /*----------------------------------------------- TEST DEVICE ID's: --------------------*/
-	if ((past->past_OutputDeviceID != past->past_InputDeviceID) &&          /* Who SETS these devive-numbers? */
-	    (past->past_NumOutputChannels > 0) && (past->past_NumInputChannels > 0))
-	    { 
-        ERR_RPT(("Cannot setup bidirectional stream between different devices.\n"));
-        result = paHostError;
-        goto done;
-        }
-    goto done;  /* (no errors occured) */
-sgiError:   
-    result = translateSGIerror();   /* Translates SGI AL-code to PA-code and ERR_RPTs string. */
-done:
+    (*hostApi)->Terminate         = Terminate;
+    (*hostApi)->OpenStream        = OpenStream;
+    (*hostApi)->IsFormatSupported = IsFormatSupported;
+
+    PaUtil_InitializeStreamInterface(&SGIHostApi->callbackStreamInterface, CloseStream, StartStream,
+                                     StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                     GetStreamTime, GetStreamCpuLoad,
+                                     PaUtil_DummyRead, PaUtil_DummyWrite,
+                                     PaUtil_DummyGetReadAvailable, PaUtil_DummyGetWriteAvailable );
+
+    PaUtil_InitializeStreamInterface(&SGIHostApi->blockingStreamInterface, CloseStream, StartStream,
+                                     StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                     GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                     ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
+cleanup:        
     if (result != paNoError)
-        PaHost_CloseStream(past);               /* Frees memory (only if really allocated!).  */
+        {
+        if (SGIHostApi)
+            {
+            if (SGIHostApi->allocations)
+                {
+                PaUtil_FreeAllAllocations(SGIHostApi->allocations);
+                PaUtil_DestroyAllocationGroup(SGIHostApi->allocations);
+                }
+            PaUtil_FreeMemory(SGIHostApi);
+            }
+        }
     return result;
 }
 
-/*-----------------------------------------------------*/
-PaError PaHost_StartOutput(internalPortAudioStream *past)
+
+static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
-	return paNoError;   /* Hmm, not implemented yet? */
+    PaSGIHostApiRepresentation *SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
+
+    DBUG(("Terminate() started.\n"));
+
+    /* Clean up any resources not handled by the allocation group. */
+
+    if( SGIHostApi->allocations )
+    {
+        PaUtil_FreeAllAllocations( SGIHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( SGIHostApi->allocations );
+    }
+    PaUtil_FreeMemory( SGIHostApi );
 }
-PaError PaHost_StartInput(internalPortAudioStream *past)
+
+
+static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
 {
-	return paNoError;
+    int inputChannelCount, outputChannelCount;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
+    
+    if( inputParameters )
+    {
+        inputChannelCount = inputParameters->channelCount;
+        inputSampleFormat = inputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        inputChannelCount = 0;
+    }
+
+    if( outputParameters )
+    {
+        outputChannelCount = outputParameters->channelCount;
+        outputSampleFormat = outputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        outputChannelCount = 0;
+    }
+    
+    /*
+        IMPLEMENT ME:
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported if necessary
+
+            - check that the device supports sampleRate
+
+        Because the buffer adapter handles conversion between all standard
+        sample formats, the following checks are only required if paCustomFormat
+        is implemented, or under some other unusual conditions.
+
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+    */
+
+
+    /* suppress unused variable warnings */
+    (void) sampleRate;
+    (void) inputSampleFormat;
+    (void) outputSampleFormat;
+
+    return paFormatIsSupported;
 }
 
-/*------------------------------------------------------------------------------*/
-PaError PaHost_StartEngine(internalPortAudioStream *past)
-{
-	PaHostSoundControl  *pahsc;
-    usptr_t             *arena;
-    if (!past)          /* Test argument. */
-        {
-        ERR_RPT(("PaHost_StartEngine(NULL)!\n"));
-        return paBadStreamPtr;
-        }
-    pahsc = (PaHostSoundControl*)past->past_DeviceData;
-    if (!pahsc)
-        {
-        ERR_RPT(("PaHost_StartEngine(arg): arg->past_DeviceData = NULL!\n"));
-        return paHostError;
-        }
-	past->past_StopSoon = 0;            /* Assume SGI ALport is already opened! */
-	past->past_StopNow  = 0;            /* Why don't we check pahsc for NULL?   */
-    past->past_IsActive = 1;
-    
-    /* Although the pthread_create() function, as well as <pthread.h>, may be   */
-    /* available in IRIX, use sproc() on SGI to create audio-background-thread. */
-    /* (Linux/oss uses pthread_create() instead of __clone() because:           */
-    /*  - pthread_create also works for other UNIX systems like Solaris,        */
-    /*  - Java HotSpot VM crashes in pthread_setcanceltype() using __clone().)  */
-    
-    usconfig(CONF_ARENATYPE, US_SHAREDONLY);    /* (From SGI-AL-examples, file  */
-    arena = usinit(tmpnam(0));                  /*  motifexample.c, function    */
-    SendSema = usnewpollsema(arena, 0);         /*  InitializeAudioProcess().)  */
-    RcvSema = usnewsema(arena, 1);              /* 1= common mutual exclusion semaphore, where 1 and only 1 process
-                                                   will be permitted through a semaphore at a time.  Values > 1
-                                                   imply that up to val resources may be simultaneously used, but requests
-                                                   for more than val resources cause the calling process to block until a
-                                                   resource comes free (by a process holding a resource performing a
-                                                   usvsema().                IS THIS usnewsema() TOO PLATFORM SPECIFIC? */
-    prctl(PR_SETEXITSIG, 0);                    /* No not (void*)9, but 0, which doesn't kill the parent! */
-                                                /* PR_SETEXITSIG controls whether all members of a share group will be
-                                                   signaled if any one of them leaves the share group (either via exit()
-                                                   or exec()).  If 2nd arg, interpreted as an int is 0, then normal IRIX
-                                                   process termination rules apply, namely that the parent is sent a 
-                                                   SIGCLD upon death of child, but no indication of death of parent is 
-                                                   given.  If the second argument is a valid signal number then if any 
-                                                   member of a share group leaves the share group, a signal is
-                                                   sent to ALL surviving members of the share group.  */
-    /* SPAWN AUDIO-CHILD: */
-    pahsc->pahsc_threadPID = sproc(Pa_SgiAudioProcess, /* Returns process ID of */
-                                   PR_SALL,            /* new process, or -1.   */
-                                   (void*)past);       /* Pass past as optional */  /* IS THIS SAFE, will past never */
-    if (pahsc->pahsc_threadPID == -1)                  /* third void-ptr-arg.   */  /* be moved around in memory???? */
-        {
-        ERR_RPT(("PaHost_StartEngine() failed to spawn audio-thread.\n"));
-        sPaHostError = oserror();   /* Pass native error-number to shared area. */
-        return paHostError;         /* But return the generic error-number.     */
-        }
-    return paNoError;               /* Hmmm, errno may come from other threads in same group! */
-}                                   /* ("man sproc" in IRIX6.2 to read about _SGI_MP_SOURCE.) */
 
-/*------------------------------------------------------------------------------*/
-PaError PaHost_StopEngine(internalPortAudioStream *past, int abort)
+typedef struct PaSGIportBuffer  /* Auxilary struct, used for inputs as well as outputs. */
 {
-	int                 hres;
-	long                timeOut;
-	PaError             result = paNoError;
-	PaHostSoundControl  *pahsc;
-    
-    DBUG(("PaHost_StopEngine() called.\n"));
-    if (!past)
-        return paBadStreamPtr;
-    pahsc = (PaHostSoundControl*)past->past_DeviceData;
-                                                    /* Prevent from doing this twice!! */
-    if ((!pahsc) ||                                 /* Some tests call this CLOSE twice!! */
-        (!past->past_IsActive) || 
-        past->past_StopSoon || past->past_StopNow)
-        return result;              /* paNoError (already stopped, no err?).       */
-    past->past_StopSoon = 1;        /* Tell background thread to stop generating   */
-    if (abort)                      /* more and to let current data play out. If   */
-        past->past_StopNow = 1;     /* aborting, tell backgrnd thread to stop NOW! */
-                                    /*---- USE SEMAPHORE LOCK TO COMMUNICATE: -----*/
-    usvsema(SendSema);              /* Increments count associated with SendSema.  */
-                                    /* Wait for the response.                      */
-    uspsema(RcvSema);               /* Decrements count of previously allocated    */
-                                    /* semaphore specified by RcvSema.             */
-    while (past->past_IsActive)     /* REALLY WAIT. */
-        {
-        /* DBUG(("wait 1 ms for audio-thread to stop.\n")); */
-        Pa_Sleep(1);
-        }
+    ALport  port;               /* NULL means AL port closed. */
+    void*   buffer;             /* NULL means not allocated.  */
+}
+    PaSGIportBuffer;
 
-#if 0   /* We don't need to KILL(), just COMMUNICATE and be patient...             */
-	if (pahsc->pahsc_threadPID != -1)   /* Did we really init it to -1 somewhere?  */
-	    {
-        DBUG(("PaHost_StopEngine() is about to kill(SIGKILL) audio-thread.\n"));
-        if (kill(pahsc->pahsc_threadPID, SIGKILL))  /* Or SIGTERM or SIGQUIT(core)  */
-            {                                       /* Returns -1 in case of error. */
-            result = paHostError;
-            sPaHostError = oserror();   /* Hmmm, other threads may also write here! */
-            ERR_RPT(("PaHost_StopEngine() failed to kill audio-thread.\n"));
+typedef struct PaSGIStream      /* Stream data structure specifically for this implementation. */
+{
+    PaUtilStreamRepresentation  streamRepresentation;
+    PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
+    PaUtilBufferProcessor       bufferProcessor;
+    unsigned long               framesPerHostCallback;  /* Implementation specific data. */
+    PaSGIportBuffer             portBuffIn,
+                                portBuffOut;
+    unsigned char               stopSoon,               /* RT flags. */
+                                stopNow,
+                                isActive;
+    pthread_t                   thread;
+}
+    PaSGIStream;
+
+
+/*
+    Only used in this file. Called by OpenStream() once or twice.
+    Argument alc should point to an already allocated AL configuration structure.
+    First, the number of channels and the sampleformat is configured.
+    The configuration is then bound to the specified AL device. Then an AL port is opened.
+    Finally, the samplerate of the device is altered.
+*/
+static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
+                              const PaStreamParameters* pa_params,      /* read device and channels. */                             
+                              PaSampleFormat            pasfmt,         /* Don't read from pa_params!. */
+                              ALconfig                  alc,
+                              char*                     direction,      /* "r" or "w". */
+                              char*                     name,
+                              long                      framesPerHostBuffer,
+                              double*                   samplerate,     /* Also write back here.  */
+                              PaSGIportBuffer*          portBuff)       /* Receive pointers here. */
+{
+    int     bytesPerFrame, sgiDevice;
+    ALpv    pvs[2];
+
+    if (!pa_params)                   /* Not an error, just not full duplex, skip all. */
+        return paNoError;
+    if (!pa_params->channelCount)
+        return paNoError;
+    /*----------------------- CONFIGURE CHANNELS: -------------------------------------*/
+    if (alSetChannels(alc, pa_params->channelCount))          /* Returns 0 on success. */
+        {
+        if (oserror() == AL_BAD_CHANNELS) return paInvalidChannelCount;
+        return paUnanticipatedHostError;
+        }
+    bytesPerFrame = pa_params->channelCount;          /* Is multiplied by width below. */
+    /*----------------------- CONFIGURE SAMPLEFORMAT: ---------------------------------*/
+    if (pasfmt == paFloat32)
+        {
+        if (alSetSampFmt(alc, AL_SAMPFMT_FLOAT))
+            {
+            if (oserror() == AL_BAD_SAMPFMT) return paSampleFormatNotSupported;
+            return paUnanticipatedHostError;
+            }
+        bytesPerFrame *= 4;             /* No need to set width for floats. */
+        }
+    else
+        {
+        if (alSetSampFmt(alc, AL_SAMPFMT_TWOSCOMP))
+            {
+            if (oserror() == AL_BAD_SAMPFMT) return paSampleFormatNotSupported;
+            return paUnanticipatedHostError;
+            }
+        if (pasfmt == paInt8)
+            {
+            if (alSetWidth(alc, AL_SAMPLE_8))
+                {
+                if (oserror() == AL_BAD_WIDTH) return paSampleFormatNotSupported;
+                return paUnanticipatedHostError;
+                }
+            /* bytesPerFrame *= 1; */
+            }
+        else if (pasfmt == paInt16)
+            {
+            if (alSetWidth(alc, AL_SAMPLE_16))
+                {
+                if (oserror() == AL_BAD_WIDTH) return paSampleFormatNotSupported;
+                return paUnanticipatedHostError;
+                }
+            bytesPerFrame *= 2;
+            }
+        else if (pasfmt == paInt24)
+            {
+            if (alSetWidth(alc, AL_SAMPLE_24))
+                {
+                if (oserror() == AL_BAD_WIDTH) return paSampleFormatNotSupported;
+                return paUnanticipatedHostError;
+                }
+            bytesPerFrame *= 3;
+            }
+        else return paSampleFormatNotSupported;
+        }
+    
+    /*----------------------- ALLOCATE HOST BUFFER: -----------------------------------*/
+    portBuff->buffer = PaUtil_AllocateMemory((long)bytesPerFrame * framesPerHostBuffer);
+    if (!portBuff->buffer)                         /* Caller is responsible for clean- */
+        return paInsufficientMemory;               /* up and closing after failures!   */
+    /*----------------------- BIND CONFIGURATION TO DEVICE: ---------------------------*/
+    sgiDevice = sgiDeviceIDs[pa_params->device].i;
+    if (alSetDevice(alc, sgiDevice)) /* Try to switch the hardware. */
+        {
+        int alErr = oserror();
+        DBUG(("Failed to configure device: %s.\n", alGetErrorString(alErr)));
+        if (alErr == AL_BAD_DEVICE) return paInvalidDevice;
+        return paUnanticipatedHostError;
+        }
+    /*----------------------- OPEN PORT: ----------------------------------------------*/
+    portBuff->port = alOpenPort(name, direction, alc);
+    if (!portBuff->port)
+        {
+        DBUG(("alOpenPort(r) failed: %s.\n", alGetErrorString(oserror())));
+        return paUnanticipatedHostError;
+        }                                                     /* Maybe set SR earlier? */
+    /*----------------------- SET SAMPLERATE: -----------------------------------------*/
+    pvs[0].param    = AL_MASTER_CLOCK;       /* Attempt to set a crystal-based sample- */
+    pvs[0].value.i  = AL_CRYSTAL_MCLK_TYPE;  /* rate on input or output device.        */
+    pvs[1].param    = AL_RATE;
+    pvs[1].value.ll = alDoubleToFixed(*samplerate);
+    if (2 != alSetParams(sgiDevice, pvs, 2))
+        {
+        DBUG(("alSetParams() failed: %s.\n", alGetErrorString(oserror())));
+        return paInvalidSampleRate;
+        }        
+    if (1 != alGetParams(sgiDevice, &pvs[1], 1))      /* SEE WHAT WE REALY SET IT TO. */
+        {
+        DBUG(("alGetParams('AL_RATE') failed: %s.\n", alGetErrorString(oserror())));
+        return paUnanticipatedHostError;
+        }
+    *samplerate = alFixedToDouble(pvs[1].value.ll);   /* And return that to caller. */
+    if (*samplerate < 0)
+        {
+        DBUG(("Samplerate could not be determined (name='%s').\n", name));
+        return paUnanticipatedHostError;
+        }
+    /* DBUG(("set_sgi_device() succeeded.\n")); */
+    return paNoError;
+}
+
+
+
+
+/*
+    Called by OpenStream() if it fails and by CloseStream. Only used here, in this file.
+    Fields MUST be set to NULL or to a valid value, prior to call.
+*/
+static void streamCleanupAndClose(PaSGIStream* stream)
+{
+    if (stream->portBuffIn.port)          alClosePort(stream->portBuffIn.port);   /* Close AL ports.  */
+    if (stream->portBuffIn.buffer)  PaUtil_FreeMemory(stream->portBuffIn.buffer); /* Release buffers. */
+    if (stream->portBuffOut.port)         alClosePort(stream->portBuffOut.port);
+    if (stream->portBuffOut.buffer) PaUtil_FreeMemory(stream->portBuffOut.buffer);
+}
+
+
+/* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
+
+static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
+                          PaStream**                          s,
+                          const PaStreamParameters*           inputParameters,
+                          const PaStreamParameters*           outputParameters,
+                          double                              sampleRate,       /* Common to both i and o. */
+                          unsigned long                       framesPerBuffer,
+                          PaStreamFlags                       streamFlags,
+                          PaStreamCallback*                   streamCallback,
+                          void*                               userData)
+{
+    PaError                     result = paNoError;
+    PaSGIHostApiRepresentation* SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
+    PaSGIStream*                stream = 0;
+    unsigned long               framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
+    int                         inputChannelCount, outputChannelCount;
+    PaSampleFormat              inputSampleFormat, outputSampleFormat;
+    PaSampleFormat              hostInputSampleFormat, hostOutputSampleFormat;
+    ALconfig                    alc = NULL;
+    double                      sr_in, sr_out;
+    static const PaSampleFormat irixFormats = (paInt8 | paInt16 | paInt24 | paFloat32);
+                                /* Constant used by PaUtil_SelectClosestAvailableFormat(). Because
+                                   IRIX AL does not provide a way to query for possible formats
+                                   for a given device, interface or port. I'll just add together the formats 
+                                   I know that are supported in general by IRIX AL at the year 2003:
+        AL_SAMPFMT_TWOSCOMP with AL_SAMPLE_8(=paInt8), AL_SAMPLE_16(=paInt16) or AL_SAMPLE_24(=paInt24);
+        AL_SAMPFMT_FLOAT(=paFloat32); AL_SAMPFMT_DOUBLE(=paFloat64); IRIX misses unsigned 8 and 32 bit signed ints.
+                                */
+    if (inputParameters)
+        {
+        inputChannelCount = inputParameters->channelCount;
+        inputSampleFormat = inputParameters->sampleFormat;
+        /* Unless alternate device specification is supported, reject the use of paUseHostApiSpecificDeviceSpecification. */
+        if (inputParameters->device == paUseHostApiSpecificDeviceSpecification) /* DEVICE CHOOSEN BY CLIENT. */
+            return paInvalidDevice;
+        /* Check that input device can support inputChannelCount. */
+        if (inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels)
+            return paInvalidChannelCount;
+        /* Validate inputStreamInfo. */
+        if (inputParameters->hostApiSpecificStreamInfo)
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        hostInputSampleFormat = PaUtil_SelectClosestAvailableFormat(irixFormats, inputSampleFormat);
+        }
+    else
+        {
+        inputChannelCount = 0;
+        inputSampleFormat = hostInputSampleFormat = 0; /* Surpress uninitialised warning. */
+        }
+    if (outputParameters)
+        {
+        outputChannelCount = outputParameters->channelCount;
+        outputSampleFormat = outputParameters->sampleFormat;
+        if (outputParameters->device == paUseHostApiSpecificDeviceSpecification) /* Like input (above). */
+            return paInvalidDevice;
+        if (outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels)
+            return paInvalidChannelCount;
+        if (outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        hostOutputSampleFormat = PaUtil_SelectClosestAvailableFormat(irixFormats, outputSampleFormat);
+        }
+    else
+        {
+        outputChannelCount = 0;
+        outputSampleFormat = hostOutputSampleFormat = 0; /* Surpress uninitialised warning. */
+        }
+    /*
+        IMPLEMENT ME:
+        (Following two checks are taken care of by PaUtil_InitializeBufferProcessor() FIXME - checks needed?)
+
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
+
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported
+
+            - check that the device supports sampleRate
+
+            - alter sampleRate to a close allowable rate if possible / necessary
+
+            - validate suggestedInputLatency and suggestedOutputLatency parameters,
+                use default values where necessary
+    */
+
+    /* validate platform specific flags */
+    if( (streamFlags & paPlatformSpecificFlags) != 0 )
+        return paInvalidFlag; /* unexpected platform specific flag */
+
+    stream = (PaSGIStream*)PaUtil_AllocateMemory( sizeof(PaSGIStream) );
+    if (!stream)
+        { result = paInsufficientMemory; goto cleanup; }
+    stream->portBuffIn.port    = (ALport)NULL;       /* Ports closed.   */
+    stream->portBuffIn.buffer  =         NULL;       /* No buffers yet. */
+    stream->portBuffOut.port   = (ALport)NULL;
+    stream->portBuffOut.buffer =         NULL;
+
+    if (streamCallback)
+        PaUtil_InitializeStreamRepresentation(&stream->streamRepresentation,
+                                              &SGIHostApi->callbackStreamInterface, streamCallback, userData);
+    else
+        PaUtil_InitializeStreamRepresentation(&stream->streamRepresentation,
+                                              &SGIHostApi->blockingStreamInterface, streamCallback, userData);
+    alc = alNewConfig();    /* Create a config. This defaults to stereo, 16-bit integer data. */
+    if (!alc)               /* Call alFreeConfig() when done with it. */
+        { result = paInsufficientMemory; goto cleanup; }
+    sr_in  = 
+    sr_out = sampleRate;
+    result = set_sgi_device(SGIHostApi->sgiDeviceIDs,   /* Array for alSetDevice and others. */
+                            inputParameters,            /* Reads channelCount and device. */    
+                            hostInputSampleFormat,      /* For alSetSampFmt and alSetWidth. */                            
+                            alc,                        /* For AL calls. */
+                            "r",                        /* Direction "r" for reading. */
+                            "portaudio input",          /* Name string. */
+                            framesPerHostBuffer,
+                            &sr_in,                     /* Receive actual rate after setting it. */
+                            &stream->portBuffIn);       /* Receive ALport and input host buffer. */
+    if (result != paNoError)
+        goto cleanup;
+    result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
+                            outputParameters,
+                            hostOutputSampleFormat,
+                            alc,
+                            "w",                        /* "w" for reading. */
+                            "portaudio ouput",
+                            framesPerHostBuffer,
+                            &sr_out,
+                            &stream->portBuffOut);
+    if (result != paNoError)
+        goto cleanup;
+    if (fabs(sr_in - sr_out) > 0.01) /* Let us make sure both are the same. */
+        {
+        DBUG(("Strange samplerate difference between input and output devices!\n"));
+        result = paUnanticipatedHostError;
+        goto cleanup;
+        }
+    sampleRate = sr_in;             /* == sr_out. */
+                                    /* Following fields should contain estimated or actual values: */
+    stream->streamRepresentation.streamInfo.inputLatency  = 0.;
+    stream->streamRepresentation.streamInfo.outputLatency = 0.;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+
+    PaUtil_InitializeCpuLoadMeasurer(&stream->cpuLoadMeasurer, sampleRate);
+    /*
+        Assume a fixed host buffer size in this example, but the buffer processor
+        can also support bounded and unknown host buffer sizes by passing 
+        paUtilBoundedHostBufferSize or paUtilUnknownHostBufferSize instead of
+        paUtilFixedHostBufferSize below. See pa_common/pa_process.h.
+    */
+    result = PaUtil_InitializeBufferProcessor(&stream->bufferProcessor,
+                         inputChannelCount,   inputSampleFormat,  hostInputSampleFormat,
+                         outputChannelCount,  outputSampleFormat, hostOutputSampleFormat,
+                         sampleRate,          streamFlags,        framesPerBuffer,
+                         framesPerHostBuffer, paUtilFixedHostBufferSize,
+                         streamCallback,      userData);
+    if (result != paNoError)
+        { DBUG(("PaUtil_InitializeBufferProcessor()=%d!\n", result)); goto cleanup; }
+
+    stream->framesPerHostCallback = framesPerHostBuffer;
+    stream->isActive = 0;
+    stream->stopSoon = 0; /* Really needed here? */
+    stream->stopNow  = 0;
+    *s = (PaStream*)stream;     /* Pass object to caller. */
+cleanup:
+    if (alc)                    /* We no longer need configuration. */
+        alFreeConfig(alc);
+    if (result != paNoError)    /* Always set result when jumping to cleanup after failure. */
+        {
+        if (stream)
+            {
+            streamCleanupAndClose(stream); /* Frees i/o buffers and closes AL ports. */
+            PaUtil_FreeMemory(stream);
+            }
+        }
+    return result;
+}
+
+/*
+    POSIX thread that performs the i/o and calls client's callback, spawned by StartStream().
+*/
+static void PaSGIpthread(void *userData)
+{
+    PaSGIStream*              stream = (PaSGIStream*)userData;
+    PaStreamCallbackTimeInfo  timeInfo = {0,0,0}; /* IMPLEMENT ME */
+    int                       callbackResult;
+    unsigned long             framesProcessed;
+
+    while (!(stream->stopNow | stream->stopSoon))
+        {
+        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+        /* IMPLEMENT ME: - generate timing information
+                         - handle buffer slips
+        */
+        /* If you need to byte swap or shift inputBuffer to convert it into a pa format, do it here. */
+        PaUtil_BeginBufferProcessing(&stream->bufferProcessor, &timeInfo,
+                                     0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */);
+                                     
+        if (stream->portBuffIn.port)                        /* Equivalent to (inputChannelCount > 0) */
+            {                /* We are sure about the amount to transfer (PaUtil_Set before alRead). */
+            PaUtil_SetInputFrameCount(&stream->bufferProcessor, 0 /* 0 means take host buffer size */);
+            PaUtil_SetInterleavedInputChannels(&stream->bufferProcessor,
+                    0, /* first channel of inputBuffer is channel 0 */
+                    stream->portBuffIn.buffer,
+                    0 ); /* 0 - use inputChannelCount passed to init buffer processor */
+            /* Read interleaved samples from ALport (alReadFrames() may block the [first] time!). */
+            alReadFrames(stream->portBuffIn.port, stream->portBuffIn.buffer, stream->framesPerHostCallback);
+            }
+        if (stream->portBuffOut.port)
+            {
+            PaUtil_SetOutputFrameCount(&stream->bufferProcessor, 0 /* 0 means take host buffer size */);
+            PaUtil_SetInterleavedOutputChannels(&stream->bufferProcessor,
+                    0, /* first channel of outputBuffer is channel 0 */
+                    stream->portBuffOut.buffer,
+                    0 ); /* 0 - use outputChannelCount passed to init buffer processor */
+            }
+        /*
+            You must pass a valid value of callback result to PaUtil_EndBufferProcessing()
+            in general you would pass paContinue for normal operation, and
+            paComplete to drain the buffer processor's internal output buffer.
+            You can check whether the buffer processor's output buffer is empty
+            using PaUtil_IsBufferProcessorOuputEmpty( bufferProcessor )
+        */
+        callbackResult = paContinue;
+        framesProcessed = PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
+        /*
+            If you need to byte swap or shift outputBuffer to convert it to host format, do it here.
+        */
+        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
+
+        if( callbackResult == paContinue )
+            {
+            /* nothing special to do */
+            }
+        else if( callbackResult == paAbort )
+            {
+            /* IMPLEMENT ME - finish playback immediately  */
+
+            /* once finished, call the finished callback */
+            if (stream->streamRepresentation.streamFinishedCallback != 0 )
+                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+            
+            return; /* like oss?  Or pthread_exit( NULL ); like ALSA? */
+            }
+        else /* paComplete?? */
+            {
+            /* User callback has asked us to stop with paComplete or other non-zero value */
+
+            /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
+
+            /* once finished, call the finished callback */
+            if (stream->streamRepresentation.streamFinishedCallback != 0 )
+                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+            stream->stopSoon = 1;
+            }
+        /* WRITE TO HARDWARE HERE (like unix_oss, AFTER checking callback result)! */
+        /* Write interleaved samples to device. */
+        if (stream->portBuffOut.port)
+            alWriteFrames(stream->portBuffOut.port, stream->portBuffOut.buffer, stream->framesPerHostCallback);
+        }
+}
+
+
+/*
+    When CloseStream() is called, the multi-api layer ensures that
+    the stream has already been stopped or aborted.
+*/
+static PaError CloseStream(PaStream* s)
+{
+    PaError       result = paNoError;
+    PaSGIStream*  stream = (PaSGIStream*)s;
+
+    streamCleanupAndClose(stream); /* Frees i/o buffers and closes AL ports. */
+    
+    PaUtil_TerminateBufferProcessor(&stream->bufferProcessor);
+    PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation);
+    PaUtil_FreeMemory(stream);
+
+    return result;
+}
+
+
+static PaError StartStream(PaStream *s)
+{
+    PaError         result = paNoError;
+    PaSGIStream*    stream = (PaSGIStream*)s;
+
+    PaUtil_ResetBufferProcessor(&stream->bufferProcessor); /* See pa_common/pa_process.h. */
+    stream->isActive = 1;
+    if (stream->bufferProcessor.streamCallback)
+        {                                       /* only when callback is used */
+        if (pthread_create(&stream->thread,
+                           NULL,                /* pthread_attr_t * attr */
+                           (void*)PaSGIpthread, /* Function to spawn. */
+                           (void*)stream))      /* Pass stream as arg. */
+            {
+            stream->isActive = 0;
+            DBUG(("pthread_create() failed!\n"));
+            result = paUnanticipatedHostError;
+            }
+        }
+    return result;
+}
+
+
+static PaError StopStream( PaStream *s )
+{
+    PaError         result = paNoError;
+    PaSGIStream*    stream = (PaSGIStream*)s;
+
+    stream->stopSoon = 1;
+    if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
+        {
+        if (pthread_join(stream->thread, NULL))
+            {
+            DBUG(("pthread_join() failed!\n"));
+            result = paUnanticipatedHostError;
             }
         else
-            pahsc->pahsc_threadPID = -1;    /* Notify that we've killed this thread. */
-	    }
-#endif
-    past->past_IsActive = 0;    /* Even when kill() failed and pahsc_threadPID still there??? */
-	return result;
+            stream->isActive = 0;
+        }
+    else
+        stream->isActive = 0;
+    stream->stopSoon = stream->stopNow = 0;
+    DBUG(("PaSGI StopStream() finished\n"));
+    return result;
 }
 
-/*---------------------------------------------------------------*/
-PaError PaHost_StopOutput(internalPortAudioStream *past, int abort)
+
+static PaError AbortStream( PaStream *s )
 {
-	return paNoError;                   /* Not implemented yet? */
-}
-PaError PaHost_StopInput(internalPortAudioStream *past, int abort )
-{
-	return paNoError;
+    PaError result = paNoError;
+    PaSGIStream *stream = (PaSGIStream*)s;
+
+   stream->stopNow = 1;
+    if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
+        {
+        if (pthread_join(stream->thread, NULL))
+            {
+            DBUG(("pthread_join() failed!\n"));
+            result = paUnanticipatedHostError;
+            }
+        else
+            stream->isActive = 0;
+        }
+    else
+        stream->isActive = 0;
+    stream->stopSoon = stream->stopNow = 0;
+    DBUG(("PaSGI StopStream() finished\n"));
+    return result;
 }
 
-/*******************************************************************/
-PaError PaHost_CloseStream(internalPortAudioStream *past)
+
+static PaError IsStreamStopped( PaStream *s )
 {
-	PaHostSoundControl  *pahsc;
-    PaError             result = paNoError;
+    PaSGIStream *stream = (PaSGIStream*)s;
+    return (!stream->isActive);
+}
+
+
+static PaError IsStreamActive( PaStream *s )
+{
+    PaSGIStream *stream = (PaSGIStream*)s;
+    return (stream->isActive);
+}
+
+
+static PaTime GetStreamTime( PaStream *s )
+{
+    PaSGIStream *stream = (PaSGIStream*)s;
+
+    /* suppress unused variable warnings */
+    (void) stream;
     
-    DBUG(("PaHost_CloseStream() called.\n"));
-	if (!past)
-        return paBadStreamPtr;
-	pahsc = (PaHostSoundControl *) past->past_DeviceData;
-	if (!pahsc)             /* If pahsc not NULL, past_DeviceData will be freed, and set to NULL. */
-        return result;      /* This test prevents from freeing NULL-pointers. */
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
-    if (pahsc->pahsc_ALconfigIN)
-        {                                   /* Release configuration structs, only if allocated. */
-        ALfreeconfig(pahsc->pahsc_ALconfigIN);
-        pahsc->pahsc_ALconfigIN = NULL;
-        }
-    if (pahsc->pahsc_ALconfigOUT)
-        {
-        ALfreeconfig(pahsc->pahsc_ALconfigOUT); /* (Al-ports were already closed by audioProcess). */
-        pahsc->pahsc_ALconfigOUT = NULL;
-        }
-	if (pahsc->pahsc_NativeInputBuffer)
-	    {
-        PaHost_FreeFastMemory(pahsc->pahsc_NativeInputBuffer, pahsc->pahsc_BytesPerInputBuffer);        
-		pahsc->pahsc_NativeInputBuffer = NULL;
-	    }
-	if (pahsc->pahsc_NativeOutputBuffer)
-	    {
-        PaHost_FreeFastMemory(pahsc->pahsc_NativeOutputBuffer, pahsc->pahsc_BytesPerOutputBuffer);
-		pahsc->pahsc_NativeOutputBuffer = NULL;
-	    }
-	PaHost_FreeFastMemory(pahsc, sizeof(PaHostSoundControl));
-    past->past_DeviceData = NULL;    /* PaHost_OpenStream() allocated FAST MEM. */
-	return result;
+    return 0;
 }
 
-/*************************************************************************
-** Determine minimum number of buffers required for this host based
-** on minimum latency. Latency can be optionally set by user by setting
-** an environment variable. For example, to set latency to 200 msec, put:
-**    set PA_MIN_LATENCY_MSEC=200
-** in the AUTOEXEC.BAT file and reboot.
-** If the environment variable is not set, then the latency will be 
-** determined based on the OS. Windows NT has higher latency than Win95.
+
+static double GetStreamCpuLoad( PaStream* s )
+{
+    PaSGIStream *stream = (PaSGIStream*)s;
+
+    return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
+}
+
+
+/*
+    As separate stream interfaces are used for blocking and callback
+    streams, the following functions can be guaranteed to only be called
+    for blocking streams.
 */
-#define PA_LATENCY_ENV_NAME  ("PA_MIN_LATENCY_MSEC")
 
-int Pa_GetMinNumBuffers( int framesPerBuffer, double sampleRate )
+static PaError ReadStream( PaStream* s,
+                           void *buffer,
+                           unsigned long frames )
 {
-	return 2;
-}
-/* Hmmm, the note above isn't appropriate for SGI I'm afraid... */
-/* Do we HAVE to do it this way under IRIX???....               */
-/*--------------------------------------------------------------*/
+    PaSGIStream *stream = (PaSGIStream*)s;
 
-
-/*---------------------------------------------------------------------*/
-PaError PaHost_Term(void)   /* Frees all of the linked audio-devices.  */
-{                           /* Called by Pa_Terminate() from pa_lib.c. */
-	internalPortAudioDevice *pad = sDeviceList,
-                            *nxt;
-	while (pad)
-	    {
-		DBUG(("PaHost_Term: freeing %s\n", pad->pad_DeviceName));
-        nxt = pad->pad_Next;
-		PaHost_FreeFastMemory(pad, sizeof(internalPortAudioDevice));
-		pad = nxt;              /* PaHost_Init allocated this FAST MEM.*/
-	    }
-	sDeviceList = (internalPortAudioDevice*)NULL;
-	return 0;                           /* Got rid of	sNumDevices=0; */
+    /* Byte swapping and conversion?......   */
+    /* Read interleaved samples from device. */
+    alReadFrames(stream->portBuffIn.port, buffer, frames);
+    return paNoError;
 }
 
-/***********************************************************************/
-void Pa_Sleep( long msec )  /* Sleep requested number of milliseconds. */
+
+static PaError WriteStream( PaStream* s,
+                            const void *buffer,
+                            unsigned long frames )
 {
-#if 0
-	struct timeval timeout;
-	timeout.tv_sec = msec / 1000;
-	timeout.tv_usec = (msec % 1000) * 1000;
-	select(0, NULL, NULL, NULL, &timeout);
-#else
-	long usecs = msec * 1000;
-	usleep( usecs );
-#endif
+    PaSGIStream *stream = (PaSGIStream*)s;
+
+    /* Write interleaved samples to device. */
+    alWriteFrames(stream->portBuffOut.port, (void*)buffer, frames);
+    /* Byte swapping and conversion?......  */
+    
+    return paNoError;
 }
 
-/*---------------------------------------------------------------------------------------*/
-/* Allocate memory that can be accessed in real-time. This may need to be held in physi- */
-/* cal memory so that it is not paged to virtual memory. This call MUST be balanced with */
-/* a call to PaHost_FreeFastMemory().                                                    */
-void *PaHost_AllocateFastMemory(long numBytes)
-{
-	void *addr = malloc(numBytes);  /* mpin() reads into memory all pages over the given */
-	if (addr)                       /* range and locks the pages into memory. A counter  */
-        {                           /* is incremented each time the page is locked. The  */
-        if (mpin(addr, numBytes))   /* superuser can lock as many pages as it wishes,    */
-            {                       /* others are limited to the configurable PLOCK_MA.  */
-            ERR_RPT(("PaHost_AllocateFastMemory() failed to mpin() memory.\n"));
-#if 1
-            free(addr);             /* You MAY cut out these 2 lines to be less strict,  */
-            addr = NULL;            /* you then only get the warning but PA goes on...   */
-#endif                              /* Only problem then may be corresponding munpin()   */
-            }                       /* call at PaHost_FreeFastMemory(), below.           */
-        memset(addr, 0, numBytes);  /* Locks established with mlock are not inherited by */
-        }                           /* a child process after a fork. Furthermore, IRIX-  */
-	return addr;                    /* man-pages warn against mixing both mpin and mlock */
-}                                   /* in 1 piece of code, so stick to mpin()/munpin() ! */
 
-
-/*---------------------------------------------------------------------------------------*/
-/* Free memory that could be accessed in real-time. This call MUST be balanced with a    */
-/* call to PaHost_AllocateFastMemory().                                                  */
-void PaHost_FreeFastMemory(void *addr, long numBytes)
+static signed long GetStreamReadAvailable( PaStream* s )
 {
-	if (addr)
-        {
-        if (munpin(addr, numBytes))     /* Will munpin() fail when it was never mpinned? */
-            ERR_RPT(("WARNING: PaHost_FreeFastMemory() failed to munpin() memory.\n"));
-        free(addr);                     /* But go on, try to release it, just warn...    */
-        }
+    PaSGIStream *stream = (PaSGIStream*)s;
+    
+    /* Assume this is an input port (for alGetFilled()
+       may be called for output as well). */
+
+    return (signed long)alGetFilled(stream->portBuffIn.port);
 }
 
-/*----------------------------------------------------------*/
-PaError PaHost_StreamActive( internalPortAudioStream   *past )
-{
-	PaHostSoundControl *pahsc;
-	if (past == NULL)
-        return paBadStreamPtr;
-	pahsc = (PaHostSoundControl *) past->past_DeviceData;
-	if (pahsc == NULL)
-        return paInternalError;
-	return (PaError)(past->past_IsActive != 0);
-}
 
-/*-------------------------------------------------------------------*/
-PaTimestamp Pa_StreamTime( PortAudioStream *stream )
+static signed long GetStreamWriteAvailable( PaStream* s )
 {
-	internalPortAudioStream *past = (internalPortAudioStream *) stream; 
-/* FIXME - return actual frames played, not frames generated.
-** Need to query the output device somehow.
-*/
-	return past->past_FrameCount;
+    PaSGIStream *stream = (PaSGIStream*)s;
+    
+    /* Assume this is an output port (for alGetFillable() 
+       may be called for input as well). */
+
+    return (signed long)alGetFillable(stream->portBuffOut.port);
 }
