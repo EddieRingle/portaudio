@@ -242,14 +242,38 @@ static PaError InitializeDSDeviceNameAndGUIDVector(
 static PaError ExpandDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *guidVector )
 {
     PaError result = paNoError;
+    DSDeviceNameAndGUID *newItems;
+    int i;
     
     /* double size of vector */
     int size = guidVector->count + guidVector->free;
     guidVector->free += size;
-    guidVector->items = LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * size * 2 );
-    if( guidVector->items == NULL )
+
+    newItems = LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * size * 2 );
+    if( newItems == NULL )
+    {
         result = paInsufficientMemory;
-        
+    }
+    else
+    {
+        for( i=0; i < guidVector->count; ++i )
+        {
+            newItems[i].name = guidVector->items[i].name;
+            if( guidVector->items[i].lpGUID == NULL )
+            {
+                newItems[i].lpGUID = NULL;
+            }
+            else
+            {
+                newItems[i].lpGUID = &newItems[i].guid;
+                memcpy( &newItems[i].guid, guidVector->items[i].lpGUID, sizeof(GUID) );;
+            }
+        }
+
+        LocalFree( guidVector->items );
+        guidVector->items = newItems;
+    }                                
+
     return result;
 }
 
@@ -455,7 +479,12 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
+    /*
     hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
+    */
+    
+    hr = CoCreateInstance( &CLSID_DirectSoundCapture, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IDirectSoundCapture, (void**)&lpDirectSoundCapture );
     if( hr != DS_OK )
     {
         DBUG(("Cannot create Capture for %s. Result = 0x%x\n", name, hr ));
@@ -692,7 +721,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation group
+            - clean up any resources not handled by the allocation group
     */
 
     if( winDsHostApi->allocations )
