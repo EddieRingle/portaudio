@@ -45,21 +45,22 @@ void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double s
 }
 
 
-void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long samplesToProcess )
+void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer )
 {
-    assert( samplesToProcess > 0 );
-
-    measurer->secondsFor100Percent = samplesToProcess * measurer->samplingPeriod;
-
     measurer->measurementStartTime = PaUtil_GetTime();
 }
 
 
-void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer )
+void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long framesProcessed )
 {
-    double measurementEndTime = PaUtil_GetTime();
-    double measuredLoad =
-        (measurementEndTime - measurer->measurementStartTime) / measurer->secondsFor100Percent;
+    double measurementEndTime, secondsFor100Percent, measuredLoad;
+
+    measurementEndTime = PaUtil_GetTime();
+
+    assert( framesProcessed > 0 );
+    secondsFor100Percent = framesProcessed * measurer->samplingPeriod;
+
+    measuredLoad = (measurementEndTime - measurer->measurementStartTime) / secondsFor100Percent;
 
     /* Low pass filter the calculated CPU load to reduce jitter using a simple IIR low pass filter. */
 #define LOWPASS_COEFFICIENT_0   (0.9)

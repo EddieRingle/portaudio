@@ -40,14 +40,13 @@ extern "C"
 
 typedef struct {
     double samplingPeriod;
-    double secondsFor100Percent;
     double measurementStartTime;
     double averageLoad;
 } PaUtilCpuLoadMeasurer; /* FIXME: need better name than measurer */
 
 void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double sampleRate );
-void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long samplesToProcess );
-void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );
+void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );
+void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long framesProcessed );
 double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* measurer );
 
 
