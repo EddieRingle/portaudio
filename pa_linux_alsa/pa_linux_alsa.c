@@ -58,20 +58,21 @@
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 #define MAX(x,y) ( (x) > (y) ? (x) : (y) )
 
-pthread_mutex_t gmtx;   /* Global mutex */
-static PaError _paErr;    /* Used with ENSURE */
+static pthread_mutex_t gmtx;    /* Global mutex */
+static int aErr_;               /* Used with ENSURE */
+static PaError paErr_;          /* Used with PA_ENSURE */
 
 #define STRINGIZE_HELPER(exp) #exp
 #define STRINGIZE(exp) STRINGIZE_HELPER(exp)
 
 /* Check return value of ALSA function, and map it to PaError */
 #define ENSURE(exp, code) \
-    if( (exp) < 0 ) \
+    if( (aErr_ = (exp)) < 0 ) \
     { \
         if( (code) == paUnanticipatedHostError ) \
         { \
             pthread_mutex_lock( &gmtx ); \
-            PaUtil_SetLastHostErrorInfo( paALSA, result, snd_strerror( result ) ); \
+            PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
             pthread_mutex_unlock( &gmtx ); \
         } \
         PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
@@ -81,10 +82,10 @@ static PaError _paErr;    /* Used with ENSURE */
 
 /* Check PaError */
 #define PA_ENSURE(exp) \
-    if( (_paErr = (exp)) < paNoError ) \
+    if( (paErr_ = (exp)) < paNoError ) \
     { \
         PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
-        result = _paErr; \
+        result = paErr_; \
         goto error; \
     }
 
@@ -306,7 +307,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     if( *defaultSampleRate == 0. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
-        ENSURE( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, 0 ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, NULL ), paUnanticipatedHostError );
         ENSURE( GetExactSampleRate( hwParams, defaultSampleRate ), paUnanticipatedHostError );
     }
 
@@ -504,6 +505,9 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
         const PaAlsaStreamInfo *streamInfo )
 {
     int maxChans;
+
+    assert( parameters );
+
     if( streamInfo )
     {
         if( streamInfo->size != sizeof (PaAlsaStreamInfo) || streamInfo->version != 1 )
@@ -822,7 +826,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, bufferSize ), paUnanticipatedHostError );
 
     /* Obtain correct latency */
-    ENSURE( snd_pcm_hw_params_get_buffer_time( hwParams, &bufTime, 0 ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_get_buffer_time( hwParams, &bufTime, NULL ), paUnanticipatedHostError );
     bufTime -= bufTime / numPeriods;    /* One period is not counted as latency */
     *latency = (PaTime) bufTime / 1000000; /* Latency in seconds */
 
