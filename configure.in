@@ -37,6 +37,12 @@ dnl turn them on or off
 
 AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
 
+dnl Determine the host description for the subsequent test.
+dnl PKG_CHECK_MODULES seems to check and set the host variable also, but
+dnl that then requires pkg-config availability which is not standard on
+dnl MinGW systems and can be a pain to install.
+AC_CANONICAL_HOST
+
 PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
 
 AC_ARG_WITH(alsa, 
