@@ -38,19 +38,22 @@
  Nothing to do with the old V18 pa_sgi version: using the newer IRIX AL calls 
  now and pthreads instead of sproc. A fresh start. 
   
- Tested: + pa_devs                ok.
-         + pa_fuzz                ok.
-         + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
-                                      for usleeps above 999999 microseconds).
-         + patest_leftright       ok.
-         + patest_record          ok.
-         - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
-         - patest_start_stop      seems ok.
-         - patest_stop            seems ok.
-         - patest_write_sine      sounds ok but messages error at closing.
-         - patest_callbackstop COREDUMPS !!!!!
- 
- Todo:  - Set queue sizes and latencies.
+ Tested:
+        + patest_buffer          ok.
+        + pa_devs                ok.
+        + pa_fuzz                ok.
+        + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
+                                     for usleeps above 999999 microseconds).
+        + patest_leftright       ok.
+        + patest_record          ok.
+        - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
+        - patest_start_stop      seems ok.
+        - patest_stop            seems ok.
+        - patest_write_sine      sounds ok but messages error at closing.
+        - patest_callbackstop    COREDUMPS !!!!!
+
+ Todo:
+        - Set queue sizes and latencies.
         - Implement blocking i/o properly.
 */
 
@@ -1041,5 +1044,5 @@ static signed long GetStreamWriteAvailable( PaStream* s )
    To see if someone else worked on something:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -r v19-devel
    To see logs:
-    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs log pa_tests/patest_read_record.c
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs log pa_common/pa_skeleton.c
 */
