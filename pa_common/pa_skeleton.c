@@ -222,7 +222,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation group
+            - clean up any resources not handled by the allocation group
     */
 
     if( skeletonHostApi->allocations )
