@@ -81,6 +81,7 @@
         - patest_wire            ok.
         + patest_write_sine      ok.
         + pa_devs                ok.
+                                 Ok on an Indy, in both stereo and quadrophonic mode.
         + pa_fuzz                ok.
         + pa_minlat              ok.
 
@@ -116,8 +117,7 @@
        It must be clear which version we use (especially when using pa as lib!):
        an irix-sproc() version or pthread version.
 
- @todo Not in this file, but in Makefile.in or so: 'make clean' does not remove 
-       lib/libportaudio.so.0.0.19.
+ @todo In Makefile.in: 'make clean' does not remove lib/libportaudio.so.0.0.19.
     
  Note: Even when mono-output is requested, with ALv7, the audio library opens
        a outputs stereo. One can observe this in SGI's 'Audio Queue Monitor'.
@@ -890,7 +890,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
        AL_SAMPLE_16(=paInt16) or AL_SAMPLE_24(=paInt24); AL_SAMPFMT_FLOAT(=paFloat32); 
        AL_SAMPFMT_DOUBLE(=paFloat64); IRIX misses unsigned 8 and 32 bit signed ints.
     */
-    /* DBUG(("OpenStream() started.\n")); */
+    DBUG(("OpenStream() started.\n"));
     if (ipp)
         {
         inputChannelCount = ipp->channelCount;
@@ -1180,8 +1180,10 @@ static void* PaSGIpthread(void *userData)
         framesProcessed = PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
         /* If you need to byte swap or shift outputBuffer to convert it to host format, do it here. */
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
+        
         if (callbackResult != paContinue)
             {                                              /* Once finished, call the finished callback. */
+            DBUG(("SGI callbackResult = %d.\n", callbackResult));
             if (stream->streamRepresentation.streamFinishedCallback)
                 stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
             if (callbackResult == paAbort)
@@ -1217,7 +1219,7 @@ static PaError CloseStream(PaStream* s)
     PaError       result = paNoError;
     PaSGIStream*  stream = (PaSGIStream*)s;
 
-    /* DBUG(("SGI CloseStream() started.\n")); */
+    DBUG(("SGI CloseStream() started.\n"));
     streamCleanupAndClose(stream); /* Releases i/o buffers and closes AL ports. */
     PaUtil_TerminateBufferProcessor(&stream->bufferProcessor);
     PaUtil_TerminateStreamRepresentation(&stream->streamRepresentation);
@@ -1231,6 +1233,7 @@ static PaError StartStream(PaStream *s)
     PaError       result = paNoError;
     PaSGIStream*  stream = (PaSGIStream*)s;
 
+    DBUG(("StartStream() started.\n"));
     PaUtil_ResetBufferProcessor(&stream->bufferProcessor); /* See pa_common/pa_process.h. */
     if (stream->bufferProcessor.streamCallback)
         {                                       /* only when callback is used */
@@ -1297,23 +1300,26 @@ static PaError AbortStream( PaStream *s )
 }
 
 
-static PaError IsStreamStopped( PaStream *s )   /* Not just the opposite of stream->active! */
-{                                               /* In the 'callback finished' state, it     */
-    PaSGIStream *stream = (PaSGIStream*)s;      /* should return zero instead of nonzero!   */
-    return (stream->state & PA_SGI_STREAM_FLAG_STOPPED_);
+static PaError IsStreamStopped( PaStream *s )   /* Not just the opposite of IsStreamActive(): */
+{                                               /* in the 'callback finished' state, it       */
+                                                /* returns zero instead of nonzero.           */
+    if (((PaSGIStream*)s)->state & PA_SGI_STREAM_FLAG_STOPPED_)
+        return 1;
+    return 0;
 }
 
 
 static PaError IsStreamActive( PaStream *s )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-    return (stream->state & PA_SGI_STREAM_FLAG_ACTIVE_);
+    if (((PaSGIStream*)s)->state & PA_SGI_STREAM_FLAG_ACTIVE_)
+        return 1;
+    return 0;
 }
 
 
 static PaTime GetStreamTime( PaStream *s )
 {
-    stamp_t       t;
+    stamp_t t;
     
     (void) s; /* Suppress unused argument warning. */
     dmGetUST((unsigned long long*)(&t)); /* Receive time in nanoseconds in t. */
@@ -1412,12 +1418,14 @@ static signed long GetStreamWriteAvailable( PaStream* s )
    To download the 'v19-devel' branch from portaudio's CVS server for the first time, type:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs checkout -r v19-devel portaudio
    Then 'cd' to the 'portaudio' directory that should have been created.
-   Example that logs in as 'pieter' and commits changes (will require password):
+   To commit changes:
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs login
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs commit -m 'blabla.' -r v19-devel pa_sgi/pa_sgi.c
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs logout
    To see if someone else worked on something:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -r v19-devel
+   To get an older revision of a certain file (without sticky business):
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -p -r 1.1.1.1.2.4 pa_tests/patest1.c >pa_tests/patest1.c-OLD
    To see logs:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs log pa_common/pa_skeleton.c
 */
