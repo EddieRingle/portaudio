@@ -109,7 +109,7 @@ typedef struct {
 
 /**
     @param framesPerHostBuffer Specifies the number of frames per host buffer
-    for fixed the fixed buffer size mode, and the maximum number of frames
+    for the fixed buffer size mode, and the maximum number of frames
     per host buffer for the bounded host buffer size mode. It is ignored for
     the other modes.
     
