@@ -72,8 +72,6 @@
 
     @todo implement host api specific extension to set i/o buffer sizes in frames
 
-    @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
-
     @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
 
     @todo implement IsFormatSupported
@@ -101,9 +99,6 @@
         PaAsio_ShowControlPanel. - this would allow PaAsio_ShowControlPanel
         to be called for the currently open stream (at present all streams
         must be closed).
-
-    @todo fire an Event from the callback so that StopStream can wait for it,
-        and not prematurely terminate the stream before all data has been played.
 */
 
 
