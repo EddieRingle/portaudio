@@ -15,7 +15,9 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
   
   You dont need "driver"
   
-2)Open a command Prompt and execute "vcvars32.bat" which sets the environment
+
+2)execure "make.bat" OR 
+  Open a command Prompt and execute "vcvars32.bat" which sets the environment
   so that you can use Microsoft's "nmake"  
   EX: C:\Program Files\Microsoft Visual Studio\VC98\Bin\vcvars32.bat
   or (C:\progra~1\micros~2\VC98\bin\vcvars32) dumb de dumb
@@ -35,6 +37,7 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
 5) Your new exe should now use portaudio.dll.
 
 
+
 Have fun!
 
 
@@ -44,10 +47,10 @@ Right now those 3 entries are _not_ from portaudio.h
 (from portaudio.def)
 (...)
 PaAsio_GetAvailableLatencyValues    @50
-PaAsio_ShowControlPanel            @51
+PaAsio_ShowControlPanel             @51
 PaUtil_InitializeX86PlainConverters @52
 
 
 -----
-last update March 25th 2003
+last update April 8th 2003
 David Viens, davidv@plogue.com
