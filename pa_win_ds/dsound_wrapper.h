@@ -53,13 +53,13 @@ typedef struct
 {
     HINSTANCE hInstance_;
     
-    HRESULT WINAPI (*DirectSoundCreate)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN);
-    HRESULT WINAPI (*DirectSoundEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
-    HRESULT WINAPI (*DirectSoundEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
+    HRESULT (WINAPI *DirectSoundCreate)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN);
+    HRESULT (WINAPI *DirectSoundEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
+    HRESULT (WINAPI *DirectSoundEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
 
-    HRESULT WINAPI (*DirectSoundCaptureCreate)(LPGUID, LPDIRECTSOUNDCAPTURE *, LPUNKNOWN);
-    HRESULT WINAPI (*DirectSoundCaptureEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
-    HRESULT WINAPI (*DirectSoundCaptureEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
+    HRESULT (WINAPI *DirectSoundCaptureCreate)(LPGUID, LPDIRECTSOUNDCAPTURE *, LPUNKNOWN);
+    HRESULT (WINAPI *DirectSoundCaptureEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
+    HRESULT (WINAPI *DirectSoundCaptureEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
 }DSoundEntryPoints;
 
 extern DSoundEntryPoints dswDSoundEntryPoints;
