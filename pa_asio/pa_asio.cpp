@@ -67,7 +67,7 @@
 
     @todo check that CoInitialize()/CoUninitialize() are always correctly
         paired, even in error cases.
-        
+
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
 
     @todo implement host api specific extension to set i/o buffer sizes in frames
@@ -1724,7 +1724,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->numOutputChannels = numOutputChannels;
     stream->postOutput = driverInfo.postOutput;
     stream->isActive = 0;
-    
+
     asioHostApi->openAsioDeviceIndex = asioDeviceIndex;
 
     *s = (PaStream*)stream;
@@ -2097,7 +2097,7 @@ static PaError StartStream( PaStream *s )
 
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
     stream->stopProcessing = false;
-    stream->zeroOutput = false;    
+    stream->zeroOutput = false;
 
     if( ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
     {
@@ -2121,7 +2121,7 @@ static PaError StartStream( PaStream *s )
             PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         }
     }
-    
+
     return result;
 }
 
@@ -2166,7 +2166,7 @@ static PaError StopStream( PaStream *s )
         if( stream->streamRepresentation.streamFinishedCallback != 0 )
             stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     }
-    
+
     return result;
 }
 
@@ -2194,7 +2194,7 @@ static PaError AbortStream( PaStream *s )
         if( stream->streamRepresentation.streamFinishedCallback != 0 )
             stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     }
-    
+
     return result;
 }
 
@@ -2357,7 +2357,7 @@ PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n", driverInfo.errorMessage ));
     asioError = ASIOControlPanel();
     if( asioError != ASE_OK )
     {
-        PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+        PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
         result = paUnanticipatedHostError;
         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
@@ -2375,7 +2375,7 @@ PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErr
     }
 
 PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
-    
+
 	return result;
 
 error:
