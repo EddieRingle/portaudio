@@ -37,34 +37,39 @@
 #include "pa_util.h"   /* for PaUtil_MicrosecondTime() */
 
 
-void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* tracker, double microsecondsFor100Percent )
+void PaUtil_InitializeCpuLoadTracker( PaUtilCpuLoadMeasurer* measurer, double sampleRate )
 {
-    assert( microsecondsFor100Percent > 0. );
-    tracker->inverseMicrosecondsFor100Percent = 1. / microsecondsFor100Percent;
+    assert( sampleRate > 0 );
+
+    measurer->samplingPeriodMicroseconds = 1000000. / sampleRate;
 }
 
 
-void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* tracker )
+void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer, unsigned long samplesToProcess )
 {
-    tracker->measurementStartTime = PaUtil_MicrosecondTime();
+    assert( samplesToProcess > 0 );
+
+    measurer->microsecondsFor100Percent = samplesToProcess * measurer->samplingPeriodMicroseconds;
+
+    measurer->measurementStartTime = PaUtil_MicrosecondTime();
 }
 
 
-void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* tracker )
+void PaUtil_EndCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer )
 {
     double measurementEndTime = PaUtil_MicrosecondTime();
     double measuredLoad =
-        (measurementEndTime - tracker->measurementStartTime) * tracker->inverseMicrosecondsFor100Percent;
+        (measurementEndTime - measurer->measurementStartTime) / measurer->microsecondsFor100Percent;
 
 #define LOWPASS_COEFFICIENT_0   (0.9)
 #define LOWPASS_COEFFICIENT_1   (0.99999 - LOWPASS_COEFFICIENT_0)
 
-    tracker->averageLoad = (LOWPASS_COEFFICIENT_0 * tracker->averageLoad) +
+    measurer->averageLoad = (LOWPASS_COEFFICIENT_0 * measurer->averageLoad) +
                            (LOWPASS_COEFFICIENT_1 * measuredLoad);
 }
 
 
-double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* tracker )
+double PaUtil_GetCpuLoad( PaUtilCpuLoadMeasurer* measurer )
 {
-    return tracker->averageLoad;
+    return measurer->averageLoad;
 }
