@@ -190,7 +190,7 @@ case "${host_os}" in
 	;;
 
   *)
-	dnl Unix OSS configuration
+	dnl Unix configuration
 
    AC_CHECK_LIB(pthread, pthread_create,
                 ,
@@ -198,6 +198,7 @@ case "${host_os}" in
 
 	if [[ $have_alsa = "yes" ] && [ $with_alsa != "no" ]] ; then
                 LIBS="$LIBS -lasound"
+		DLL_LIBS="$DLL_LIBS -lasound"
 		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/pa_linux_alsa.o"
                 AC_DEFINE(PA_USE_ALSA)
 	fi

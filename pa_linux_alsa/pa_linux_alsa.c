@@ -215,22 +215,11 @@ static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long 
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
-    PaAlsaHostApiRepresentation *alsaHostApi;
+    PaAlsaHostApiRepresentation *alsaHostApi = NULL;
 
-    alsaHostApi = (PaAlsaHostApiRepresentation*)
-        PaUtil_AllocateMemory( sizeof(PaAlsaHostApiRepresentation) );
-    if( !alsaHostApi )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
-
-    alsaHostApi->allocations = PaUtil_CreateAllocationGroup();
-    if( !alsaHostApi->allocations )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
+    UNLESS( alsaHostApi = (PaAlsaHostApiRepresentation*) PaUtil_AllocateMemory(
+                sizeof(PaAlsaHostApiRepresentation) ), paInsufficientMemory );
+    UNLESS( alsaHostApi->allocations = PaUtil_CreateAllocationGroup(), paInsufficientMemory );
 
     alsaHostApi->hostApiIndex = hostApiIndex;
     *hostApi = (PaUtilHostApiRepresentation*)alsaHostApi;
@@ -261,7 +250,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       GetStreamWriteAvailable );
 
     BuildDeviceList( alsaHostApi );
-    pthread_mutex_init( &gmtx, NULL );
+    UNLESS( !pthread_mutex_init( &gmtx, NULL ), paInternalError );   /* 0 == success */
 
     return result;
 
@@ -298,16 +287,16 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
 
-    ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, (unsigned int *) channels ), paUnanticipatedHostError );
-    PA_DEBUG(( "maxChannels: %d\n", *channels ));
-    UNLESS( *channels > 0, paUnanticipatedHostError );
-
     if( *defaultSampleRate == 0 )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
         ENSURE( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, 0 ), paUnanticipatedHostError );
         ENSURE( GetExactSampleRate( hwParams, defaultSampleRate ), paUnanticipatedHostError );
     }
+
+    ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, (unsigned int *) channels ), paUnanticipatedHostError );
+    assert( *channels > 0 );    /* Weird linking issue could cause wrong version of ALSA symbols to be called,
+                                   resulting in zeroed values */
 
     /* TWEAKME:
      *
@@ -480,7 +469,6 @@ error:
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
-
     PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
 
     assert( hostApi );
@@ -499,10 +487,10 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     pthread_mutex_destroy( &gmtx );
 }
 
-typedef enum IOValidate
+typedef enum
 {
     validateIn = 0,
-    validateOut = 0
+    validateOut
 } IOValidate;
 
 /* Check against known device capabilities */
@@ -525,10 +513,12 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
             return paInvalidDevice;
     }
 
-    maxChans = io == validateIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
-        deviceInfo->commonDeviceInfo.maxOutputChannels; 
+    maxChans = (io == validateIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
+        deviceInfo->commonDeviceInfo.maxOutputChannels);
     if( parameters->channelCount > maxChans )
+    {
         return paInvalidChannelCount;
+    }
 
     return paNoError;
 }
@@ -547,36 +537,65 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
     if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_FLOAT ) >= 0)
         available |= paFloat32;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S16 ) >= 0)
-        available |= paInt16;
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S32 ) >= 0)
+        available |= paInt32;
 
     if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24 ) >= 0)
         available |= paInt24;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S32 ) >= 0)
-        available |= paInt32;
-
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S8 ) >= 0)
-        available |= paInt8;
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S16 ) >= 0)
+        available |= paInt16;
 
     if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_U8 ) >= 0)
         available |= paUInt8;
+
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S8 ) >= 0)
+        available |= paInt8;
 
     return available;
 }
 
 
-static PaError TestParameters( const PaStreamParameters *parameters, const char *deviceString, double sampleRate )
+static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
+{
+    switch( paFormat )
+    {
+        case paFloat32:
+            return SND_PCM_FORMAT_FLOAT;
+
+        case paInt16:
+            return SND_PCM_FORMAT_S16;
+
+        case paInt24:
+            return SND_PCM_FORMAT_S24;
+
+        case paInt32:
+            return SND_PCM_FORMAT_S32;
+
+        case paInt8:
+            return SND_PCM_FORMAT_S8;
+
+        case paUInt8:
+            return SND_PCM_FORMAT_U8;
+
+        default:
+            return SND_PCM_FORMAT_UNKNOWN;
+    }
+}
+
+
+static PaError TestParameters( const PaStreamParameters *parameters, const char *deviceString, double sampleRate,
+        snd_pcm_stream_t streamType )
 {
     PaError result = paNoError;
     snd_pcm_t *pcm = NULL;
     PaSampleFormat availableFormats;
-    PaSampleFormat format;
+    PaSampleFormat paFormat;
     int ret;
     snd_pcm_hw_params_t *params;
     snd_pcm_hw_params_alloca( &params );
 
-    if( (ret = snd_pcm_open( &pcm, deviceString, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
+    if( (ret = snd_pcm_open( &pcm, deviceString, streamType, SND_PCM_NONBLOCK )) < 0 )
     {
         pcm = NULL;     /* Not to be closed */
         /* Take action based on return value */
@@ -585,25 +604,13 @@ static PaError TestParameters( const PaStreamParameters *parameters, const char 
     ENSURE( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
 
     snd_pcm_hw_params_any( pcm, params );
-    if( SetApproximateSampleRate( pcm, params, sampleRate ) < 0 )
-    {
-        result = paInvalidSampleRate;
-        goto end;
-    }
-    if( snd_pcm_hw_params_set_channels( pcm, params, parameters->channelCount ) < 0 )
-    {
-        result = paInvalidChannelCount;
-        goto end;
-    }
+
+    ENSURE( SetApproximateSampleRate( pcm, params, sampleRate ), paInvalidSampleRate );
+    ENSURE( snd_pcm_hw_params_set_channels( pcm, params, parameters->channelCount ), paInvalidChannelCount );
 
     /* See if we can find a best possible match */
     availableFormats = GetAvailableFormats( pcm );
-    if ( (format = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ))
-                == paSampleFormatNotSupported )
-    {
-        result = (PaError) format;
-        goto end;
-    }
+    PA_ENSURE( paFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
 
 end:
     if( pcm )
@@ -688,7 +695,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             deviceName = (char *) inputStreamInfo->deviceString;
 
-        PA_ENSURE( TestParameters( inputParameters, deviceName, sampleRate ) );
+        PA_ENSURE( TestParameters( inputParameters, deviceName, sampleRate, SND_PCM_STREAM_CAPTURE ) );
     }
 
     if ( outputChannelCount )
@@ -700,41 +707,13 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             deviceName = (char *) outputStreamInfo->deviceString;
 
-        PA_ENSURE( TestParameters( outputParameters, deviceName, sampleRate ) );
+        PA_ENSURE( TestParameters( outputParameters, deviceName, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
     }
 
     return paFormatIsSupported;
 
 error:
     return result;
-}
-
-
-static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
-{
-    switch( paFormat )
-    {
-        case paFloat32:
-            return SND_PCM_FORMAT_FLOAT;
-
-        case paInt16:
-            return SND_PCM_FORMAT_S16;
-
-        case paInt24:
-            return SND_PCM_FORMAT_S24;
-
-        case paInt32:
-            return SND_PCM_FORMAT_S32;
-
-        case paInt8:
-            return SND_PCM_FORMAT_S8;
-
-        case paUInt8:
-            return SND_PCM_FORMAT_U8;
-
-        default:
-            return SND_PCM_FORMAT_UNKNOWN;
-    }
 }
 
 
@@ -796,9 +775,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     }
 
     /* set the format based on what the user selected */
-    alsaFormat = Pa2AlsaFormat( paFormat );
-    if ( alsaFormat == SND_PCM_FORMAT_UNKNOWN )
-        return paSampleFormatNotSupported;
+    assert( (alsaFormat = Pa2AlsaFormat( paFormat )) != SND_PCM_FORMAT_UNKNOWN );
     ENSURE( snd_pcm_hw_params_set_format( pcm, hwParams, alsaFormat ), paUnanticipatedHostError );
 
     /* ... set the sample rate */
@@ -1000,7 +977,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
 
         hostInputSampleFormat =
-            PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_capture),
+            PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_capture ),
                                                  inputSampleFormat );
     }
 
@@ -1024,7 +1001,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
 
         hostOutputSampleFormat =
-            PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_playback),
+            PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_playback ),
                                                  outputSampleFormat );
         stream->playbackNativeFormat = Pa2AlsaFormat( hostOutputSampleFormat );
     }
@@ -1586,8 +1563,7 @@ int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, dou
     int dir;
     double fraction = sampleRate - approx;
 
-    assert( pcm );
-    assert( hwParams );
+    assert( pcm && hwParams );
 
     if( fraction > 0.0 )
     {
@@ -1691,8 +1667,7 @@ static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
 {
     PaError result = paNoError;
     int pollPlayback = 0, pollCapture = 0;
-    snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX;
-    snd_pcm_uframes_t commonAvail;
+    snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
     int xrun = 0;   /* Under/overrun? */
 
     assert( stream && frames && stream->pollTimeout > 0 );
@@ -1730,8 +1705,9 @@ static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
         /* now poll on the combination of playback and capture fds. */
         if( poll( stream->pfds, totalFds, stream->pollTimeout ) < 0 )
         {
-            /*
+            /* GDB
             if( errno == EINTR ) {
+                continue;
             }
             */
 
@@ -1816,20 +1792,17 @@ static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
     
     assert( !(captureAvail == playbackAvail == INT_MAX) );
 
+    commonAvail = MIN( captureAvail, playbackAvail );
+    commonAvail -= commonAvail % stream->frames_per_period;
+
     if( xrun )
     {
         HandleXrun( stream );
-        *frames = 0;
+        commonAvail = 0;    /* Wait will be called again, to obtain the number of available frames */
     }
-    else    /* Ok, we have available frames */
-    {
-        assert( captureAvail > 0 && playbackAvail > 0 );
 
-        commonAvail = (snd_pcm_uframes_t) MIN( captureAvail, playbackAvail );
-        commonAvail -= commonAvail % stream->frames_per_period;
-
-        *frames = commonAvail;
-    }
+    assert( commonAvail >= 0 );
+    *frames = commonAvail;
 
 end:
     return result;
