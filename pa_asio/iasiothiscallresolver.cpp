@@ -167,7 +167,7 @@
 // We have a mechanism in iasiothiscallresolver.h to ensure that asio.h is
 // #include'd before it in client code, we do NOT want to do this test here.
 #define iasiothiscallresolver_sourcefile 1
-#include <iasiothiscallresolver.h>
+#include "iasiothiscallresolver.h"
 #undef iasiothiscallresolver_sourcefile
 
 // iasiothiscallresolver.h redefines ASIOInit for clients, but we don't want
