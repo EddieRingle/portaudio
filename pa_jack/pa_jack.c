@@ -290,9 +290,9 @@ BlockingBegin( PaJackStream *stream, int minimum_buffer_size )
     PaError result = paNoError;
     long    numFrames;
 
+    doRead = stream->local_input_ports != NULL;
+    doWrite = stream->local_output_ports != NULL;
     /* <FIXME> */
-    doRead = 1;
-    doWrite = 1;
     stream->samplesPerFrame = 2;
     stream->bytesPerFrame = sizeof(float) * stream->samplesPerFrame;
     /* </FIXME> */
@@ -331,9 +331,9 @@ BlockingEnd( PaJackStream *stream )
     sem_destroy( &stream->data_semaphore );
 }
 
-static PaError
-BlockingReadStream( PaStream* s, void *data, unsigned long numFrames )
+static PaError BlockingReadStream( PaStream* s, void *data, unsigned long numFrames )
 {
+    PaError result = paNoError;
     PaJackStream *stream = (PaJackStream *)s;
 
     long bytesRead;
@@ -353,12 +353,13 @@ BlockingReadStream( PaStream* s, void *data, unsigned long numFrames )
                 sem_wait( &stream->data_semaphore );
         }
     }
-    return numFrames;
+
+    return result;
 }
 
-static PaError
-BlockingWriteStream( PaStream* s, const void *data, unsigned long numFrames )
+static PaError BlockingWriteStream( PaStream* s, const void *data, unsigned long numFrames )
 {
+    PaError result = paNoError;
     PaJackStream *stream = (PaJackStream *)s;
     long bytesWritten;
     char *p = (char *) data;
@@ -390,7 +391,8 @@ BlockingWriteStream( PaStream* s, const void *data, unsigned long numFrames )
                 sem_wait( &stream->data_semaphore );
         }
     }
-    return 0;
+
+    return result;
 }
 
 static signed long
@@ -1154,7 +1156,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         if( inputParameters && inputParameters->suggestedLatency > latency )
             latency = inputParameters->suggestedLatency;
-        if( outputParameters->suggestedLatency > latency )
+        else if( outputParameters && outputParameters->suggestedLatency > latency )
             latency = outputParameters->suggestedLatency;
 
         /* the latency the user asked for indicates the minimum buffer size in frames */
