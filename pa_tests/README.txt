@@ -8,9 +8,9 @@ Note that this does not necissarily mean that the tests pass, just that they
 compile.
 Feel free to fix some more of them, most simply require adjusting to the new API.
 
-o- paqa_devs.c 
+x- paqa_devs.c 
 o- paqa_errs.c 
-o- patest1.c
+x- patest1.c
 x- patest_buffer.c
 x- patest_callbackstop.c
 x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)

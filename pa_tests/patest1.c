@@ -1,6 +1,5 @@
 /** @file patest1.c
 	@brief Ring modulate the audio input with a sine wave for 20 seconds.
-	@todo needs to be updated to use the V19 API
 	@author Ross Bencina <rossb@audiomulch.com>
 */
 /*
@@ -37,9 +36,13 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
+
 #ifndef M_PI
-#define M_PI  (3.14159265)
+#define M_PI (3.14159265)
 #endif
+
+#define SAMPLE_RATE (44100)
+
 typedef struct
 {
     float sine[100];
@@ -47,19 +50,24 @@ typedef struct
     int sampsToGo;
 }
 patest1data;
-static int patest1Callback( void *inputBuffer, void *outputBuffer,
-                            unsigned long bufferFrames,
-                            PaTime outTime, void *userData )
+
+static int patest1Callback( const void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData )
 {
     patest1data *data = (patest1data*)userData;
     float *in = (float*)inputBuffer;
     float *out = (float*)outputBuffer;
-    int framesToCalc = bufferFrames;
+    int framesToCalc = framesPerBuffer;
     unsigned long i;
     int finished = 0;
+
     /* Check to see if any input data is available. */
     if(inputBuffer == NULL) return 0; /* FIXME: no longer needed in V19 */
-    if( data->sampsToGo < bufferFrames )
+
+    if( data->sampsToGo < framesPerBuffer )
     {
         framesToCalc = data->sampsToGo;
         finished = 1;
@@ -73,13 +81,14 @@ static int patest1Callback( void *inputBuffer, void *outputBuffer,
     }
     data->sampsToGo -= framesToCalc;
     /* zero remainder of final buffer if not already done */
-    for( ; i<bufferFrames; i++ )
+    for( ; i<framesPerBuffer; i++ )
     {
         *out++ = 0; /* left */
         *out++ = 0; /* right */
     }
     return finished;
 }
+
 int main(int argc, char* argv[]);
 int main(int argc, char* argv[])
 {
@@ -87,36 +96,43 @@ int main(int argc, char* argv[])
     PaError err;
     patest1data data;
     int i;
-    int inputDevice = Pa_GetDefaultInputDevice();
-    int outputDevice = Pa_GetDefaultOutputDevice();
+    PaStreamParameters inputParameters, outputParameters;
+    const PaHostErrorInfo*    herr;
+    
     /* initialise sinusoidal wavetable */
     for( i=0; i<100; i++ )
         data.sine[i] = sin( ((double)i/100.) * M_PI * 2. );
     data.phase = 0;
-    data.sampsToGo = 44100 * 20;   // 20 seconds
+    data.sampsToGo = SAMPLE_RATE * 20;        /* 20 seconds. */
     /* initialise portaudio subsytem */
     Pa_Initialize();
+
+    inputParameters.device = Pa_GetDefaultInputDevice();    /* default input device */
+    inputParameters.channelCount = 2;                       /* stereo input */
+    inputParameters.sampleFormat = paFloat32;               /* 32 bit floating point input */
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
+    inputParameters.hostApiSpecificStreamInfo = NULL;
+
+    outputParameters.device = Pa_GetDefaultOutputDevice();  /* default output device */
+    outputParameters.channelCount = 2;                      /* stereo output */
+    outputParameters.sampleFormat = paFloat32;              /* 32 bit floating point output */
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+
     err = Pa_OpenStream(
-              &stream,
-              inputDevice,
-              2,              /* stereo input */
-              paFloat32,  /* 32 bit floating point input */
-              NULL,
-              outputDevice,
-              2,              /* stereo output */
-              paFloat32,      /* 32 bit floating point output */
-              NULL,
-              44100.,
-              512,            /* small buffers */
-              0,              /* let PA determine number of buffers */
-              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
-              patest1Callback,
-              &data );
+                        &stream,
+                        &inputParameters,
+                        &outputParameters,
+                        (double)SAMPLE_RATE, /* Samplerate in Hertz. */
+                        512,                 /* Small buffers */
+                        paClipOff,           /* We won't output out of range samples so don't bother clipping them. */
+                        patest1Callback,
+                        &data );
     if( err == paNoError )
     {
         err = Pa_StartStream( stream );
         printf( "Press any key to end.\n" );
-        getc( stdin ); //wait for input before exiting
+        getc( stdin ); /* wait for input before exiting */
         Pa_AbortStream( stream );
 
         printf( "Waiting for stream to complete...\n" );
@@ -129,14 +145,23 @@ int main(int argc, char* argv[])
     else
     {
         fprintf( stderr, "An error occured while opening the portaudio stream\n" );
-        if( err == paHostError )
+        if( err == paUnanticipatedHostError )   /* Was paHostError in v18. */
         {
-            fprintf( stderr, "Host error number: %d\n", Pa_GetHostError() );
+            fprintf( stderr, " Host error!\n");
+            herr = Pa_GetLastHostErrorInfo();
+            if (herr)
+            {
+                fprintf( stderr, " Error number: %ld\n", herr->errorCode );
+                if (herr->errorText)
+                    fprintf( stderr, " Error text: %s\n", herr->errorText );
+            }
+            else
+                fprintf( stderr, "\nPa_GetLastHostErrorInfo() failed!\n" );
         }
         else
         {
-            fprintf( stderr, "Error number: %d\n", err );
-            fprintf( stderr, "Error text: %s\n", Pa_GetErrorText( err ) );
+            fprintf( stderr, " Error number: %d\n", err );
+            fprintf( stderr, " Error text: %s\n", Pa_GetErrorText( err ) );
         }
     }
     Pa_Terminate();
