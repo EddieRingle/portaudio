@@ -104,7 +104,7 @@ int main(void)
         for( j=0; j < FRAMES_PER_BUFFER; j++ )
         {
             buffer[j][0] = sine[left_phase];  /* left */
-            buffer[j][0] = sine[right_phase];  /* right */
+            buffer[j][1] = sine[right_phase];  /* right */
             left_phase += 1;
             if( left_phase >= TABLE_SIZE ) left_phase -= TABLE_SIZE;
             right_phase += 3; /* higher pitch so we can distinguish left and right. */
