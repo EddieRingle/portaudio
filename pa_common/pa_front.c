@@ -394,11 +394,11 @@ const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void )
 }
 
 
-const char *Pa_GetErrorText( PaError errorNumber )
+const char *Pa_GetErrorText( PaError errorCode )
 {
     const char *result;
 
-    switch( errorNumber )
+    switch( errorCode )
     {
     case paNoError:                  result = "Success"; break;
     case paNotInitialized:           result = "PortAudio not initialized"; break;
