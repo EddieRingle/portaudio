@@ -190,7 +190,6 @@ static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long 
 static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 
-static PaError UpdateStreamTime( PaWinMmeStream *stream );
 
 /* macros for setting last host error information */
 
@@ -1284,8 +1283,6 @@ struct PaWinMmeStream
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
 
-    CRITICAL_SECTION lock;
-
     int primeStreamUsingCallback;
 
     /* Input -------------- */
@@ -1322,25 +1319,20 @@ struct PaWinMmeStream
     int throttledThreadPriority;
     unsigned long throttledSleepMsecs;
 
+    int isStopped;
     volatile int isActive;
     volatile int stopProcessing; /* stop thread once existing buffers have been returned */
     volatile int abortProcessing; /* stop thread immediately */
 
     DWORD allBuffersDurationMs; /* used to calculate timeouts */
-
-    /** @todo FIXME: we no longer need the following for GetStreamTime support */
-    /** GetStreamTime() support ------------- */
-
-    PaTime streamPosition;
-    long previousStreamPosition;                /* used to track frames played. */
 };
 
 
 /* the following macros are intended to improve the readability of the following code */
 #define PA_IS_INPUT_STREAM_( stream ) ( stream ->hWaveIns )
 #define PA_IS_OUTPUT_STREAM_( stream ) ( stream ->hWaveOuts )
-#define PA_IS_FULL_DUPLEX_STREAM_( stream ) ( stream ->hWaveIns  && stream ->hWaveOuts )
-
+#define PA_IS_FULL_DUPLEX_STREAM_( stream ) ( stream ->hWaveIns && stream ->hWaveOuts )
+#define PA_IS_HALF_DUPLEX_STREAM_( stream ) ( !(stream ->hWaveIns && stream ->hWaveOuts) )
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -1365,8 +1357,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long numHostInputBuffers;
     unsigned long framesPerHostOutputBuffer;
     unsigned long numHostOutputBuffers;
-    unsigned long framesPerBufferProcessorCall;  
-    int lockInited = 0;
+    unsigned long framesPerBufferProcessorCall;
     int bufferEventInited = 0;
     int abortEventInited = 0;
     WAVEFORMATEX wfx;
@@ -1588,9 +1579,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->noHighPriorityProcessClass = noHighPriorityProcessClass;
     stream->useTimeCriticalProcessingThreadPriority = useTimeCriticalProcessingThreadPriority;
     stream->throttleProcessingThreadOnOverload = throttleProcessingThreadOnOverload;
-    
+
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                           &winMmeHostApi->callbackStreamInterface, streamCallback, userData );
+                                           ( (streamCallback)
+                                            ? &winMmeHostApi->callbackStreamInterface
+                                            : &winMmeHostApi->blockingStreamInterface ),
+                                           streamCallback, userData );
 
     stream->streamRepresentation.streamInfo.inputLatency = (double)(framesPerHostInputBuffer * (numHostInputBuffers-1)) / sampleRate;
     stream->streamRepresentation.streamInfo.outputLatency = (double)(framesPerHostOutputBuffer * (numHostOutputBuffers-1)) / sampleRate;
@@ -1643,7 +1637,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
 
 
-    stream->primeStreamUsingCallback = (streamFlags&paPrimeOutputBuffersUsingStreamCallback) ? 1 : 0;
+    stream->primeStreamUsingCallback = ( (streamFlags&paPrimeOutputBuffersUsingStreamCallback) && streamCallback ) ? 1 : 0;
 
     /* time to sleep when throttling due to >100% cpu usage.
         -a quater of a buffer's duration */
@@ -1651,10 +1645,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             (unsigned long)(stream->bufferProcessor.framesPerHostBuffer *
              stream->bufferProcessor.samplePeriod * .25);
 
+    stream->isStopped = 1;
     stream->isActive = 0;
-
-    stream->streamPosition = 0.;
-    stream->previousStreamPosition = 0;
 
 
     stream->bufferEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
@@ -1888,17 +1880,22 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
     }
 
-    stream->abortEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
-    if( stream->abortEvent == NULL )
+    if( streamCallback )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-        goto error;
+        /* abort event is only needed for callback streams */
+        stream->abortEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
+        if( stream->abortEvent == NULL )
+        {
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
+            goto error;
+        }
+        abortEventInited = 1;
     }
-    abortEventInited = 1;
-
-    InitializeCriticalSection( &stream->lock );
-    lockInited = 1;
+    else
+    {
+        stream->abortEvent = 0;
+    }
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
         stream->allBuffersDurationMs = (DWORD) (1000.0 * (framesPerHostOutputBuffer * stream->numOutputBuffers) / sampleRate);
@@ -1911,8 +1908,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     return result;
 
 error:
-    if( lockInited )
-        DeleteCriticalSection( &stream->lock );
 
     if( abortEventInited )
         CloseHandle( stream->abortEvent );
@@ -1978,10 +1973,65 @@ error:
 }
 
 
-/* return non-zero if any output buffers are queued */
-static int OutputBuffersAreQueued( PaWinMmeStream *stream )
+/* return non-zero if all current input buffers are done */
+static int CurrentInputBuffersAreDone( PaWinMmeStream *stream )
 {
-    int result = 0;
+    unsigned int i;
+    
+    for( i=0; i<stream->numInputDevices; ++i )
+    {
+        if( !(stream->inputBuffers[i][ stream->currentInputBufferIndex ].dwFlags & WHDR_DONE) )
+        {
+            return 0;
+        }         
+    }
+
+    return 1;
+}
+
+
+/* return non-zero if all current output buffers are done */
+static int CurrentOutputBuffersAreDone( PaWinMmeStream *stream )
+{
+    unsigned int i;
+    
+    for( i=0; i<stream->numOutputDevices; ++i )
+    {
+        if( !(stream->outputBuffers[i][ stream->currentOutputBufferIndex ].dwFlags & WHDR_DONE) )
+        {
+            return 0;
+        }         
+    }
+
+    return 1;
+}
+
+
+/* return non-zero if any input buffers are queued */
+static int NoInputBuffersAreQueued( PaWinMmeStream *stream )
+{
+    unsigned int i, j;
+
+    if( PA_IS_INPUT_STREAM_( stream ) )
+    {
+        for( i=0; i<stream->numInputBuffers; ++i )
+        {
+            for( j=0; j < stream->numInputDevices; ++j )
+            {
+                if( !( stream->inputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
+                {
+                    return 0;
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
+/* return non-zero if any output buffers are queued */
+static int NoOutputBuffersAreQueued( PaWinMmeStream *stream )
+{
     unsigned int i, j;
 
     if( PA_IS_OUTPUT_STREAM_( stream ) )
@@ -1992,13 +2042,13 @@ static int OutputBuffersAreQueued( PaWinMmeStream *stream )
             {
                 if( !( stream->outputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
                 {
-                    result++;
+                    return 0;
                 }
             }
         }
     }
 
-    return result;
+    return 1;
 }
 
 
@@ -2063,7 +2113,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     DWORD result = paNoError;
     DWORD waitResult;
     DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
-    DWORD numTimeouts = 0;
+    int numTimeouts = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
     int callbackResult;
@@ -2106,7 +2156,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 is input-only.
             */
 
-            if( !OutputBuffersAreQueued( stream ) )
+            if( PA_IS_OUTPUT_STREAM_(stream) && NoOutputBuffersAreQueued( stream ) )
             {
                 done = 1; /* Will cause thread to return. */
             }
@@ -2121,38 +2171,17 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 hostInputBufferIndex = -1;
                 hostOutputBufferIndex = -1;
 
-                if( PA_IS_INPUT_STREAM_(stream))
+                if( PA_IS_INPUT_STREAM_(stream) )
                 {
-                    hostInputBufferIndex = stream->currentInputBufferIndex;
-                    for( i=0; i<stream->numInputDevices; ++i )
+                    if( CurrentInputBuffersAreDone( stream ) )
                     {
-                        if( !(stream->inputBuffers[i][ stream->currentInputBufferIndex ].dwFlags & WHDR_DONE) )
+                        if( NoInputBuffersAreQueued( stream ) )
                         {
-                            hostInputBufferIndex = -1;
-                            break;
-                        }         
-                    }
+                            /* if all of the other buffers are also ready then
+                               we discard all but the most recent. FIXME: this is
+                               an input buffer overrun and should be flagged as such
+                            */
 
-                    if( hostInputBufferIndex != -1 )
-                    {
-                        /* if all of the other buffers are also ready then we dicard all but the
-                            most recent. */
-                        int inputCatchUp = 1;
-
-                        for( i=0; i < stream->numInputBuffers && inputCatchUp == 1; ++i )
-                        {
-                            for( j=0; j<stream->numInputDevices; ++j )
-                            {
-                                if( !(stream->inputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
-                                {
-                                    inputCatchUp = 0;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if( inputCatchUp )
-                        {
                             for( i=0; i < stream->numInputBuffers - 1; ++i )
                             {
                                 result = AdvanceToNextInputBuffer( stream );
@@ -2160,42 +2189,21 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                     done = 1;
                             }
                         }
+
+                        hostInputBufferIndex = stream->currentInputBufferIndex;
                     }
                 }
 
                 if( PA_IS_OUTPUT_STREAM_(stream) )
                 {
-                    hostOutputBufferIndex = stream->currentOutputBufferIndex;
-                    for( i=0; i<stream->numOutputDevices; ++i )
+                    if( CurrentOutputBuffersAreDone( stream ) )
                     {
-                        if( !(stream->outputBuffers[i][ stream->currentOutputBufferIndex ].dwFlags & WHDR_DONE) )
+                        if( NoOutputBuffersAreQueued( stream ) )
                         {
-                            hostOutputBufferIndex = -1;
-                            break;
-                        }
-                    }
-
-                    if( hostOutputBufferIndex != - 1 )
-                    {
-                        /* if all of the other buffers are also ready, catch up by copying
+                            /* if all of the other buffers are also ready, catch up by copying
                             the most recently generated buffer into all but one of the output
                             buffers */
-                        int outputCatchUp = 1;
-
-                        for( i=0; i < stream->numOutputBuffers && outputCatchUp == 1; ++i )
-                        {
-                            for( j=0; j<stream->numOutputDevices; ++j )
-                            {
-                                if( !(stream->outputBuffers[ j ][ i ].dwFlags & WHDR_DONE) )
-                                {
-                                    outputCatchUp = 0;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if( outputCatchUp )
-                        {
+                            
                             /* FIXME: this is an output underflow buffer slip and should be flagged as such */
                             unsigned int previousBufferIndex = (stream->currentOutputBufferIndex==0)
                                     ? stream->numOutputBuffers - 1
@@ -2219,17 +2227,19 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                     done = 1;
                             }
                         }
+
+                        hostOutputBufferIndex = stream->currentOutputBufferIndex;
                     }
                 }
 
                
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
-                        (!PA_IS_FULL_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
+                        (PA_IS_HALF_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
                     PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime and currentTime */
 
 
-                    if( hostOutputBufferIndex != -1 )
+                    if( PA_IS_OUTPUT_STREAM_(stream) )
                     {
                         MMTIME time;
                         double now;
@@ -2261,7 +2271,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /** @todo pass underflow/overflow flags when necessary */  );
 
-                    if( hostInputBufferIndex != -1 )
+                    if( PA_IS_INPUT_STREAM_(stream) )
                     {
                         PaUtil_SetInputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
 
@@ -2282,7 +2292,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         }
                     }
 
-                    if( hostOutputBufferIndex != -1 )
+                    if( PA_IS_OUTPUT_STREAM_(stream) )
                     {
                         PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
                         
@@ -2298,7 +2308,6 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                         stream->bufferProcessor.bytesPerHostOutputSample,
                                     channelCount );
 
-                            /* we have stored the number of channels in the buffer in dwUser */
                             channel += channelCount;
                         }
                     }
@@ -2329,7 +2338,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         result = paNoError;
                     }
 
-                    /*
+                    /** @todo
                     FIXME: the following code is incorrect, because stopProcessing should
                     still queue the current buffer - it should also drain the buffer processor
                     */
@@ -2385,10 +2394,6 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     stream->abortProcessing == 0 &&
                     !done );
         }
-
-        result = UpdateStreamTime( stream );
-        if( result != paNoError )
-            done = 1;
     }
 
     stream->isActive = 0;
@@ -2473,14 +2478,15 @@ static PaError CloseStream( PaStream* s )
         goto error;
     }
 
-    if( CloseHandle( stream->abortEvent ) == 0 )
+    if( stream->abortEvent )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-        goto error;
+        if( CloseHandle( stream->abortEvent ) == 0 )
+        {
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
+            goto error;
+        }
     }
-
-    DeleteCriticalSection( &stream->lock );
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
@@ -2612,9 +2618,8 @@ static PaError StartStream( PaStream *s )
         stream->framesUsedInCurrentOutputBuffer = 0;
     }
 
-    stream->streamPosition = 0.;
-    stream->previousStreamPosition = 0;
 
+    stream->isStopped = 0;
     stream->isActive = 1;
     stream->stopProcessing = 0;
     stream->abortProcessing = 0;
@@ -2626,61 +2631,71 @@ static PaError StartStream( PaStream *s )
         goto error;
     }
 
-    if( ResetEvent( stream->abortEvent ) == 0 )
+    
+    if( stream->streamRepresentation.streamCallback )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-        goto error;
-    }
-
-    /* Create thread that waits for audio buffers to be ready for processing. */
-    stream->processingThread = CreateThread( 0, 0, ProcessingThreadProc, stream, 0, &stream->processingThreadId );
-    if( !stream->processingThread )
-    {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-        goto error;
-    }
-
-    /* I used to pass the thread which was failing. I now pass GetCurrentProcess().
-     * This fix could improve latency for some applications. It could also result in CPU
-     * starvation if the callback did too much processing.
-     * I also added result checks, so we might see more failures at initialization.
-     * Thanks to Alberto di Bene for spotting this.
-     */
-    /* REVIEW: should we reset the priority class when the stream has stopped?
-        - would be best to refcount priority boosts incase more than one
-        stream is open
-    */
-
-    if( !stream->noHighPriorityProcessClass )
-    {
-#ifndef WIN32_PLATFORM_PSPC /* no SetPriorityClass or HIGH_PRIORITY_CLASS on PocketPC */
-
-        if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
+        /* callback stream */
+        
+        if( ResetEvent( stream->abortEvent ) == 0 )
         {
             result = paUnanticipatedHostError;
             PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
             goto error;
         }
-#endif
-    }
 
-    if( stream->useTimeCriticalProcessingThreadPriority )
-        stream->highThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
+        /* Create thread that waits for audio buffers to be ready for processing. */
+        stream->processingThread = CreateThread( 0, 0, ProcessingThreadProc, stream, 0, &stream->processingThreadId );
+        if( !stream->processingThread )
+        {
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
+            goto error;
+        }
+
+        /* I used to pass the thread which was failing. I now pass GetCurrentProcess().
+         * This fix could improve latency for some applications. It could also result in CPU
+         * starvation if the callback did too much processing.
+         * I also added result checks, so we might see more failures at initialization.
+         * Thanks to Alberto di Bene for spotting this.
+         */
+        /* REVIEW: should we reset the priority class when the stream has stopped?
+            - would be best to refcount priority boosts incase more than one
+            stream is open
+        */
+
+        if( !stream->noHighPriorityProcessClass )
+        {
+    #ifndef WIN32_PLATFORM_PSPC /* no SetPriorityClass or HIGH_PRIORITY_CLASS on PocketPC */
+
+            if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
+            {
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                goto error;
+            }
+    #endif
+        }
+
+        if( stream->useTimeCriticalProcessingThreadPriority )
+            stream->highThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
+        else
+            stream->highThreadPriority = THREAD_PRIORITY_HIGHEST;
+
+        stream->throttledThreadPriority = THREAD_PRIORITY_NORMAL;
+
+        if( !SetThreadPriority( stream->processingThread, stream->highThreadPriority ) )
+        {
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
+            goto error;
+        }
+        stream->processingThreadPriority = stream->highThreadPriority;
+    }
     else
-        stream->highThreadPriority = THREAD_PRIORITY_HIGHEST;
-
-    stream->throttledThreadPriority = THREAD_PRIORITY_NORMAL;
-
-    if( !SetThreadPriority( stream->processingThread, stream->highThreadPriority ) )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
-        goto error;
-    }
-    stream->processingThreadPriority = stream->highThreadPriority;
+        /* blocking read/write stream */
 
+    }
 
     if( PA_IS_INPUT_STREAM_(stream) )
     {
@@ -2736,33 +2751,37 @@ static PaError StopStream( PaStream *s )
         the thread times out.
     */
 
-
-    /* Tell processing thread to stop generating more data and to let current data play out. */
-    stream->stopProcessing = 1;
-
-    /* Calculate timeOut longer than longest time it could take to return all buffers. */
-    timeout = (int)(stream->allBuffersDurationMs * 1.5);
-    if( timeout < PA_MIN_TIMEOUT_MSEC_ )
-        timeout = PA_MIN_TIMEOUT_MSEC_;
-
-    PA_DEBUG(("WinMME StopStream: waiting for background thread.\n"));
-
-    waitResult = WaitForSingleObject( stream->processingThread, timeout );
-    if( waitResult == WAIT_TIMEOUT )
+    if( stream->processingThread )
     {
-        /* try to abort */
-        stream->abortProcessing = 1;
-        SetEvent( stream->abortEvent );
+        /* callback stream */
+
+        /* Tell processing thread to stop generating more data and to let current data play out. */
+        stream->stopProcessing = 1;
+
+        /* Calculate timeOut longer than longest time it could take to return all buffers. */
+        timeout = (int)(stream->allBuffersDurationMs * 1.5);
+        if( timeout < PA_MIN_TIMEOUT_MSEC_ )
+            timeout = PA_MIN_TIMEOUT_MSEC_;
+
+        PA_DEBUG(("WinMME StopStream: waiting for background thread.\n"));
+
         waitResult = WaitForSingleObject( stream->processingThread, timeout );
         if( waitResult == WAIT_TIMEOUT )
         {
-            PA_DEBUG(("WinMME StopStream: timed out while waiting for background thread to finish.\n"));
-            result = paTimedOut;
+            /* try to abort */
+            stream->abortProcessing = 1;
+            SetEvent( stream->abortEvent );
+            waitResult = WaitForSingleObject( stream->processingThread, timeout );
+            if( waitResult == WAIT_TIMEOUT )
+            {
+                PA_DEBUG(("WinMME StopStream: timed out while waiting for background thread to finish.\n"));
+                result = paTimedOut;
+            }
         }
-    }
 
-    CloseHandle( stream->processingThread );
-    stream->processingThread = NULL;
+        CloseHandle( stream->processingThread );
+        stream->processingThread = NULL;
+    }
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
     {
@@ -2790,6 +2809,7 @@ static PaError StopStream( PaStream *s )
         }
     }
 
+    stream->isStopped = 1;
     stream->isActive = 0;
 
     return result;
@@ -2812,14 +2832,15 @@ static PaError AbortStream( PaStream *s )
         the thread times out.
     */
 
-    /* Tell processing thread to abort immediately */
-    stream->abortProcessing = 1;
-    SetEvent( stream->abortEvent );
+    if( stream->processingThread )
+    {
+        /* callback stream */
+        
+        /* Tell processing thread to abort immediately */
+        stream->abortProcessing = 1;
+        SetEvent( stream->abortEvent );
+    }
 
-    /* Calculate timeOut longer than longest time it could take to return all buffers. */
-    timeout = (int)(stream->allBuffersDurationMs * 1.5);
-    if( timeout < PA_MIN_TIMEOUT_MSEC_ )
-        timeout = PA_MIN_TIMEOUT_MSEC_;
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
     {
@@ -2848,18 +2869,29 @@ static PaError AbortStream( PaStream *s )
     }
 
 
-    PA_DEBUG(("WinMME AbortStream: waiting for background thread.\n"));
-
-    waitResult = WaitForSingleObject( stream->processingThread, timeout );
-    if( waitResult == WAIT_TIMEOUT )
+    if( stream->processingThread )
     {
-        PA_DEBUG(("WinMME AbortStream: timed out while waiting for background thread to finish.\n"));
-        return paTimedOut;
+        /* callback stream */
+        
+        PA_DEBUG(("WinMME AbortStream: waiting for background thread.\n"));
+
+        /* Calculate timeOut longer than longest time it could take to return all buffers. */
+        timeout = (int)(stream->allBuffersDurationMs * 1.5);
+        if( timeout < PA_MIN_TIMEOUT_MSEC_ )
+            timeout = PA_MIN_TIMEOUT_MSEC_;
+            
+        waitResult = WaitForSingleObject( stream->processingThread, timeout );
+        if( waitResult == WAIT_TIMEOUT )
+        {
+            PA_DEBUG(("WinMME AbortStream: timed out while waiting for background thread to finish.\n"));
+            return paTimedOut;
+        }
+
+        CloseHandle( stream->processingThread );
+        stream->processingThread = NULL;
     }
 
-    CloseHandle( stream->processingThread );
-    stream->processingThread = NULL;
-
+    stream->isStopped = 1;
     stream->isActive = 0;
 
     return result;
@@ -2870,7 +2902,7 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
-    return ( stream->processingThread == NULL );
+    return stream->isStopped;
 }
 
 
@@ -2882,66 +2914,8 @@ static PaError IsStreamActive( PaStream *s )
 }
 
 
-/*  UpdateStreamTime() must be called periodically because mmtime.u.sample
-    is a DWORD and can wrap and lose sync after a few hours.
- */
-static PaError UpdateStreamTime( PaWinMmeStream *stream )
-{
-    MMRESULT  mmresult;
-    MMTIME    mmtime;
-    mmtime.wType = TIME_SAMPLES;
-
-    if( stream->hWaveOuts )
-    {
-        /* assume that all devices have the same position */
-        mmresult = waveOutGetPosition( stream->hWaveOuts[0], &mmtime, sizeof(mmtime) );
-
-        if( mmresult != MMSYSERR_NOERROR )
-        {
-            PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
-            return paUnanticipatedHostError;
-        }
-    }
-    else
-    {
-        /* assume that all devices have the same position */
-        mmresult = waveInGetPosition( stream->hWaveIns[0], &mmtime, sizeof(mmtime) );
-
-        if( mmresult != MMSYSERR_NOERROR )
-        {
-            PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
-            return paUnanticipatedHostError;
-        }
-    }
-
-
-    /* This data has two variables and is shared by foreground and background.
-     * So we need to make it thread safe. */
-    EnterCriticalSection( &stream->lock );
-    stream->streamPosition += ((long)mmtime.u.sample) - stream->previousStreamPosition;
-    stream->previousStreamPosition = (long)mmtime.u.sample;
-    LeaveCriticalSection( &stream->lock );
-
-    return paNoError;
-}
-
-
 static PaTime GetStreamTime( PaStream *s )
 {
-/*
-    new behavior for GetStreamTime is to return a stream based seconds clock
-    used for the outTime parameter to the callback.
-    FIXME: delete this comment when the other unnecessary related code has
-    been cleaned from this file.
-
-    PaWinMmeStream *stream = (PaWinMmeStream*)s;
-    PaError error = UpdateStreamTime( stream );
-
-    if( error == paNoError )
-        return stream->streamPosition;
-    else
-        return 0;
-*/
     (void) s; /* unused parameter */
     return PaUtil_GetTime();
 }
@@ -2980,14 +2954,84 @@ static PaError WriteStream( PaStream* s,
                             const void *buffer,
                             unsigned long frames )
 {
+    PaError result = paNoError;
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-    (void) stream; /* unused parameters */
-    (void) buffer;
-    (void) frames;
+    unsigned long framesWritten = 0;
+    unsigned long framesProcessed;
+    signed int hostOutputBufferIndex;
+    DWORD waitResult;
+    DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
+    int numTimeouts = 0;
+    unsigned int channel, i;
     
-    return paNoError;
+    if( PA_IS_OUTPUT_STREAM_(stream) )
+    {
+        do{
+            if( CurrentOutputBuffersAreDone( stream ) )
+            {
+                if( NoOutputBuffersAreQueued( stream ) )
+                {
+                    /** @todo REVIEW: perhaps we should catch up here by requeueing
+                        the buffers */
+                }
+
+                hostOutputBufferIndex = stream->currentOutputBufferIndex;
+
+                PaUtil_SetOutputFrameCount( &stream->bufferProcessor,
+                        stream->framesPerOutputBuffer - stream->framesUsedInCurrentOutputBuffer );
+                
+                channel = 0;
+                for( i=0; i<stream->numOutputDevices; ++i )
+                {
+                    /* we have stored the number of channels in the buffer in dwUser */
+                    int channelCount = stream->outputBuffers[i][ hostOutputBufferIndex ].dwUser;
+
+                    PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
+                            stream->outputBuffers[i][ hostOutputBufferIndex ].lpData +
+                                stream->framesUsedInCurrentOutputBuffer * channelCount *
+                                stream->bufferProcessor.bytesPerHostOutputSample,
+                            channelCount );
+
+                    channel += channelCount;
+                }
+
+                framesProcessed = PaUtil_CopyOutput( &stream->bufferProcessor, &buffer, frames - framesWritten );
+
+                stream->framesUsedInCurrentOutputBuffer += framesProcessed;
+                if( stream->framesUsedInCurrentOutputBuffer == stream->framesPerOutputBuffer )
+                {
+                    result = AdvanceToNextOutputBuffer( stream );
+                    if( result != paNoError )
+                        break;
+                }
+
+                framesWritten += framesProcessed;
+            }
+            else
+            {
+                /* wait for MME to signal that a buffer is available */
+                waitResult = WaitForSingleObject( stream->bufferEvent, timeout );
+                if( waitResult == WAIT_FAILED )
+                {
+                    result = paUnanticipatedHostError;
+                    break;
+                }
+                else if( waitResult == WAIT_TIMEOUT )
+                {
+                    /* if a timeout is encountered, continue, perhaps we should
+                        give up eventually
+                    */
+                    numTimeouts += 1;
+                }             
+            }        
+        }while( framesWritten < frames );
+    }
+    else
+    {
+        /** @todo FIXME: result = paCan'tWriteToAnInputOnlyStream */
+    }
+    
+    return result;
 }
 
 
@@ -3011,6 +3055,8 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
+
 
 
 
