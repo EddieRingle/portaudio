@@ -274,15 +274,15 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
 
 
 /** Convert a host-API-specific device index to standard PortAudio device index.
- This function may be used in conjunction with Pa_HostApiCountDevices() to
- enumerate all devices for a specific host API.
+ This function may be used in conjunction with the deviceCount field of
+ PaHostApiInfo to enumerate all devices for the specified host API.
 
  @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
 
  @param hostApiDeviceIndex A valid per-host device index in the range
- 0 to (Pa_HostApiCountDevices(hostApi)-1)
+ 0 to (Pa_GetHostApiInfo(hostApi)->deviceCount-1)
 
- @see Pa_HostApiCountDevices
+ @see PaHostApiInfo
 */
 PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi,
         int hostApiDeviceIndex );
