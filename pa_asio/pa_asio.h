@@ -42,9 +42,7 @@ extern "C"
 #endif /* __cplusplus */
 
 
-PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
-		long *minLatency, long *maxLatency, long *preferredLatency, long *granularity );
-/**<
+/**
  Retrieve legal latency settings for the specificed device, in samples.
 
  @param device The global index of the device about which the query is being made.
@@ -59,6 +57,9 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
 
  @note This function should have a better name, any suggestions?
 */
+PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
+		long *minLatency, long *maxLatency, long *preferredLatency, long *granularity );
+
 
 
 #ifdef __cplusplus

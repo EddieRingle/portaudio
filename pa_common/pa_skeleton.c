@@ -55,16 +55,8 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -246,16 +238,8 @@ PaSkeletonStream;
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -266,25 +250,66 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSkeletonHostApiRepresentation *skeletonHostApi = (PaSkeletonHostApiRepresentation*)hostApi;
     PaSkeletonStream *stream = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
-    /* unless alternate device specification is supported, reject the use of
-        paUseHostApiSpecificDeviceSpecification */
 
-    if( (inputDevice == paUseHostApiSpecificDeviceSpecification)
-            || (outputDevice == paUseHostApiSpecificDeviceSpecification) )
-        return paInvalidDevice;                    
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
 
-    /* check that input device can support numInputChannels */
-    if( (inputDevice != paNoDevice) &&
-            (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )
-        return paInvalidChannelCount;
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
 
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
 
-    /* check that output device can support numInputChannels */
-    if( (outputDevice != paNoDevice) &&
-            (numOutputChannels > hostApi->deviceInfos[ outputDevice ]->maxOutputChannels) )
-        return paInvalidChannelCount;
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+
+        /* IMPLEMENT ME - establish which  host formats are available */
+        hostInputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+    }
+    else
+    {
+        numInputChannels = 0;
+    }
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+
+        /* IMPLEMENT ME - establish which  host formats are available */
+        hostOutputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+    }
+    else
+    {
+        numOutputChannels = 0;
+    }
 
     /*
         IMPLEMENT ME:
@@ -311,13 +336,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     */
 
 
-    /* validate inputStreamInfo */
-    if( inputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
 
-    /* validate outputStreamInfo */
-    if( outputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -345,18 +364,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
-    
-    /* IMPLEMENT ME - establish which  host formats are available */
-    hostInputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
-
-    /* IMPLEMENT ME - establish which  host formats are available */
-    hostOutputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-
 
     /* we assume a fixed host buffer size in this example, but the buffer processor
-        can also support bounded and unknown host buffer sized by passing 
+        can also support bounded and unknown host buffer sizes by passing 
         paUtilBoundedHostBufferSize or paUtilUnknownHostBufferSize instead of
         paUtilFixedHostBufferSize below. */
         
