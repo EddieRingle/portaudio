@@ -68,9 +68,18 @@ TODO:
     - implement "close sample rate matching" if needed - is this really needed
         in mme?
 
+    - handle case where user suppled buffer count/size are not compatible
+         (must be common multiples)
+
+    - fix callback to work even when input and output buffer sizes are not equal
+
     - add bufferslip management
     - add multidevice multichannel support
     - add thread throttling on overload
+
+    - investigate supporting host buffer formats > 16 bits
+
+    - other miscellaneous fixmes
 */
 
 #include <stdio.h>
@@ -665,6 +674,7 @@ static PaError CalculateBufferSettings(
         else
         {
             /* hardwire for now, FIXME */
+            /* don't forget that there will be one more buffer than the number required to achieve the requested latency */
             *framesPerHostInputBuffer = 4096;
             *numHostInputBuffers = 4;
         }
@@ -695,6 +705,7 @@ static PaError CalculateBufferSettings(
         else
         {
             /* hardwire for now, FIXME */
+            /* don't forget that there will be one more buffer than the number required to achieve the requested latency */
             *framesPerHostOutputBuffer = 4096;
             *numHostOutputBuffers = 4;
         }
@@ -1362,10 +1373,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     /*
                     IMPLEMENT ME:
-                        - generate timing information
                         - handle buffer slips
-
-                        - this code will only work for full duplex streams if the input and output
+                        FIXME: this code will only work for full duplex streams if the input and output
                         buffer sizes are the same.
                     */
                     PaTimestamp outTime = 0; /* FIXME */
