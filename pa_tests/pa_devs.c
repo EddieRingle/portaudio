@@ -37,89 +37,154 @@
 #include <math.h>
 #include "portaudio.h"
 /*******************************************************************/
+static void PrintSupportedStandardSampleRates(
+        const PaStreamParameters *inputParameters,
+        const PaStreamParameters *outputParameters )
+{
+    static double standardSampleRates[] = {
+        8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0,
+        44100.0, 48000.0, 88200.0, 96000.0, -1 /* negative terminated  list */
+    };
+    int     i, printCount;
+    PaError err;
+
+    printCount = 0;
+    for( i=0; standardSampleRates[i] > 0; i++ )
+    {
+        err = Pa_IsFormatSupported( inputParameters, outputParameters, standardSampleRates[i] );
+        if( err == paFormatIsSupported )
+        {
+            if( printCount == 0 )
+            {
+                printf( "\t%8.2f", standardSampleRates[i] );
+                printCount = 1;
+            }
+            else if( printCount == 4 )
+            {
+                printf( ",\n\t%8.2f", standardSampleRates[i] );
+                printCount = 1;
+            }
+            else
+            {
+                printf( ", %8.2f", standardSampleRates[i] );
+                ++printCount;
+            }
+        }
+    }
+    if( !printCount )
+        printf( "None\n" );
+    else
+        printf( "\n" );
+}
+/*******************************************************************/
 int main(void);
 int main(void)
 {
-    int      i,j;
-    int      numDevices;
-    const    PaDeviceInfo *deviceInfo;
-    PaError  err;
+    int     i, numDevices, defaultDisplayed;
+    const   PaDeviceInfo *deviceInfo;
+    PaStreamParameters inputParameters, outputParameters;
+    PaError err;
+
     
     Pa_Initialize();
 
-    printf("PortAudio Version Text = %s\nPortAudio Version Number = %d\n",
-            Pa_GetVersionText(), Pa_GetVersion() );
+    printf( "PortAudio version number = %d\nPortAudio version text = '%s'\n",
+            Pa_GetVersion(), Pa_GetVersionText() );
 
-
+            
     numDevices = Pa_CountDevices();
     if( numDevices < 0 )
     {
-        printf("ERROR: Pa_CountDevices returned 0x%x\n", numDevices );
+        printf( "ERROR: Pa_CountDevices returned 0x%x\n", numDevices );
         err = numDevices;
         goto error;
     }
     
-    printf("Number of devices = %d\n", numDevices );
+    printf( "Number of devices = %d\n", numDevices );
     for( i=0; i<numDevices; i++ )
     {
         deviceInfo = Pa_GetDeviceInfo( i );
-        printf("---------------------------------------------- #%d", i );
-    /* Mark global default devices and API specific defaults. */
-        if( i == Pa_GetDefaultInputDevice() ) printf(" Default Input");
+        printf( "--------------------------------------- device #%d\n", i );
+                
+    /* Mark global and API specific default devices */
+        defaultDisplayed = 0;
+        if( i == Pa_GetDefaultInputDevice() )
+        {
+            printf( "[ Default Input" );
+            defaultDisplayed = 1;
+        }
         else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultInputDevice )
         {
             const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
-            printf(" Default %s Input", hostInfo->name );
+            printf( "[ Default %s Input", hostInfo->name );
+            defaultDisplayed = 1;
         }
         
-        if( i == Pa_GetDefaultOutputDevice() ) printf(" Default Output");
+        if( i == Pa_GetDefaultOutputDevice() )
+        {
+            printf( (defaultDisplayed ? "," : "[") );
+            printf( " Default Output" );
+            defaultDisplayed = 1;
+        }
         else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultOutputDevice )
         {
             const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
-            printf(" Default %s Output", hostInfo->name );
+            printf( (defaultDisplayed ? "," : "[") );                
+            printf( " Default %s Output", hostInfo->name );
+            defaultDisplayed = 1;
         }
 
-        printf("\nName                        = %s\n", deviceInfo->name );
-        printf("Host API                    = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
-        printf("Max Inputs = %d", deviceInfo->maxInputChannels  );
-        printf(", Max Outputs = %d\n", deviceInfo->maxOutputChannels  );
+        if( defaultDisplayed )
+            printf( " ]\n" );
 
-        printf("Default Low Input Latency   = %8.3f\n", deviceInfo->defaultLowInputLatency  );
-        printf("Default Low Output Latency  = %8.3f\n", deviceInfo->defaultLowOutputLatency  );
-        printf("Default High Input Latency  = %8.3f\n", deviceInfo->defaultHighInputLatency  );
-        printf("Default High Output Latency = %8.3f\n", deviceInfo->defaultHighOutputLatency  );
+    /* print device info fields */
+        printf( "Name                        = %s\n", deviceInfo->name );
+        printf( "Host API                    = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
+        printf( "Max inputs = %d", deviceInfo->maxInputChannels  );
+        printf( ", Max outputs = %d\n", deviceInfo->maxOutputChannels  );
 
-        printf("Default Sample Rate         = %8.2f\n", deviceInfo->defaultSampleRate  );
+        printf( "Default low input latency   = %8.3f\n", deviceInfo->defaultLowInputLatency  );
+        printf( "Default low output latency  = %8.3f\n", deviceInfo->defaultLowOutputLatency  );
+        printf( "Default high input latency  = %8.3f\n", deviceInfo->defaultHighInputLatency  );
+        printf( "Default high output latency = %8.3f\n", deviceInfo->defaultHighOutputLatency  );
 
+        printf( "Default sample rate         = %8.2f\n", deviceInfo->defaultSampleRate  );
+
+    /* poll for standard sample rates */
+        inputParameters.device = i;
+        inputParameters.channelCount = deviceInfo->maxInputChannels;
+        inputParameters.sampleFormat = paInt16;
+        inputParameters.suggestedLatency = 0; /* ignored by Pa_IsFormatSupported() */
+        inputParameters.hostApiSpecificStreamInfo = NULL;
         
-        /* @todo FIXME: could list available sample rates here by polling
-            Pa_IsFormatConverted()
+        outputParameters.device = i;
+        outputParameters.channelCount = deviceInfo->maxOutputChannels;
+        outputParameters.sampleFormat = paInt16;
+        outputParameters.suggestedLatency = 0; /* ignored by Pa_IsFormatSupported() */
+        outputParameters.hostApiSpecificStreamInfo = NULL;
 
-        here's some sampling rates to check for
-
-        static double possibleSampleRates_[]
-        = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
-
-        */
-
-        /*
-        if( deviceInfo->numSampleRates == -1 )
+        if( inputParameters.channelCount > 0 )
         {
-            printf("Sample Rate Range = %f to %f\n", deviceInfo->sampleRates[0], deviceInfo->sampleRates[1] );
+            printf("Supported standard sample rates\n for half-duplex 16 bit %d channel input = \n",
+                    inputParameters.channelCount );
+            PrintSupportedStandardSampleRates( &inputParameters, NULL );
         }
-        else
+
+        if( outputParameters.channelCount > 0 )
         {
-            printf("Sample Rates =");
-            for( j=0; j<deviceInfo->numSampleRates; j++ )
-            {
-                printf(" %8.2f,", deviceInfo->sampleRates[j] );
-            }
-            printf("\n");
+            printf("Supported standard sample rates\n for half-duplex 16 bit %d channel output = \n",
+                    outputParameters.channelCount );
+            PrintSupportedStandardSampleRates( NULL, &outputParameters );
         }
-        */
-       
-        printf("\n");
+
+        if( inputParameters.channelCount > 0 && outputParameters.channelCount > 0 )
+        {
+            printf("Supported standard sample rates\n for full-duplex 16 bit %d channel input, %d channel output = \n",
+                    inputParameters.channelCount, outputParameters.channelCount );
+            PrintSupportedStandardSampleRates( &inputParameters, &outputParameters );
+        }
     }
+
     Pa_Terminate();
 
     printf("----------------------------------------------\n");
