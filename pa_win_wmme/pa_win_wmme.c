@@ -2296,33 +2296,44 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
                         (PA_IS_HALF_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
-                    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime and currentTime */
+                    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime */
 
 
                     if( PA_IS_OUTPUT_STREAM_(stream) )
                     {
-                        MMTIME time;
-                        double now;
-                        long totalRingFrames;
-                        long ringPosition;
+                        /* set timeInfo.currentTime and calculate timeInfo.outputBufferDacTime
+                            from the current wave out position */
+                        MMTIME mmtime;
+                        double timeBeforeGetPosition, timeAfterGetPosition;
+                        double time;
+                        long framesInBufferRing; 		
+                        long writePosition;
                         long playbackPosition;
-
-                        time.wType = TIME_SAMPLES;
-                        waveOutGetPosition( ((HWAVEOUT*)stream->output.waveHandles)[0], &time, sizeof(MMTIME) );
-                        now = PaUtil_GetTime();
-
-                        totalRingFrames = stream->output.bufferCount * stream->bufferProcessor.framesPerHostBuffer;
-
-                        ringPosition = stream->output.currentBufferIndex * stream->bufferProcessor.framesPerHostBuffer;
+                        HWAVEOUT firstWaveOutDevice = ((HWAVEOUT*)stream->output.waveHandles)[0];
                         
-                        playbackPosition = time.u.sample % totalRingFrames;
+                        mmtime.wType = TIME_SAMPLES;
+                        timeBeforeGetPosition = PaUtil_GetTime();
+                        waveOutGetPosition( firstWaveOutDevice, &mmtime, sizeof(MMTIME) );
+                        timeAfterGetPosition = PaUtil_GetTime();
 
-                        if( playbackPosition >= ringPosition ){
+                        timeInfo.currentTime = timeAfterGetPosition;
+
+                        /* approximate time at which wave out position was measured
+                            as half way between timeBeforeGetPosition and timeAfterGetPosition */
+                        time = timeBeforeGetPosition + (timeAfterGetPosition - timeBeforeGetPosition) * .5;
+                        
+                        framesInBufferRing = stream->output.bufferCount * stream->bufferProcessor.framesPerHostBuffer;
+                        playbackPosition = mmtime.u.sample % framesInBufferRing;
+
+                        writePosition = stream->output.currentBufferIndex * stream->bufferProcessor.framesPerHostBuffer
+                                + stream->output.framesUsedInCurrentBuffer;
+                       
+                        if( playbackPosition >= writePosition ){
                             timeInfo.outputBufferDacTime =
-                                    now + ((double)( ringPosition + (totalRingFrames - playbackPosition) ) * stream->bufferProcessor.samplePeriod );
+                                    time + ((double)( writePosition + (framesInBufferRing - playbackPosition) ) * stream->bufferProcessor.samplePeriod );
                         }else{
                             timeInfo.outputBufferDacTime =
-                                    now + ((double)( ringPosition - playbackPosition ) * stream->bufferProcessor.samplePeriod );
+                                    time + ((double)( writePosition - playbackPosition ) * stream->bufferProcessor.samplePeriod );
                         }
                     }
 
