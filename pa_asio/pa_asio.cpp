@@ -67,21 +67,8 @@
         - implement block adaption        
         - work out how to implement stream stoppage from callback
         - implement IsStreamActive
-        
-
 
         - rigorously check asio return codes and convert to pa error codes
-        - Check Pa_StopSteam and Pa_AbortStream
-        - Optimization for Input only or Ouput only (really necessary ??)
-
-
-
-        Ross' notes about the old implementation:
-
-        - Pa_ASIO_CreateBuffers sets up the callbacks and creates the host buffers.
-            - i think the callback structure could just be a temp on the stack or as a static struct.
-            - the buffer info structures will need to be dynamically allocated for the stream.
-
 
         Different channels of a multichannel stream can have different sample
         formats, but we assume that all are the same as the first channel for now.
