@@ -429,8 +429,6 @@ typedef struct PaDeviceInfo
 const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device );
 
 
-#define paNullHostApiSpecificStreamInfo ((void*)0)
-
 /** Parameters for one direction (input or output) of a stream.
 */
 typedef struct PaStreamParameters
@@ -532,10 +530,6 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
 
 */
 typedef void PaStream;
-
-
-/** For backwards compatibility only. TODO: should be removed before V19-final*/
-#define PortAudioStream PaStream;
 
 
 /** Can be passed as the framesPerBuffer parameter to Pa_OpenStream()
