@@ -1119,6 +1119,116 @@ static PaError ValidateOpenStreamParameters(
 }
 
 
+PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
+                              const PaStreamParameters *outputParameters,
+                              double sampleRate )
+{
+    PaError result;
+    PaUtilHostApiRepresentation *hostApi;
+    PaDeviceIndex hostApiInputDevice, hostApiOutputDevice;
+    PaStreamParameters hostApiInputParameters, hostApiOutputParameters;
+    PaStreamParameters *hostApiInputParametersPtr, *hostApiOutputParametersPtr;
+
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_IsFormatSupported called:\n" );
+
+    if( inputParameters == NULL ){
+        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: NULL\n" );
+    }else{
+        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: 0x%p\n", inputParameters );
+        PaUtil_DebugPrint("\tPaDeviceIndex inputParameters->device: %d\n", inputParameters->device );
+        PaUtil_DebugPrint("\tint inputParameters->numChannels: %d\n", inputParameters->numChannels );
+        PaUtil_DebugPrint("\tPaSampleFormat inputParameters->sampleFormat: %d\n", inputParameters->sampleFormat );
+        PaUtil_DebugPrint("\tPaTime inputParameters->suggestedLatency: %f\n", inputParameters->suggestedLatency );
+        PaUtil_DebugPrint("\tvoid *inputParameters->hostApiSpecificStreamInfo: 0x%p\n", inputParameters->hostApiSpecificStreamInfo );
+    }
+
+    if( outputParameters == NULL ){
+        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: NULL\n" );
+    }else{
+        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: 0x%p\n", outputParameters );
+        PaUtil_DebugPrint("\tPaDeviceIndex outputParameters->device: %d\n", outputParameters->device );
+        PaUtil_DebugPrint("\tint outputParameters->numChannels: %d\n", outputParameters->numChannels );
+        PaUtil_DebugPrint("\tPaSampleFormat outputParameters->sampleFormat: %d\n", outputParameters->sampleFormat );
+        PaUtil_DebugPrint("\tPaTime outputParameters->suggestedLatency: %f\n", outputParameters->suggestedLatency );
+        PaUtil_DebugPrint("\tvoid *outputParameters->hostApiSpecificStreamInfo: 0x%p\n", outputParameters->hostApiSpecificStreamInfo );
+    }
+    
+    PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
+#endif
+
+    if( !PA_IS_INITIALISED_ )
+    {
+        result = paNotInitialized;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_IsFormatSupported returned:\n" );
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+        return result;
+    }
+
+    result = ValidateOpenStreamParameters( inputParameters,
+                                           outputParameters,
+                                           sampleRate, paNoFlag,
+                                           &hostApi,
+                                           &hostApiInputDevice,
+                                           &hostApiOutputDevice );
+    if( result != paNoError )
+    {
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_IsFormatSupported returned:\n" );
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+        return result;
+    }
+    
+
+    if( inputParameters )
+    {
+        hostApiInputParameters.device = hostApiInputDevice;
+        hostApiInputParameters.numChannels = inputParameters->numChannels;
+        hostApiInputParameters.sampleFormat = inputParameters->sampleFormat;
+        hostApiInputParameters.suggestedLatency = inputParameters->suggestedLatency;
+        hostApiInputParameters.hostApiSpecificStreamInfo = inputParameters->hostApiSpecificStreamInfo;
+        hostApiInputParametersPtr = &hostApiInputParameters;
+    }
+    else
+    {
+        hostApiInputParametersPtr = NULL;
+    }
+
+    if( outputParameters )
+    {
+        hostApiOutputParameters.device = hostApiOutputDevice;
+        hostApiOutputParameters.numChannels = outputParameters->numChannels;
+        hostApiOutputParameters.sampleFormat = outputParameters->sampleFormat;
+        hostApiOutputParameters.suggestedLatency = outputParameters->suggestedLatency;
+        hostApiOutputParameters.hostApiSpecificStreamInfo = outputParameters->hostApiSpecificStreamInfo;
+        hostApiOutputParametersPtr = &hostApiOutputParameters;
+    }
+    else
+    {
+        hostApiOutputParametersPtr = NULL;
+    }
+
+    result = hostApi->IsFormatSupported( hostApi,
+                                  hostApiInputParametersPtr, hostApiOutputParametersPtr,
+                                  sampleRate );
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_OpenStream returned:\n" );
+    if( result == paFormatIsSupported )
+        PaUtil_DebugPrint("\tPaError: 0 [ paFormatIsSupported ]\n\n" );
+    else
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+
+    return result;
+}
+
+
 PaError Pa_OpenStream( PaStream** stream,
                        const PaStreamParameters *inputParameters,
                        const PaStreamParameters *outputParameters,
