@@ -67,13 +67,13 @@ typedef struct {
     int useNonAdaptingProcess;
     unsigned long framesPerTempBuffer;
 
-    unsigned int numInputChannels;
+    unsigned int inputChannelCount;
     unsigned int bytesPerHostInputSample;
     unsigned int bytesPerUserInputSample;
     int userInputIsInterleaved;
     PaUtilConverter *inputConverter;
 
-    unsigned int numOutputChannels;
+    unsigned int outputChannelCount;
     unsigned int bytesPerHostOutputSample;
     unsigned int bytesPerUserOutputSample;
     int userOutputIsInterleaved;
