@@ -845,7 +845,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->stopSoon = 0;
     stream->stopNow = 0;
     stream->isActive = 0;
-    stream->thread = 0;
+    stream->isStopped = 1;
+    /*stream->thread = 0;*/
+    stream->isThreadValid = 0;
     stream->lastPosPtr = 0;
     stream->lastStreamBytes = 0;
     stream->sampleRate = sampleRate;
@@ -944,9 +946,15 @@ static void *PaOSS_AudioThreadProc(void *userData)
             if( stream->streamRepresentation.streamFinishedCallback != 0 )
                 stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
 
+            stream->isActive = 0;
             return NULL; /* return from the loop */
         }
-        else if ( callbackResult == paComplete )
+        /*
+         * all other conditions should behave like paComplete to maximize backwards compatibility.
+         * (see notes for proposal 010)
+         *
+         */
+        else /*if ( callbackResult == paComplete )*/
         {
             /* User callback has asked us to stop with paComplete or other non-zero value */
            
@@ -982,6 +990,7 @@ static void *PaOSS_AudioThreadProc(void *userData)
         stream->framesProcessed += stream->framesPerHostCallback;
     }
 
+    stream->isActive = 0;
     return NULL;
 }
 
@@ -1016,6 +1025,7 @@ static PaError StartStream( PaStream *s )
     int presult;
 
     stream->isActive = 1;
+    stream->isStopped = 0;
     stream->lastPosPtr = 0;
     stream->lastStreamBytes = 0;
     stream->framesProcessed = 0;
@@ -1027,6 +1037,7 @@ static PaError StartStream( PaStream *s )
             presult = pthread_create(&stream->thread,
                              NULL /*pthread_attr_t * attr*/,
                              (void*)PaOSS_AudioThreadProc, (void *)stream);
+            stream->isThreadValid = 1;
     }
     
     return result;
@@ -1041,12 +1052,14 @@ static PaError StopStream( PaStream *s )
     stream->stopSoon = 1;
 
     /* only use the thread for callback streams */
-    if( stream->bufferProcessor.streamCallback )
+    if( stream->bufferProcessor.streamCallback && stream->isThreadValid )
         pthread_join( stream->thread, NULL );
 
+    stream->isThreadValid = 0;
     stream->stopSoon = 0;
     stream->stopNow = 0;
     stream->isActive = 0;
+    stream->isStopped = 1;
 
     DBUG(("PaOSS StopStream: Stopped stream\n"));
 
@@ -1062,12 +1075,14 @@ static PaError AbortStream( PaStream *s )
     stream->stopNow = 1;
 
     /* only use the thread for callback streams */
-    if( stream->bufferProcessor.streamCallback )
+    if( stream->bufferProcessor.streamCallback && stream->isThreadValid )
         pthread_join( stream->thread, NULL );
 
+    stream->isThreadValid = 0;
     stream->stopSoon = 0;
     stream->stopNow = 0;
     stream->isActive = 0;
+    stream->isStopped = 1;
 
     DBUG(("PaOSS AbortStream: Stopped stream\n"));
 
@@ -1079,7 +1094,7 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaOSSStream *stream = (PaOSSStream*)s;
 
-    return (!stream->isActive);
+    return (stream->isStopped);
 }
 
 
