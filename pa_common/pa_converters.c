@@ -82,7 +82,7 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableForm
 
 
 #define PA_SELECT_FORMAT_( format, float32, int32, int24, packedInt24, int16, int8, uint8 )\
-    switch( format ){                                                       \
+    switch( format & ~paNonInterleaved ){                                                       \
     case paFloat32:                                                     \
         float32                                                         \
     case paInt32:                                                       \
