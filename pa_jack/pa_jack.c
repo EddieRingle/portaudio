@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <errno.h>  /* EBUSY */
 #include <signal.h> /* sig_atomic_t */
+#include <math.h>
 
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -61,20 +62,24 @@ static PaError paErr_;     /* For use with ENSURE_PA */
 
 /* Check PaError */
 #define ENSURE_PA(expr) \
-    if( (paErr_ = (expr)) < paNoError ) \
-    { \
-        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
-        result = paErr_; \
-        goto error; \
-    }
+    do { \
+        if( (paErr_ = (expr)) < paNoError ) \
+        { \
+            PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+            result = paErr_; \
+            goto error; \
+        } \
+    } while( 0 )
 
 #define UNLESS(expr, code) \
-    if( (expr) == 0 ) \
-    { \
-        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
-        result = (code); \
-        goto error; \
-    }
+    do { \
+        if( (expr) == 0 ) \
+        { \
+            PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+            result = (code); \
+            goto error; \
+        } \
+    } while( 0 )
 
 #define ASSERT_CALL(expr, success) \
     aErr_ = (expr); \
@@ -167,12 +172,16 @@ typedef struct PaJackStream
     volatile sig_atomic_t is_active;
     /* Used to signal processing thread that stream should start or stop, respectively */
     volatile sig_atomic_t doStart, doStop, doAbort;
-    int callbackResult;
-    int xrun;
 
     jack_nframes_t t0;
 
     PaUtilAllocationGroup *stream_memory;
+
+    /* These are useful in the process callback */
+
+    int callbackResult;
+    int isSilenced;
+    int xrun;
 
     struct PaJackStream *next;
 }
@@ -698,7 +707,7 @@ static void CleanUpStream( PaJackStream *stream, int terminateStreamRepresentati
     for( i = 0; i < stream->num_outgoing_connections; ++i )
     {
         if( stream->local_output_ports[i] )
-            ASSERT_CALL( jack_port_unregister(stream->jack_client, stream->local_output_ports[i] ), 0 );
+            ASSERT_CALL( jack_port_unregister( stream->jack_client, stream->local_output_ports[i] ), 0 );
         free( stream->remote_input_ports[i] );
     }
 
@@ -715,6 +724,26 @@ static void CleanUpStream( PaJackStream *stream, int terminateStreamRepresentati
     PaUtil_FreeMemory( stream );
 }
 
+static PaError WaitCondition( PaJackHostApiRepresentation *hostApi )
+{
+    PaError result = paNoError;
+    int err = 0;
+    PaTime pt = PaUtil_GetTime();
+    struct timespec ts;
+
+    ts.tv_sec = (time_t) floor( pt + 1 );
+    ts.tv_nsec = (long) ((pt - floor( pt )) * 1000000000);
+    /* XXX: Best enclose in loop, in case of spurious wakeups? */
+    err = pthread_cond_timedwait( &hostApi->cond, &hostApi->mtx, &ts );
+
+    /* Make sure we didn't time out */
+    UNLESS( err != ETIMEDOUT, paTimedOut );
+    UNLESS( !err, paInternalError );
+
+error:
+    return result;
+}
+
 static PaError AddStream( PaJackStream *stream )
 {
     PaError result = paNoError;
@@ -725,13 +754,14 @@ static PaError AddStream( PaJackStream *stream )
     {
         hostApi->toAdd = stream;
         /* Unlock mutex and await signal from processing thread */
-        ASSERT_CALL( pthread_cond_wait( &hostApi->cond, &hostApi->mtx ), 0 );
+        result = WaitCondition( stream->hostApi );
     }
     ASSERT_CALL( pthread_mutex_unlock( &hostApi->mtx ), 0 );
+    ENSURE_PA( result );
 
-    if( hostApi->jackIsDown )
-        return paDeviceUnavailable;
+    UNLESS( !hostApi->jackIsDown, paDeviceUnavailable );
 
+error:
     return result;
 }
 
@@ -747,10 +777,12 @@ static PaError RemoveStream( PaJackStream *stream )
     {
         hostApi->toRemove = stream;
         /* Unlock mutex and await signal from processing thread */
-        ASSERT_CALL( pthread_cond_wait( &hostApi->cond, &hostApi->mtx ), 0 );
+        result = WaitCondition( stream->hostApi );
     }
     ASSERT_CALL( pthread_mutex_unlock( &hostApi->mtx ), 0 );
+    ENSURE_PA( result );
 
+error:
     return result;
 }
 
@@ -995,9 +1027,9 @@ static PaError CloseStream( PaStream* s )
     /* Remove this stream from the processing queue */
     ENSURE_PA( RemoveStream( stream ) );
 
+error:
     CleanUpStream( stream, 1, 1 );
 
-error:
     return result;
 }
 
@@ -1015,20 +1047,10 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
     if( stream->callbackResult != paContinue &&
             PaUtil_IsBufferProcessorOutputEmpty( &stream->bufferProcessor ) )
     {
-        int i;
-
         stream->is_active = 0;
         if( stream->streamRepresentation.streamFinishedCallback )
             stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
         PA_DEBUG(( "%s: Callback finished\n", __FUNCTION__ ));
-
-        /* Before returning we will silence the output */
-        PA_DEBUG(( "Silencing the output\n" ));
-        for ( i = 0; i < stream->num_outgoing_connections; ++i )
-        {
-            jack_default_audio_sample_t *buffer = jack_port_get_buffer( stream->local_output_ports[i], frames );
-            memset( buffer, 0, sizeof (jack_default_audio_sample_t) * frames );
-        }
 
         goto end;
     }
@@ -1172,11 +1194,6 @@ static int JackCallback( jack_nframes_t frames, void *userData )
     stream = hostApi->processQueue;
     for( ; stream; stream = stream->next )
     {
-        /*  XXX: We should silence any output frames even if the stream isn't technically active?
-        if( !stream->is_running )
-            continue;
-            */
-
         if( xrun )  /* Don't override if already set */
             stream->xrun = 1;
 
@@ -1187,13 +1204,17 @@ static int JackCallback( jack_nframes_t frames, void *userData )
             int err = pthread_mutex_trylock( &stream->hostApi->mtx );
             if( !err )
             {
-                stream->is_active = 1;
-                stream->doStart = 0;
-                PA_DEBUG(( "%s: Starting stream\n", __FUNCTION__ ));
-                ASSERT_CALL( pthread_cond_signal( &stream->hostApi->cond ), 0 );
-                ASSERT_CALL( pthread_mutex_unlock( &stream->hostApi->mtx ), 0 );
+                if( stream->doStart )   /* Could potentially change before obtaining the lock */
+                {
+                    stream->is_active = 1;
+                    stream->doStart = 0;
+                    PA_DEBUG(( "%s: Starting stream\n", __FUNCTION__ ));
+                    ASSERT_CALL( pthread_cond_signal( &stream->hostApi->cond ), 0 );
+                    stream->callbackResult = paContinue;
+                    stream->isSilenced = 0;
+                }
 
-                stream->callbackResult = paContinue;
+                ASSERT_CALL( pthread_mutex_unlock( &stream->hostApi->mtx ), 0 );
             }
             else
                 assert( err == EBUSY );
@@ -1205,7 +1226,30 @@ static int JackCallback( jack_nframes_t frames, void *userData )
                 PA_DEBUG(( "%s: Stopping stream\n", __FUNCTION__ ));
                 stream->callbackResult = stream->doStop ? paComplete : paAbort;
             }
-            else if( !stream->is_active )   /* Ok, signal to the main thread that we've carried out the operation */
+        }
+
+        if( stream->is_active )
+            ENSURE_PA( RealProcess( stream, frames ) );
+        /* If we have just entered inactive state, silence output */
+        if( !stream->is_active && !stream->isSilenced )
+        {
+            int i;
+
+            /* Silence buffer after entering inactive state */
+            PA_DEBUG(( "Silencing the output\n" ));
+            for ( i = 0; i < stream->num_outgoing_connections; ++i )
+            {
+                jack_default_audio_sample_t *buffer = jack_port_get_buffer( stream->local_output_ports[i], frames );
+                memset( buffer, 0, sizeof (jack_default_audio_sample_t) * frames );
+            }
+
+            stream->isSilenced = 1;
+        }
+
+        if( stream->doStop || stream->doAbort )
+        {
+            /* See if RealProcess has acted on the request */
+            if( !stream->is_active )   /* Ok, signal to the main thread that we've carried out the operation */
             {
                 /* If we can't obtain a lock, we'll try next time */
                 int err = pthread_mutex_trylock( &stream->hostApi->mtx );
@@ -1219,32 +1263,7 @@ static int JackCallback( jack_nframes_t frames, void *userData )
                     assert( err == EBUSY );
             }
         }
-
-        if( stream->is_active )
-            ENSURE_PA( RealProcess( stream, frames ) );
     }
-
-    /*
-    if( stream->t0 == -1 )
-    {
-        if( stream->num_outgoing_connections == 0 )
-        {
-        */
-            /* TODO: how to handle stream time for capture-only operation? */
-    /*
-        }
-        else
-        {
-        */
-            /* the beginning time needs to be initialized */
-    /*
-            stream->t0 = jack_frame_time( stream->jack_client ) -
-                         jack_frames_since_cycle_start( stream->jack_client) +
-                         jack_port_get_total_latency( stream->jack_client,
-                                                      stream->local_output_ports[0] );
-        }
-    }
-    */
 
     return 0;
 error:
@@ -1267,30 +1286,44 @@ static PaError StartStream( PaStream *s )
     if( stream->num_incoming_connections > 0 )
     {
         for( i = 0; i < stream->num_incoming_connections; i++ )
-            UNLESS( !jack_connect( stream->jack_client,
+            UNLESS( jack_connect( stream->jack_client,
                     jack_port_name( stream->remote_output_ports[i] ),
-                    jack_port_name( stream->local_input_ports[i] ) ), paUnanticipatedHostError );
+                    jack_port_name( stream->local_input_ports[i] ) ) == 0, paUnanticipatedHostError );
     }
 
     if( stream->num_outgoing_connections > 0 )
     {
         for( i = 0; i < stream->num_outgoing_connections; i++ )
-            UNLESS( !jack_connect( stream->jack_client,
+            UNLESS( jack_connect( stream->jack_client,
                     jack_port_name( stream->local_output_ports[i] ),
-                    jack_port_name( stream->remote_input_ports[i] ) ), paUnanticipatedHostError );
+                    jack_port_name( stream->remote_input_ports[i] ) ) == 0, paUnanticipatedHostError );
     }
 
     stream->xrun = FALSE;
 
     /* Enable processing */
 
-    stream->is_running = TRUE;
-
     ASSERT_CALL( pthread_mutex_lock( &stream->hostApi->mtx ), 0 );
     stream->doStart = 1;
-    ASSERT_CALL( pthread_cond_wait( &stream->hostApi->cond, &stream->hostApi->mtx ), 0 );
+
+    /* Wait for stream to be started */
+    result = WaitCondition( stream->hostApi );
+    /*
+    do
+    {
+        err = pthread_cond_timedwait( &stream->hostApi->cond, &stream->hostApi->mtx, &ts );
+    } while( !stream->is_active && !err );
+    */
+    if( result != paNoError )   /* Something went wrong, call off the stream start */
+    {
+        stream->doStart = 0;
+        stream->is_active = 0;  /* Cancel any processing */
+    }
     ASSERT_CALL( pthread_mutex_unlock( &stream->hostApi->mtx ), 0 );
-    UNLESS( stream->is_active, paInternalError );
+
+    ENSURE_PA( result );
+
+    stream->is_running = TRUE;
     PA_DEBUG(( "%s: Stream started\n", __FUNCTION__ ));
 
 error:
@@ -1307,12 +1340,18 @@ static PaError RealStop( PaJackStream *stream, int abort )
         stream->doAbort = 1;
     else
         stream->doStop = 1;
-    ASSERT_CALL( pthread_cond_wait( &stream->hostApi->cond, &stream->hostApi->mtx ), 0 );
+
+    /* Wait for stream to be stopped */
+    result = WaitCondition( stream->hostApi );
     ASSERT_CALL( pthread_mutex_unlock( &stream->hostApi->mtx ), 0 );
+    ENSURE_PA( result );
+
     UNLESS( !stream->is_active, paInternalError );
     
-    stream->is_running = FALSE;
     PA_DEBUG(( "%s: Stream stopped\n", __FUNCTION__ ));
+
+error:
+    stream->is_running = FALSE;
 
     /* Disconnect ports belonging to this stream */
 
@@ -1334,7 +1373,6 @@ static PaError RealStop( PaJackStream *stream, int abort )
         }
     }
 
-error:
     return result;
 }
 
@@ -1353,14 +1391,14 @@ static PaError AbortStream( PaStream *s )
 static PaError IsStreamStopped( PaStream *s )
 {
     PaJackStream *stream = (PaJackStream*)s;
-    return stream->is_running == FALSE;
+    return !stream->is_running;
 }
 
 
 static PaError IsStreamActive( PaStream *s )
 {
     PaJackStream *stream = (PaJackStream*)s;
-    return stream->is_active == TRUE;
+    return stream->is_active;
 }
 
 
