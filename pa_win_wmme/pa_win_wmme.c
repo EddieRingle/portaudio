@@ -1149,6 +1149,8 @@ struct PaWinMmeStream
 
     CRITICAL_SECTION lock;
 
+    int primeStreamUsingCallback;
+
     /* Input -------------- */
     HWAVEIN *hWaveIns;
     unsigned int numInputDevices;
@@ -1503,6 +1505,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result != paNoError )
         goto error;
 
+
+    stream->primeStreamUsingCallback = (streamFlags&paPrimeOutputBuffersUsingStreamCallback) ? 1 : 0;
 
     /* time to sleep when throttling due to >100% cpu usage.
         -a quater of a buffer's duration */
@@ -2357,7 +2361,10 @@ static PaError StartStream( PaStream *s )
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
     MMRESULT mmresult;
     unsigned int i, j;
-
+    int callbackResult;
+	unsigned int channel;
+ 	unsigned long framesProcessed;
+	PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement this for stream priming */
     
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
     
@@ -2394,9 +2401,64 @@ static PaError StartStream( PaStream *s )
 
         for( i=0; i<stream->numOutputBuffers; ++i )
         {
+            if( stream->primeStreamUsingCallback )
+            {
+
+                stream->framesUsedInCurrentOutputBuffer = 0;
+                do{
+
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
+                    if( stream->numInputBuffers > 0 )
+                        PaUtil_SetNoInput( &stream->bufferProcessor );
+
+                    PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
+
+                    channel = 0;
+                    for( j=0; j<stream->numOutputDevices; ++j )
+                    {
+                        /* we have stored the number of channels in the buffer in dwUser */
+                        int channelCount = stream->outputBuffers[j][i].dwUser;
+
+                        PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
+                                stream->outputBuffers[j][i].lpData +
+                                stream->framesUsedInCurrentOutputBuffer * channelCount *
+                                stream->bufferProcessor.bytesPerHostOutputSample,
+                                channelCount );
+
+                        /* we have stored the number of channels in the buffer in dwUser */
+                        channel += channelCount;
+                    }
+
+                    callbackResult = paContinue;
+                    framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
+                    stream->framesUsedInCurrentOutputBuffer += framesProcessed;
+
+                    if( callbackResult != paContinue )
+                    {
+                        /* @todo: fix this, what do we do if callback result is non-zero during stream
+                            priming?
+
+                            for complete: play out primed buffers as usual
+                            for abort: clean up immediately.
+                       */
+                    }
+
+                }while( stream->framesUsedInCurrentOutputBuffer != stream->framesPerOutputBuffer );
+
+            }
+            else
+            {
+                for( j=0; j<stream->numOutputDevices; ++j )
+                {
+                    ZeroMemory( stream->outputBuffers[j][i].lpData, stream->outputBuffers[j][i].dwBufferLength );
+                }
+            }   
+
+            /* we queue all channels of a single buffer frame (accross all
+                devices, because some multidevice multichannel drivers work
+                better this way */
             for( j=0; j<stream->numOutputDevices; ++j )
             {
-                ZeroMemory( stream->outputBuffers[j][i].lpData, stream->outputBuffers[j][i].dwBufferLength );
                 mmresult = waveOutWrite( stream->hWaveOuts[j], &stream->outputBuffers[j][i], sizeof(WAVEHDR) );
                 if( mmresult != MMSYSERR_NOERROR )
                 {

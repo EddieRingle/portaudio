@@ -228,6 +228,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
         bp->inputConverter =
             PaUtil_SelectConverter( hostInputSampleFormat, userInputSampleFormat, streamFlags );
 
+        bp->inputZeroer = PaUtil_SelectZeroer( hostInputSampleFormat );
             
         bp->userInputIsInterleaved = (userInputSampleFormat & paNonInterleaved)?0:1;
 
@@ -294,8 +295,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
         bp->outputConverter =
             PaUtil_SelectConverter( userOutputSampleFormat, hostOutputSampleFormat, streamFlags );
 
-        bp->outputZeroer =
-            PaUtil_SelectZeroer( hostOutputSampleFormat );
+        bp->outputZeroer = PaUtil_SelectZeroer( hostOutputSampleFormat );
 
         bp->userOutputIsInterleaved = (userOutputSampleFormat & paNonInterleaved)?0:1;
 
@@ -613,6 +613,14 @@ void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bp,
 }
         
 
+void PaUtil_SetNoInput( PaUtilBufferProcessor* bp )
+{
+    assert( bp->inputChannelCount > 0 );
+
+    bp->hostInputChannels[0][0].data = 0;
+}
+
+
 void PaUtil_SetInputChannel( PaUtilBufferProcessor* bp,
         unsigned int channel, void *data, unsigned int stride )
 {
@@ -875,18 +883,32 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                     userInput = bp->tempInputBufferPtrs;
                 }
 
-                for( i=0; i<bp->inputChannelCount; ++i )
+                if( hostInputChannels[i].data )
                 {
-                    bp->inputConverter( destBytePtr, destStride,
-                                            hostInputChannels[i].data,
-                                            hostInputChannels[i].stride,
-                                            frameCount, &bp->ditherGenerator );
+                    /* no input was supplied (see PaUtil_SetNoInput), so
+                        zero the input buffer */
 
-                    destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+                    for( i=0; i<bp->inputChannelCount; ++i )
+                    {
+                        bp->inputZeroer( destBytePtr, destStride, frameCount );
+                        destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+                    }
+                }
+                else
+                {
+                    for( i=0; i<bp->inputChannelCount; ++i )
+                    {
+                        bp->inputConverter( destBytePtr, destStride,
+                                                hostInputChannels[i].data,
+                                                hostInputChannels[i].stride,
+                                                frameCount, &bp->ditherGenerator );
 
-                    /* advance src ptr for next iteration */
-                    hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                            frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
+                        destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+
+                        /* advance src ptr for next iteration */
+                        hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
+                                frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
+                    }
                 }
             }
 

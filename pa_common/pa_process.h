@@ -41,6 +41,24 @@ extern "C"
 #endif /* __cplusplus */
 
 /** @file
+    Support for adapting between host API input and output audio buffers, and
+    the buffers passed to the client supplied stream callback function. Adaption
+    is performed by the PaUtilBufferProcessor which supports a range of adaption
+    modes.
+
+    There are two aspects to the adaption supported by PaUtilBufferProcessor:
+    Firstly, buffer length adaption - this is used when the client requests
+    a buffer size which cannot be directly supported by the host API. In this
+    case host API sized buffers are passed to the buffer processor, and the
+    buffer processor takes care of slicing or chunking the data into the correct
+    size for the client callback. Secondly, buffer format and interleaving
+    adaption is performed. The buffer processor makes use of the converters
+    devined in pa_converters.c to convert sample data, and also handles
+    interleaving, deinterleaving, or re-interleaving data depending on the
+    form the host API supplies the data in.
+
+    PaUtilBufferProcessor maintains temporary buffers which are used when
+    converting between incompatible sample formats.
 
     @todo finish documentation for the buffer processor
 */
@@ -72,7 +90,8 @@ typedef struct {
     unsigned int bytesPerUserInputSample;
     int userInputIsInterleaved;
     PaUtilConverter *inputConverter;
-
+    PaUtilZeroer *inputZeroer;
+    
     unsigned int outputChannelCount;
     unsigned int bytesPerHostOutputSample;
     unsigned int bytesPerUserOutputSample;
@@ -146,7 +165,7 @@ void PaUtil_ResetBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
  information as necessary.
 */
 void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor,
-        PaStreamCallbackTimeInfo* timeInfo );
+        PaStreamCallbackTimeInfo* timeInfo /* add callback flags parameter here */ );
 
 /** returns the number of frames processed, this usually corresponds to the
  number of frames passed in, exept in the
@@ -171,7 +190,14 @@ unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor
 void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bufferProcessor,
         unsigned long frameCount );
 
+        
+/**  PaUtil_SetNoInput can be used to indicate that no input is available
+    when priming the output of a full-duplex stream for
+    paPrimeOutputBuffersUsingStreamCallback.
+*/
+void PaUtil_SetNoInput( PaUtilBufferProcessor* bufferProcessor );
 
+                                             
 void PaUtil_SetInputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 

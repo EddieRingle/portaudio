@@ -139,12 +139,8 @@ static PaError DoTest( int flags )
     paTestData data;
     PaStreamParameters outputParameters;
 
-    InitializeTestData( &data );        
+    InitializeTestData( &data );       
 
-    /* Initialize library before making any other calls. */
-    err = Pa_Initialize();
-    if( err != paNoError ) goto error;
-    
     outputParameters.device = Pa_GetDefaultOutputDevice();
     outputParameters.channelCount = 2;
     outputParameters.hostApiSpecificStreamInfo = NULL;
@@ -179,13 +175,8 @@ static PaError DoTest( int flags )
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
 
-    Pa_Terminate();
     return err;
 error:
-    Pa_Terminate();
-    fprintf( stderr, "An error occured while using the portaudio stream\n" );
-    fprintf( stderr, "Error number: %d\n", err );
-    fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
     return err;
 }
 /*******************************************************************/
@@ -195,6 +186,10 @@ int main(void)
     PaError    err = paNoError;
     int        i;
 
+    /* Initialize library before making any other calls. */
+    err = Pa_Initialize();
+    if( err != paNoError ) goto error;
+    
     printf("PortAudio Test: Testing stream playback with no priming.\n");
     printf("PortAudio Test: you should see BEEP before you hear it.\n");
     printf("BEEP %d times.\n", NUM_BEEPS );
@@ -203,7 +198,7 @@ int main(void)
     {
         err = DoTest( 0 );
         if( err != paNoError )
-            return err;
+            goto error;
     }
 
     printf("PortAudio Test: Testing stream playback with priming.\n");
@@ -212,10 +207,17 @@ int main(void)
     {
         err = DoTest( paPrimeOutputBuffersUsingStreamCallback );
         if( err != paNoError )
-            return err;
+            goto error;
     }
 
     printf("Test finished.\n");
 
+    Pa_Terminate();
+    return err;
+error:
+    Pa_Terminate();
+    fprintf( stderr, "An error occured while using the portaudio stream\n" );
+    fprintf( stderr, "Error number: %d\n", err );
+    fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
     return err;
 }
