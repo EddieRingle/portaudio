@@ -10,6 +10,7 @@
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 
 void Stop( void *data );
+void *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
 
 static int wait( PaAlsaStream *stream )
 {
@@ -126,8 +127,7 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
         {
             void *interleaved_capture_buffer;
             area = &capture_areas[0];
-            interleaved_capture_buffer = area->addr +
-                              (area->first + area->step * stream->capture_offset) / 8;
+            interleaved_capture_buffer = ExtractAddress( area, stream->capture_offset );
             PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
                                                 0, /* starting at channel 0 */
                                                 interleaved_capture_buffer,
@@ -139,13 +139,12 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
             /* noninterleaved */
             for( i = 0; i < stream->capture_channels; i++ )
             {
-                void **noninterleaved_capture_buffers;
+                void *noninterleaved_capture_buffer;
                 area = &capture_areas[i];
-                noninterleaved_capture_buffers[i] = area->addr +
-                                  (area->first + area->step * stream->capture_offset) / 8;
+                noninterleaved_capture_buffer = ExtractAddress( area, stream->capture_offset );
                 PaUtil_SetNonInterleavedInputChannel( &stream->bufferProcessor,
                                                       i,
-                                                      noninterleaved_capture_buffers[i]);
+                                                      noninterleaved_capture_buffer);
             }
         }
 
@@ -158,8 +157,6 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
         const snd_pcm_channel_area_t *area;
         snd_pcm_uframes_t frames = frames_avail;
 
-        /* I do not understand this code fragment yet, it is copied out of the
-         * alsa-devel archives... */
         snd_pcm_mmap_begin( stream->pcm_playback, &playback_areas, 
                             &stream->playback_offset, &frames);
 
@@ -167,8 +164,7 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
         {
             void *interleaved_playback_buffer;
             area = &playback_areas[0];
-            interleaved_playback_buffer = area->addr +
-                              (area->first + area->step * stream->playback_offset) / 8;
+            interleaved_playback_buffer = ExtractAddress( area, stream->playback_offset );
             PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
                                                  0, /* starting at channel 0 */
                                                  interleaved_playback_buffer,
@@ -180,13 +176,12 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
             /* noninterleaved */
             for( i = 0; i < stream->playback_channels; i++ )
             {
-                void **noninterleaved_playback_buffers;
+                void *noninterleaved_playback_buffer;
                 area = &playback_areas[i];
-                noninterleaved_playback_buffers[i] = area->addr +
-                                  (area->first + area->step * stream->playback_offset) / 8;
+                noninterleaved_playback_buffer = ExtractAddress( area, stream->playback_offset );
                 PaUtil_SetNonInterleavedOutputChannel( &stream->bufferProcessor,
                                                       i,
-                                                      noninterleaved_playback_buffers[i]);
+                                                      noninterleaved_playback_buffer);
             }
         }
 
@@ -322,6 +317,7 @@ void *CallbackThread( void *userData )
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
 
+            PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
             /* inform ALSA how many frames we wrote */
 
@@ -337,7 +333,6 @@ void *CallbackThread( void *userData )
             frames_avail -= frames_got;
         }
 
-        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
         /*
             If you need to byte swap outputBuffer, you can do it here using
@@ -386,3 +381,7 @@ void Stop( void *data )
     PA_DEBUG(( "Stoppage\n" ));
 }
 
+void *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
+{
+    return area->addr + (area->first + offset * area->step) / 8;
+}
