@@ -434,7 +434,7 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type )
     
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_HostApiTypeIdToHostApiIndex called:\n" );
-    PaUtil_DebugPrint("\PaHostApiTypeId type: %d\n", type );
+    PaUtil_DebugPrint("\tPaHostApiTypeId type: %d\n", type );
 #endif
 
     if( !PA_IS_INITIALISED_ )
@@ -831,7 +831,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetDeviceInfo returned:\n" );
         PaUtil_DebugPrint("\tPaDeviceInfo*: 0x%p:\n", result );
-        PaUtil_DebugPrint("\t{" );
+        PaUtil_DebugPrint("\t{\n" );
 
         PaUtil_DebugPrint("\t\tint structVersion: %d\n", result->structVersion );
         PaUtil_DebugPrint("\t\tconst char *name: %s\n", result->name );
@@ -1089,9 +1089,9 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     PaUtil_DebugPrint("Pa_IsFormatSupported called:\n" );
 
     if( inputParameters == NULL ){
-        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: NULL\n" );
+        PaUtil_DebugPrint("\tPaStreamParameters *inputParameters: NULL\n" );
     }else{
-        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: 0x%p\n", inputParameters );
+        PaUtil_DebugPrint("\tPaStreamParameters *inputParameters: 0x%p\n", inputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex inputParameters->device: %d\n", inputParameters->device );
         PaUtil_DebugPrint("\tint inputParameters->channelCount: %d\n", inputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat inputParameters->sampleFormat: %d\n", inputParameters->sampleFormat );
@@ -1100,9 +1100,9 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     }
 
     if( outputParameters == NULL ){
-        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: NULL\n" );
+        PaUtil_DebugPrint("\tPaStreamParameters *outputParameters: NULL\n" );
     }else{
-        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: 0x%p\n", outputParameters );
+        PaUtil_DebugPrint("\tPaStreamParameters *outputParameters: 0x%p\n", outputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex outputParameters->device: %d\n", outputParameters->device );
         PaUtil_DebugPrint("\tint outputParameters->channelCount: %d\n", outputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat outputParameters->sampleFormat: %d\n", outputParameters->sampleFormat );
@@ -1205,9 +1205,9 @@ PaError Pa_OpenStream( PaStream** stream,
     PaUtil_DebugPrint("\tPaStream** stream: 0x%p\n", stream );
 
     if( inputParameters == NULL ){
-        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: NULL\n" );
+        PaUtil_DebugPrint("\tPaStreamParameters *inputParameters: NULL\n" );
     }else{
-        PaUtil_DebugPrint("\PaStreamParameters *inputParameters: 0x%p\n", inputParameters );
+        PaUtil_DebugPrint("\tPaStreamParameters *inputParameters: 0x%p\n", inputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex inputParameters->device: %d\n", inputParameters->device );
         PaUtil_DebugPrint("\tint inputParameters->channelCount: %d\n", inputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat inputParameters->sampleFormat: %d\n", inputParameters->sampleFormat );
@@ -1216,9 +1216,9 @@ PaError Pa_OpenStream( PaStream** stream,
     }
 
     if( outputParameters == NULL ){
-        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: NULL\n" );
+        PaUtil_DebugPrint("\tPaStreamParameters *outputParameters: NULL\n" );
     }else{
-        PaUtil_DebugPrint("\PaStreamParameters *outputParameters: 0x%p\n", outputParameters );
+        PaUtil_DebugPrint("\tPaStreamParameters *outputParameters: 0x%p\n", outputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex outputParameters->device: %d\n", outputParameters->device );
         PaUtil_DebugPrint("\tint outputParameters->channelCount: %d\n", outputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat outputParameters->sampleFormat: %d\n", outputParameters->sampleFormat );
@@ -1622,7 +1622,7 @@ const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream )
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetStreamInfo returned:\n" );
-        PaUtil_DebugPrint("\const PaStreamInfo*: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
+        PaUtil_DebugPrint("\tconst PaStreamInfo*: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
 #endif
 
     }
