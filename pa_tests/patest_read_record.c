@@ -114,7 +114,7 @@ int main(void)
     err = Pa_OpenStream(
               &stream,
               &inputParameters,
-              NULL,                  //&outputParameters,
+              NULL,                  /* &outputParameters, */
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */

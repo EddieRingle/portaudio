@@ -116,7 +116,7 @@ int main( int argc, char **argv )
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-    outLatency = sampleRate * 200.0 / 1000.0; // 200 msec
+    outLatency = sampleRate * 200.0 / 1000.0; /* 200 msec. */
 
     /* Try different numBuffers in a loop. */
     go = 1;

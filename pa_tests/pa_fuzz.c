@@ -142,7 +142,7 @@ int main(void)
               &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              0, // paClipOff,     /* we won't output out of range samples so don't bother clipping them */
+              0, /* paClipOff, */  /* we won't output out of range samples so don't bother clipping them */
               fuzzCallback,
               NULL );
     if( err != paNoError ) goto error;

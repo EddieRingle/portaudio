@@ -37,7 +37,7 @@
 #include <math.h>
 #include "portaudio.h"
 
-#define OUTPUT_DEVICE 16 //Pa_GetDefaultOutputDevice()
+#define OUTPUT_DEVICE (16) /* Pa_GetDefaultOutputDevice() */
 
 #define NUM_SECONDS   (5)
 #define NUM_LOOPS     (4)
