@@ -1019,7 +1019,7 @@ static void Int32_To_UInt8(
 
     while( count-- )
     {
-		(*dest) = ((*src) >> 24) + 128; 
+		(*dest) = (unsigned char)(((*src) >> 24) + 128); 
 
         src += sourceStride;
         dest += destinationStride;
@@ -1170,7 +1170,7 @@ static void Int24_To_Int8(
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
     unsigned char *src = (unsigned char*)sourceBuffer;
-    signed char  *dest = (signed short*)destinationBuffer;
+    signed char  *dest = (signed char*)destinationBuffer;
     
     (void) ditherGenerator; /* unused parameter */
         
@@ -1216,7 +1216,7 @@ static void Int24_To_UInt8(
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
     unsigned char *src = (unsigned char*)sourceBuffer;
-    unsigned char *dest = (signed short*)destinationBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
     
     (void) ditherGenerator; /* unused parameter */
         
@@ -1226,9 +1226,9 @@ static void Int24_To_UInt8(
 #if defined(PA_LITTLE_ENDIAN)
 		/* src[0] is discarded */
 		/* src[1] is discarded */
-        *dest = src[2] + 128;
+        *dest = (unsigned char)(src[2] + 128);
 #elif defined(PA_BIG_ENDIAN)
-        *dest = src[0] + 128;
+        *dest = (unsigned char)(src[0] + 128);
 		/* src[1] is discarded */
 		/* src[2] is discarded */		
 #endif
@@ -1344,7 +1344,7 @@ static void Int16_To_Int8(
 
     while( count-- )
     {
-        (*dest) = (*src) >> 8; 
+        (*dest) = (signed char)((*src) >> 8);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1384,7 +1384,7 @@ static void Int16_To_UInt8(
 
     while( count-- )
     {
-		(*dest) = ((*src) >> 8) + 128; 
+		(*dest) = (unsigned char)(((*src) >> 8) + 128); 
 
         src += sourceStride;
         dest += destinationStride;
@@ -1494,7 +1494,7 @@ static void Int8_To_Int16(
 
     while( count-- )
     {
-		(*dest) = (*src) << 8;
+		(*dest) = (signed short)((*src) << 8);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1514,7 +1514,7 @@ static void Int8_To_UInt8(
 
     while( count-- )
     {
-        (*src) = (*dest + 128);
+        (*dest) = (unsigned char)(*src + 128);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1579,9 +1579,9 @@ static void UInt8_To_Int24(
 #if defined(PA_LITTLE_ENDIAN)
         dest[0] = 0;
         dest[1] = 0;
-        dest[2] = (*src - 128);
+        dest[2] = (unsigned char)(*src - 128);
 #elif defined(PA_BIG_ENDIAN)
-        dest[0] = (*src - 128);
+        dest[0] = (unsigned char)(*src - 128);
         dest[1] = 0;
         dest[2] = 0;
 #endif
@@ -1604,7 +1604,7 @@ static void UInt8_To_Int16(
 
     while( count-- )
     {
-		(*dest) = (*src - 128) << 8;
+		(*dest) = (signed short)((*src - 128) << 8);
 
         src += sourceStride;
         dest += destinationStride;
@@ -1624,7 +1624,7 @@ static void UInt8_To_Int8(
 
     while( count-- )
     {
-        (*dest) = (*src - 128);
+        (*dest) = (signed char)(*src - 128);
 
         src += sourceStride;
         dest += destinationStride;
