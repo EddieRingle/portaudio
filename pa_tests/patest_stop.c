@@ -44,12 +44,11 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
-#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDeviceID())
+#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice())
 #define SLEEP_DUR           (200)
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (256)
-#define LATENCY_MSEC    (3000)
-#define NUM_BUFFERS         ((LATENCY_MSEC * SAMPLE_RATE) / (FRAMES_PER_BUFFER * 1000))
+#define LATENCY_MSEC        (3000)
 #define FRAMES_PER_NOTE     (SAMPLE_RATE/2)
 #define MAX_REPEATS         (2)
 #define FUNDAMENTAL         (400.0f / SAMPLE_RATE)
@@ -109,7 +108,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
     float *out = (float*)outputBuffer;
     float value;
     unsigned int i = 0;
-    int finished = 0;
+    int finished = paContinue;
     (void) outTime; /* Prevent unused variable warnings. */
     (void) inputBuffer;
 
@@ -134,7 +133,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
                         data->done = 1;
                         if( data->stopMode == MODE_FINISH )
                         {
-                            finished = 1;
+                            finished = paComplete;
                             break;
                         }
                     }
@@ -165,7 +164,7 @@ int main(void)
     paTestData DATA;
     int i;
     float simpleTune[] = { NOTE_0, NOTE_1, NOTE_2, NOTE_3, NOTE_4, NOTE_3, NOTE_2, NOTE_1 };
-    printf("PortAudio Test: play song and test stopping. ask for %d buffers\n", NUM_BUFFERS );
+    printf("PortAudio Test: play song and test stopping. ask for %d latency\n", LATENCY_MSEC );
     /* initialise sinusoidal wavetable */
     for( i=0; i<TABLE_SIZE; i++ )
     {
@@ -210,7 +209,7 @@ error:
 
 int TestStopMode( paTestData *data )
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     data->done = 0;
     data->phase = 0.0;
@@ -225,23 +224,25 @@ int TestStopMode( paTestData *data )
               paNoDevice,/* default input device */
               0,              /* no input */
               paFloat32,  /* 32 bit floating point input */
+              0, 
               NULL,
               OUTPUT_DEVICE,
               2,          /* stereo output */
               paFloat32,      /* 32 bit floating point output */
+              LATENCY_MSEC,
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
-              NUM_BUFFERS,    /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               data );
     if( err != paNoError ) goto error;
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
+
     if( data->stopMode == MODE_FINISH )
     {
-        while( Pa_StreamActive( stream ) )
+        while( Pa_IsStreamActive( stream ) )
         {
             /*printf("outTime = %g, note# = %d, repeat# = %d\n", data->outTime,
              data->noteCounter, data->repeatCounter  );
@@ -259,6 +260,7 @@ int TestStopMode( paTestData *data )
             Pa_Sleep( SLEEP_DUR );
         }
     }
+
     if( data->stopMode == MODE_ABORT )
     {
         printf("Call Pa_AbortStream()\n");
@@ -270,6 +272,7 @@ int TestStopMode( paTestData *data )
         err = Pa_StopStream( stream );
     }
     if( err != paNoError ) goto error;
+
     printf("Call Pa_CloseStream()\n"); fflush(stdout);
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
