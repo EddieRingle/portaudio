@@ -85,7 +85,7 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 /* IMPLEMENT ME: a macro like the following one should be used for reporting
  host errors */
 #define PA_SKELETON_SET_LAST_HOST_ERROR( errorCode, errorText ) \
-    PaUtil_SetLastHostError( paInDevelopment, errorCode, errorText )
+    PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
 
 /* PaSkeletonHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -127,10 +127,11 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paInDevelopment;            /* IMPLEMENT ME: change to correct type id */
     (*hostApi)->info.name = "skeleton implementation";  /* IMPLEMENT ME: change to correct name */
-    
-    (*hostApi)->deviceCount = 0;  
-    (*hostApi)->defaultInputDeviceIndex = paNoDevice;  /* IMPLEMENT ME */
-    (*hostApi)->defaultOutputDeviceIndex = paNoDevice; /* IMPLEMENT ME */
+
+    (*hostApi)->info.defaultInputDevice = paNoDevice;  /* IMPLEMENT ME */
+    (*hostApi)->info.defaultOutputDevice = paNoDevice; /* IMPLEMENT ME */
+
+    (*hostApi)->info.deviceCount = 0;  
 
     deviceCount = 0; /* IMPLEMENT ME */
     
@@ -180,7 +181,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
             deviceInfo->defaultSampleRate = 0.; /* IMPLEMENT ME */
             
             (*hostApi)->deviceInfos[i] = deviceInfo;
-            ++(*hostApi)->deviceCount;
+            ++(*hostApi)->info.deviceCount;
         }
     }
 
@@ -239,12 +240,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
-    int numInputChannels, numOutputChannels;
+    int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numberOfChannels;
+        inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
@@ -253,22 +254,22 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
-        numInputChannels = 0;
+        inputChannelCount = 0;
     }
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numberOfChannels;
+        outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         
         /* unless alternate device specification is supported, reject the use of
@@ -277,17 +278,17 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
-        numOutputChannels = 0;
+        outputChannelCount = 0;
     }
     
     /*
@@ -340,14 +341,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSkeletonHostApiRepresentation *skeletonHostApi = (PaSkeletonHostApiRepresentation*)hostApi;
     PaSkeletonStream *stream = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
-    int numInputChannels, numOutputChannels;
+    int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
 
     if( inputParameters )
     {
-        numInputChannels = inputParameters->numberOfChannels;
+        inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
@@ -356,13 +357,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        /* check that input device can support inputChannelCount */
+        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
 
         /* IMPLEMENT ME - establish which  host formats are available */
         hostInputSampleFormat =
@@ -370,12 +371,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     else
     {
-        numInputChannels = 0;
+        inputChannelCount = 0;
     }
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numberOfChannels;
+        outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         
         /* unless alternate device specification is supported, reject the use of
@@ -384,13 +385,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        /* check that output device can support inputChannelCount */
+        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
 
         /* IMPLEMENT ME - establish which  host formats are available */
         hostOutputSampleFormat =
@@ -398,7 +399,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     else
     {
-        numOutputChannels = 0;
+        outputChannelCount = 0;
     }
 
     /*
@@ -461,8 +462,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         paUtilFixedHostBufferSize below. */
         
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              numInputChannels, inputSampleFormat, hostInputSampleFormat,
-              numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+              inputChannelCount, inputSampleFormat, hostInputSampleFormat,
+              outputChannelCount, outputSampleFormat, hostOutputSampleFormat,
               sampleRate, streamFlags, framesPerBuffer,
               framesPerHostBuffer, paUtilFixedHostBufferSize,
               streamCallback, userData );
@@ -526,13 +527,13 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
             0, /* first channel of inputBuffer is channel 0 */
             inputBuffer,
-            0 ); /* 0 - use numInputChannels passed to init buffer processor */
+            0 ); /* 0 - use inputChannelCount passed to init buffer processor */
 
     PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
     PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
             0, /* first channel of outputBuffer is channel 0 */
             outputBuffer,
-            0 ); /* 0 - use numOutputChannels passed to init buffer processor */
+            0 ); /* 0 - use outputChannelCount passed to init buffer processor */
 
     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
