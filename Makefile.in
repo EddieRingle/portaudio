@@ -45,6 +45,7 @@ TESTS = \
 	bin/patest_hang \
 	bin/patest_latency \
 	bin/patest_leftright \
+	bin/patest_longsine \
 	bin/patest_many \
 	bin/patest_maxsines \
 	bin/patest_multi_sine \
