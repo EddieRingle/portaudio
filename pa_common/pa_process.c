@@ -261,7 +261,7 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bp,
     unsigned int hostFramesRemaining = bp->framesPerHostBuffer;
     void *userInput, *userOutput;
     unsigned char *srcBytePtr, *destBytePtr;
-    unsigned char **srcNonInterleavedPtr, **destNonInterleavedPtr;
+    unsigned char **srcNonInterleavedPtr;
     unsigned int i;
     int result;
 
@@ -312,17 +312,16 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bp,
 
                     userInput = bp->tempInputBufferPtrs;
                 }
-
-                /* advance input ptr for next iteration */
-                hostInput = ((unsigned char*)hostInput) +
-                            bp->framesPerUserBuffer * bp->numInputChannels * bp->bytesPerHostInputSample;
-
             }
             else
             {
                 /* pass input buffer directly if no conversion is needed */
                 userInput = hostInput;
             }
+            /* advance input ptr for next iteration */
+            hostInput = ((unsigned char*)hostInput) +
+                        bp->framesPerUserBuffer * bp->numInputChannels * bp->bytesPerHostInputSample;
+
         }
 
         userOutput = ConfigureUserOutputBufferPtr( bp, hostOutput );
@@ -361,15 +360,15 @@ int PaUtil_ProcessInterleavedBuffers( PaUtilBufferProcessor* bp,
                     }
                 }
 
-                /* advance output ptr for next iteration */
-                hostOutput = ((unsigned char*)hostOutput) +
-                             bp->framesPerUserBuffer * bp->numOutputChannels * bp->bytesPerHostOutputSample;
 
             }
             else
             {
                 /* output samples are already in host output buffer */
             }
+            /* advance output ptr for next iteration */
+            hostOutput = ((unsigned char*)hostOutput) +
+                         bp->framesPerUserBuffer * bp->numOutputChannels * bp->bytesPerHostOutputSample;
         }
 
         outTime += bp->framesPerUserBuffer;
@@ -552,7 +551,7 @@ int PaUtil_ProcessBuffers( PaUtilBufferProcessor* bp, /* bp => buffer processor 
     unsigned int hostFramesRemaining = bp->framesPerHostBuffer;
     void *userInput, *userOutput;
     unsigned char *srcBytePtr, *destBytePtr;
-    unsigned char **srcNonInterleavedPtr, **destNonInterleavedPtr;
+    unsigned char **srcNonInterleavedPtr;
     unsigned int i;
     int result;
 
