@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "portaudio.h"
 
 #ifndef M_PI
@@ -149,7 +150,13 @@ int main( int argc, char **argv )
         /* Ask user for a new nlatency. */
         printf("\nMove windows around to see if the sound glitches.\n");
         printf("Latency now %d, enter new number of frames, or 'q' to quit: ", outLatency );
-        gets( str );
+        fgets( str, 256, stdin );
+        {
+            /* Get rid of newline */
+            size_t l = strlen( str ) - 1;
+            if( str[ l ] == '\n')
+                str[ l ] = '\0';
+        }
         if( str[0] == 'q' ) go = 0;
         else
         {

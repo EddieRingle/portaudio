@@ -352,7 +352,7 @@ static int TestBadActions( void )
     HOPEFOR(((result = Pa_IsStreamActive(NULL)) == paBadStreamPtr));
     HOPEFOR(((result = Pa_CloseStream(NULL))    == paBadStreamPtr));
     HOPEFOR(((result = Pa_SetStreamFinishedCallback(NULL, NULL)) == paBadStreamPtr));
-    HOPEFOR(((result = Pa_GetStreamInfo(NULL))    == NULL));
+    HOPEFOR(((result = !Pa_GetStreamInfo(NULL))));
     HOPEFOR(((result = Pa_GetStreamTime(NULL))  == 0.0));
     HOPEFOR(((result = Pa_GetStreamCpuLoad(NULL))  == 0.0));
     HOPEFOR(((result = Pa_ReadStream(NULL, NULL, 0))  == paBadStreamPtr));

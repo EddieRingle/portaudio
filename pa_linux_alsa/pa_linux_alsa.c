@@ -205,9 +205,9 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
-void CleanUpStream( PaAlsaStream *stream );
-int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate );
-int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate );
+static void CleanUpStream( PaAlsaStream *stream );
+static int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate );
+static int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate );
 
 /* Callback prototypes */
 static void *CallbackThread( void *userData );
@@ -1597,7 +1597,7 @@ static double GetStreamCpuLoad( PaStream* s )
  *
  * Frees allocated memory, and closes opened pcms.
  */
-void CleanUpStream( PaAlsaStream *stream )
+static void CleanUpStream( PaAlsaStream *stream )
 {
     assert( stream );
 
@@ -1618,7 +1618,7 @@ void CleanUpStream( PaAlsaStream *stream )
     PaUtil_FreeMemory( stream );
 }
 
-int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate )
+static int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate )
 {
     unsigned long approx = (unsigned long) sampleRate;
     int dir = 0;
@@ -1641,7 +1641,7 @@ int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, dou
 }
 
 /* Return exact sample rate in param sampleRate */
-int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
+static int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
 {
     unsigned int num, den;
     int err; 
@@ -2031,7 +2031,7 @@ static void OnExit( void *data )
  * till we must wait for more. If the inner loop detects an xrun condition however, the data consumption will stop and we go
  * back to the waiting state.
  */
-void *CallbackThread( void *userData )
+static void *CallbackThread( void *userData )
 {
     PaError result = paNoError, *pres;
     PaAlsaStream *stream = (PaAlsaStream*) userData;
