@@ -36,6 +36,7 @@ COMMON_OBJS = \
 	pa_common/pa_trace.o
 
 TESTS = \
+	bin/paqa_devs \
 	bin/patest_buffer \
 	bin/patest_callbackstop \
 	bin/patest_clip \
