@@ -65,10 +65,12 @@
 
 /** @file
 
+    Note that specific support for paInputUnderflow, paOutputOverflow and
+    paNeverDropInput is not necessary or possible with this driver due to the
+    synchronous full duplex double-buffered architecture of ASIO.
+
     @todo check that CoInitialize()/CoUninitialize() are always correctly
         paired, even in error cases.
-
-    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
 
     @todo implement host api specific extension to set i/o buffer sizes in frames
 
@@ -77,7 +79,10 @@
     @todo implement IsFormatSupported
 
     @todo work out how to implement stream stoppage from callback and
-            implement IsStreamActive properly
+            implement IsStreamActive properly. Stream stoppage could be implemented
+            using a high-priority thread blocked on an Event which is signalled
+            by the callback. Or, we could just call ASIO stop from the callback
+            and see what happens.
 
     @todo rigorously check asio return codes and convert to pa error codes
 
@@ -1390,6 +1395,8 @@ typedef struct PaAsioStream
 
     volatile long reenterCount;
     volatile long reenterError;
+
+    PaStreamCallbackFlags callbackFlags;
 }
 PaAsioStream;
 
@@ -1843,11 +1850,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             stream->outputLatency,
             (long)((stream->outputLatency*1000)/ sampleRate)));
 
-            
-    /* Reentrancy counter initialisation */
-    stream->reenterCount = -1;
-    stream->reenterError = 0;
-    
     stream->asioHostApi = asioHostApi;
     stream->framesPerHostCallback = framesPerHostBuffer;
 
@@ -2011,10 +2013,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     // FIXME: asioDriverInfo.pahsc_NumFramesDone = timeInfo->timeInfo.samplePosition.lo;
 
 
-    // protect against reentrancy. the method used here, which guarantees that
-    // the PortAudio callback will be called later, isn't necessary (we could
-    // set the underrun flag instead) but it's a solution that will work, so
-    // fix it later.
+    // protect against reentrancy
     if( PaAsio_AtomicIncrement(&theAsioStream->reenterCount) )
     {
         theAsioStream->reenterError++;
@@ -2022,119 +2021,180 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         return 0L;
     }
 
+    int buffersDone = 0;
+    
     do
     {
-        if( theAsioStream->zeroOutput )
+        if( buffersDone > 0 )
         {
-            ZeroOutputBuffers( theAsioStream, index );
-
-            // Finally if the driver supports the ASIOOutputReady() optimization,
-            // do it here, all data are in place
-            if( theAsioStream->postOutput )
-                ASIOOutputReady();
-
-            if( theAsioStream->stopProcessing )
+            // this is a reentered buffer, we missed processing it on time
+            // set the input overflow and output underflow flags as appropriate
+            
+            if( theAsioStream->inputChannelCount > 0 )
+                theAsioStream->callbackFlags |= paInputOverflow;
+                
+            if( theAsioStream->outputChannelCount > 0 )
+                theAsioStream->callbackFlags |= paOutputOverflow;
+        }
+        else
+        {
+            if( theAsioStream->zeroOutput )
             {
-                if( theAsioStream->stopPlayoutCount < 2 )
+                ZeroOutputBuffers( theAsioStream, index );
+
+                // Finally if the driver supports the ASIOOutputReady() optimization,
+                // do it here, all data are in place
+                if( theAsioStream->postOutput )
+                    ASIOOutputReady();
+
+                if( theAsioStream->stopProcessing )
                 {
-                    ++theAsioStream->stopPlayoutCount;
-                    if( theAsioStream->stopPlayoutCount == 2 )
+                    if( theAsioStream->stopPlayoutCount < 2 )
                     {
-                        theAsioStream->isActive = 0;
-                        if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
-                            theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
-                        theAsioStream->streamFinishedCallbackCalled = true;
-                        SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                        ++theAsioStream->stopPlayoutCount;
+                        if( theAsioStream->stopPlayoutCount == 2 )
+                        {
+                            theAsioStream->isActive = 0;
+                            if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
+                                theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
+                            theAsioStream->streamFinishedCallbackCalled = true;
+                            SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                        }
+                    }
+                }
+            }
+            else
+            {
+
+#if 0
+// test code to try to detect slip conditions... these may work on some systems
+// but neither of them work on the RME Digi96
+
+// check that sample delta matches buffer size (otherwise we must have skipped
+// a buffer.
+static double last_samples = -512;
+double samples;
+//if( timeInfo->timeCode.flags & kTcValid )
+//    samples = ASIO64toDouble(timeInfo->timeCode.timeCodeSamples);
+//else
+    samples = ASIO64toDouble(timeInfo->timeInfo.samplePosition);
+int delta = samples - last_samples;
+//printf( "%d\n", delta);
+last_samples = samples;
+
+if( delta > theAsioStream->framesPerHostCallback )
+{
+    if( theAsioStream->inputChannelCount > 0 )
+        theAsioStream->callbackFlags |= paInputOverflow;
+
+    if( theAsioStream->outputChannelCount > 0 )
+        theAsioStream->callbackFlags |= paOutputOverflow;
+}
+
+// check that the buffer index is not the previous index (which would indicate
+// that a buffer was skipped.
+static int previousIndex = 1;
+if( index == previousIndex )
+{
+    if( theAsioStream->inputChannelCount > 0 )
+        theAsioStream->callbackFlags |= paInputOverflow;
+
+    if( theAsioStream->outputChannelCount > 0 )
+        theAsioStream->callbackFlags |= paOutputOverflow;
+}
+previousIndex = index;
+#endif
+
+                int i;
+
+                PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
+
+                PaStreamCallbackTimeInfo paTimeInfo;
+
+                // asio systemTime is supposed to be measured according to the same
+                // clock as timeGetTime
+                paTimeInfo.currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
+                paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
+                paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
+
+                // note that the above input and output times do not need to be
+                // adjusted for the latency of the buffer processor -- the buffer
+                // processor handles that.
+
+                if( theAsioStream->inputBufferConverter )
+                {
+                    for( i=0; i<theAsioStream->inputChannelCount; i++ )
+                    {
+                        theAsioStream->inputBufferConverter( theAsioStream->inputBufferPtrs[index][i],
+                                theAsioStream->inputShift, theAsioStream->framesPerHostCallback );
+                    }
+                }
+
+                PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo, theAsioStream->callbackFlags );
+
+                /* reset status flags once they've been passed to the callback */
+                theAsioStream->callbackFlags = 0;
+
+                PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
+                for( i=0; i<theAsioStream->inputChannelCount; ++i )
+                    PaUtil_SetNonInterleavedInputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->inputBufferPtrs[index][i] );
+
+                PaUtil_SetOutputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
+                for( i=0; i<theAsioStream->outputChannelCount; ++i )
+                    PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
+
+                int callbackResult;
+                if( theAsioStream->stopProcessing )
+                    callbackResult = paComplete;
+                else
+                    callbackResult = paContinue;
+                unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
+
+                if( theAsioStream->outputBufferConverter )
+                {
+                    for( i=0; i<theAsioStream->outputChannelCount; i++ )
+                    {
+                        theAsioStream->outputBufferConverter( theAsioStream->outputBufferPtrs[index][i],
+                                theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
+                    }
+                }
+
+                PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, framesProcessed );
+
+                // Finally if the driver supports the ASIOOutputReady() optimization,
+                // do it here, all data are in place
+                if( theAsioStream->postOutput )
+                    ASIOOutputReady();
+
+                if( callbackResult == paContinue )
+                {
+                    /* nothing special to do */
+                }
+                else if( callbackResult == paAbort )
+                {
+                    /* finish playback immediately  */
+                    theAsioStream->isActive = 0;
+                    if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
+                        theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
+                    theAsioStream->streamFinishedCallbackCalled = true;
+                    SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                    theAsioStream->zeroOutput = true;
+                }
+                else /* paComplete or other non-zero value indicating complete */
+                {
+                    /* Finish playback once currently queued audio has completed. */
+                    theAsioStream->stopProcessing = true;
+
+                    if( PaUtil_IsBufferProcessorOuputEmpty( &theAsioStream->bufferProcessor ) )
+                    {
+                        theAsioStream->zeroOutput = true;
+                        theAsioStream->stopPlayoutCount = 0;
                     }
                 }
             }
         }
-        else
-        {
-            int i;
-
-            PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
-
-            PaStreamCallbackTimeInfo paTimeInfo;
-
-            // asio systemTime is supposed to be measured according to the same
-            // clock as timeGetTime
-            paTimeInfo.currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
-            paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
-            paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
-
-            // note that the above input and output times do not need to be
-            // adjusted for the latency of the buffer processor -- the buffer
-            // processor handles that.
-
-            if( theAsioStream->inputBufferConverter )
-            {
-                for( i=0; i<theAsioStream->inputChannelCount; i++ )
-                {
-                    theAsioStream->inputBufferConverter( theAsioStream->inputBufferPtrs[index][i],
-                            theAsioStream->inputShift, theAsioStream->framesPerHostCallback );
-                }
-            }
-
-            PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo, 0 /** @todo pass underflow/overflow flags when necessary */ );
-
-            PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-            for( i=0; i<theAsioStream->inputChannelCount; ++i )
-                PaUtil_SetNonInterleavedInputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->inputBufferPtrs[index][i] );
-
-            PaUtil_SetOutputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-            for( i=0; i<theAsioStream->outputChannelCount; ++i )
-                PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
-
-            int callbackResult;
-            if( theAsioStream->stopProcessing )
-                callbackResult = paComplete;
-            else
-                callbackResult = paContinue;
-            unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
-
-            if( theAsioStream->outputBufferConverter )
-            {
-                for( i=0; i<theAsioStream->outputChannelCount; i++ )
-                {
-                    theAsioStream->outputBufferConverter( theAsioStream->outputBufferPtrs[index][i],
-                            theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
-                }
-            }
-
-            PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, framesProcessed );
-
-            // Finally if the driver supports the ASIOOutputReady() optimization,
-            // do it here, all data are in place
-            if( theAsioStream->postOutput )
-                ASIOOutputReady();
-
-            if( callbackResult == paContinue )
-            {
-                /* nothing special to do */
-            }
-            else if( callbackResult == paAbort )
-            {
-                /* finish playback immediately  */
-                theAsioStream->isActive = 0;
-                if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
-                    theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
-                theAsioStream->streamFinishedCallbackCalled = true;
-                SetEvent( theAsioStream->completedBuffersPlayedEvent );
-                theAsioStream->zeroOutput = true;
-            }
-            else /* paComplete or other non-zero value indicating complete */
-            {
-                /* Finish playback once currently queued audio has completed. */
-                theAsioStream->stopProcessing = true;
-
-                if( PaUtil_IsBufferProcessorOuputEmpty( &theAsioStream->bufferProcessor ) )
-                {
-                    theAsioStream->zeroOutput = true;
-                    theAsioStream->stopPlayoutCount = 0;
-                }
-            }
-        }
+        
+        ++buffersDone;
     }while( PaAsio_AtomicDecrement(&theAsioStream->reenterCount) >= 0 );
 
     return 0L;
@@ -2251,6 +2311,12 @@ static PaError StartStream( PaStream *s )
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
     stream->stopProcessing = false;
     stream->zeroOutput = false;
+
+    /* Reentrancy counter initialisation */
+    stream->reenterCount = -1;
+    stream->reenterError = 0;
+
+    stream->callbackFlags = 0;
 
     if( ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
     {
