@@ -477,8 +477,10 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
      * affect the way ALSA interacts with me, the user-level client. */
 
     snd_pcm_hw_params_t *hw_params;
+    snd_pcm_sw_params_t *sw_params;
 
     snd_pcm_hw_params_alloca( &hw_params );
+    snd_pcm_sw_params_alloca( &sw_params );
 
     /* ... fill up the configuration space with all possibile
      * combinations of parameters this device will accept */
@@ -550,8 +552,23 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
         }
     }
 
+
     /* Set the parameters! */
     ENSURE( snd_pcm_hw_params( stream, hw_params ) );
+
+
+    /* Now software parameters... */
+
+    ENSURE( snd_pcm_sw_params_current( stream, sw_params ) );
+
+    /* until there's explicit xrun support in PortAudio, we'll configure ALSA
+     * devices never to stop on account of an xrun.  Basically, if the software
+     * falls behind and there are dropouts, we'll never even know about it.
+     */
+    ENSURE( snd_pcm_sw_params_set_stop_threshold( stream, sw_params, (snd_pcm_uframes_t)-1) );
+
+    /* Set the parameters! */
+    ENSURE( snd_pcm_sw_params( stream, sw_params ) );
 
     return 0;
 #undef ENSURE
@@ -852,6 +869,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->playback_interleaved = interleaved;
     }
 
+    /* this will cause the two streams to automatically start/stop/prepare in sync.
+     * We only need to execute these operations on one of the pair. */
+    if( stream->pcm_capture && stream->pcm_playback )
+        snd_pcm_link( stream->pcm_capture, stream->pcm_playback );
+
     stream->capture_nfds = 0;
     stream->playback_nfds = 0;
 
@@ -935,11 +957,6 @@ static PaError StartStream( PaStream *s )
             printf("call at line %d succeeded\n", __LINE__); \
     }
 
-    if( stream->pcm_capture )
-    {
-        ENSURE( snd_pcm_prepare( stream->pcm_capture ) );
-    }
-
     if( stream->pcm_playback )
     {
         const snd_pcm_channel_area_t *playback_areas, *area;
@@ -976,6 +993,10 @@ static PaError StartStream( PaStream *s )
 
         snd_pcm_mmap_commit( stream->pcm_playback, offset, frames );
     }
+    else if( stream->pcm_capture )
+    {
+        ENSURE( snd_pcm_prepare( stream->pcm_capture ) );
+    }
 
     if( stream->callback_mode )
     {
@@ -985,16 +1006,16 @@ static PaError StartStream( PaStream *s )
     }
     else
     {
-        if( stream->pcm_capture )
-            snd_pcm_start( stream->pcm_capture );
         if( stream->pcm_playback )
             snd_pcm_start( stream->pcm_playback );
+        else if( stream->pcm_capture )
+            snd_pcm_start( stream->pcm_capture );
     }
 
     /* On my machine, the pcm stream will not transition to the RUNNING
      * state for a while after snd_pcm_start is called.  The PortAudio
      * client needs to be able to depend on Pa_IsStreamActive() returning
-     * true the second after this function returns.  So I sleep briefly here.
+     * true the moment after this function returns.  So I sleep briefly here.
      *
      * I don't like this one bit.
      */
@@ -1041,15 +1062,15 @@ static PaError StopStream( PaStream *s )
     }
     else
     {
-        if( stream->pcm_capture )
-        {
-            snd_pcm_drain( stream->pcm_capture );
-        }
-
         if( stream->pcm_playback )
         {
             snd_pcm_drain( stream->pcm_playback );
         }
+        else if( stream->pcm_capture )
+        {
+            snd_pcm_drain( stream->pcm_capture );
+        }
+
     }
 
     stream->callback_finished = 0;
@@ -1093,15 +1114,15 @@ static PaError AbortStream( PaStream *s )
     }
     else
     {
-        if( stream->pcm_capture )
-        {
-            snd_pcm_drop( stream->pcm_capture );
-        }
-
         if( stream->pcm_playback )
         {
             snd_pcm_drop( stream->pcm_playback );
         }
+        else if( stream->pcm_capture )
+        {
+            snd_pcm_drop( stream->pcm_capture );
+        }
+
     }
 
     stream->callback_finished = 0;

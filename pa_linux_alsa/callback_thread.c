@@ -211,10 +211,10 @@ void *CallbackThread( void *userData )
 {
     PaAlsaStream *stream = (PaAlsaStream*)userData;
 
-    if( stream->pcm_capture )
-        snd_pcm_start( stream->pcm_capture );
     if( stream->pcm_playback )
         snd_pcm_start( stream->pcm_playback );
+    else if( stream->pcm_capture )
+        snd_pcm_start( stream->pcm_capture );
 
     while(1)
     {
@@ -349,30 +349,30 @@ void *CallbackThread( void *userData )
         {
             stream->callback_finished = 1;
 
-            if( stream->pcm_capture )
-            {
-                snd_pcm_drop( stream->pcm_capture );
-            }
-
             if( stream->pcm_playback )
             {
                 snd_pcm_drop( stream->pcm_playback );
             }
+            else if( stream->pcm_capture )
+            {
+                snd_pcm_drop( stream->pcm_capture );
+            }
+
             pthread_exit(NULL);
         }
         else
         {
             stream->callback_finished = 1;
 
-            if( stream->pcm_capture )
-            {
-                snd_pcm_drain( stream->pcm_capture );
-            }
-
             if( stream->pcm_playback )
             {
                 snd_pcm_drain( stream->pcm_playback );
             }
+            else if( stream->pcm_capture )
+            {
+                snd_pcm_drain( stream->pcm_capture );
+            }
+
             pthread_exit(NULL);
         }
 
