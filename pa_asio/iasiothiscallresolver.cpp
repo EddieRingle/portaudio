@@ -147,6 +147,9 @@
     Fraser Adams: rewrote the original calliasio patch in the form of the
     IASIOThiscallResolver class in order to avoid modifications to files from
     the Steinberg SDK, which may have had potential licence issues.
+
+    Andrew Baldwin: contributed fixes for compatibility problems with more
+    recent versions of the gcc assembler.
 */
 
 
@@ -187,133 +190,155 @@ extern IASIO* theAsioDriver;
 
 
 #define CALL_THISCALL_0( resultName, thisPtr, funcOffset )\
-    void *this_ = (thisPtr);                                                    \
-    __asm {                                                                     \
-        mov     eax, this_            ;                                         \
-        mov     edx, [eax]            ;                                         \
-        mov     ecx, this_            ;                                         \
-        call    [edx+funcOffset]      ;                                         \
-        mov     resultName, eax       ;                                         \
+    void *this_ = (thisPtr);                                                \
+    __asm {                                                                 \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
+        mov     resultName, eax       ;                                     \
     }
 
 
 #define CALL_VOID_THISCALL_1( thisPtr, funcOffset, param1 )\
-    void *this_ = (thisPtr);                                                    \
-    __asm {                                                                     \
-        mov     eax, param1           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, this_            ;                                         \
-        mov     edx, [eax]            ;                                         \
-        mov     ecx, this_            ;                                         \
-        call    [edx+funcOffset]      ;                                         \
+    void *this_ = (thisPtr);                                                \
+    __asm {                                                                 \
+        mov     eax, param1           ;                                     \
+        push    eax                   ;                                     \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
     }
 
 
 #define CALL_THISCALL_1( resultName, thisPtr, funcOffset, param1 )\
-    void *this_ = (thisPtr);                                                    \
-    __asm {                                                                     \
-        mov     eax, param1           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, this_            ;                                         \
-        mov     edx, [eax]            ;                                         \
-        mov     ecx, this_            ;                                         \
-        call    [edx+funcOffset]      ;                                         \
-        mov     resultName, eax       ;                                         \
+    void *this_ = (thisPtr);                                                \
+    __asm {                                                                 \
+        mov     eax, param1           ;                                     \
+        push    eax                   ;                                     \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
+        mov     resultName, eax       ;                                     \
+    }
+
+
+#define CALL_THISCALL_1_DOUBLE( resultName, thisPtr, funcOffset, param1 )\
+    void *this_ = (thisPtr);                                                \
+    void *doubleParamPtr_ (&param1);                                        \
+    __asm {                                                                 \
+        mov     eax, doubleParamPtr_  ;                                     \
+        push    [eax+4]               ;                                     \
+        push    [eax]                 ;                                     \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
+        mov     resultName, eax       ;                                     \
     }
 
 
 #define CALL_THISCALL_2( resultName, thisPtr, funcOffset, param1, param2 )\
-    void *this_ = (thisPtr);                                                    \
-    __asm {                                                                     \
-        mov     eax, param2           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, param1           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, this_            ;                                         \
-        mov     edx, [eax]            ;                                         \
-        mov     ecx, this_            ;                                         \
-        call    [edx+funcOffset]      ;                                         \
-        mov     resultName, eax       ;                                         \
+    void *this_ = (thisPtr);                                                \
+    __asm {                                                                 \
+        mov     eax, param2           ;                                     \
+        push    eax                   ;                                     \
+        mov     eax, param1           ;                                     \
+        push    eax                   ;                                     \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
+        mov     resultName, eax       ;                                     \
     }
 
 
 #define CALL_THISCALL_4( resultName, thisPtr, funcOffset, param1, param2, param3, param4 )\
-    void *this_ = (thisPtr);                                                    \
-    __asm {                                                                     \
-        mov     eax, param4           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, param3           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, param2           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, param1           ;                                         \
-        push    eax                   ;                                         \
-        mov     eax, this_            ;                                         \
-        mov     edx, [eax]            ;                                         \
-        mov     ecx, this_            ;                                         \
-        call    [edx+funcOffset]      ;                                         \
-        mov     resultName, eax       ;                                         \
+    void *this_ = (thisPtr);                                                \
+    __asm {                                                                 \
+        mov     eax, param4           ;                                     \
+        push    eax                   ;                                     \
+        mov     eax, param3           ;                                     \
+        push    eax                   ;                                     \
+        mov     eax, param2           ;                                     \
+        push    eax                   ;                                     \
+        mov     eax, param1           ;                                     \
+        push    eax                   ;                                     \
+        mov     ecx, this_            ;                                     \
+        mov     eax, [ecx]            ;                                     \
+        call    [eax+funcOffset]      ;                                     \
+        mov     resultName, eax       ;                                     \
     }
 
 
 #elif defined(__GNUC__)
 
 
-#define CALL_THISCALL_0( resultName, thisPtr, funcOffset )\
-	__asm__ __volatile__ (""::"a"(thisPtr));\
-	__asm__ __volatile__ ("movl	(%eax), %edx");\
-	__asm__ __volatile__ (""::"c"(thisPtr));\
-	__asm__ __volatile__ ("call	*"#funcOffset"(%edx)");\
-	__asm__ __volatile__ ("":"=a"(resultName));\
+#define CALL_THISCALL_0( resultName, thisPtr, funcOffset )                  \
+    __asm__ __volatile__ ("movl (%1), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx)\n\t"                  \
+                          :"=a"(resultName) /* Output Operands */           \
+                          :"c"(thisPtr)     /* Input Operands */            \
+                         );                                                 \
 
 
-#define CALL_VOID_THISCALL_1( thisPtr, funcOffset, param1 )\
-	__asm__ __volatile__ (""::"a"(param1));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(thisPtr));\
-	__asm__ __volatile__ ("movl	(%eax), %edx");\
-	__asm__ __volatile__ (""::"c"(thisPtr));\
-	__asm__ __volatile__ ("call	*"#funcOffset"(%edx)");\
+#define CALL_VOID_THISCALL_1( thisPtr, funcOffset, param1 )                 \
+    __asm__ __volatile__ ("pushl %0\n\t"                                    \
+                          "movl (%1), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx)\n\t"                  \
+                          :                 /* Output Operands */           \
+                          :"r"(param1),     /* Input Operands */            \
+                           "c"(thisPtr)                                     \
+                         );                                                 \
 
 
-#define CALL_THISCALL_1( resultName, thisPtr, funcOffset, param1 )\
-	__asm__ __volatile__ (""::"a"(param1));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(thisPtr));\
-	__asm__ __volatile__ ("movl	(%eax), %edx");\
-	__asm__ __volatile__ (""::"c"(thisPtr));\
-	__asm__ __volatile__ ("call	*"#funcOffset"(%edx)");\
-	__asm__ __volatile__ ("":"=a"(resultName));\
+#define CALL_THISCALL_1( resultName, thisPtr, funcOffset, param1 )          \
+    __asm__ __volatile__ ("pushl %1\n\t"                                    \
+                          "movl (%2), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx)\n\t"                  \
+                          :"=a"(resultName) /* Output Operands */           \
+                          :"r"(param1),     /* Input Operands */            \
+                           "c"(thisPtr)                                     \
+                          );                                                \
 
 
-#define CALL_THISCALL_2( resultName, thisPtr, funcOffset, param1, param2 )\
-	__asm__ __volatile__ (""::"a"(param2));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(param1));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(thisPtr));\
-	__asm__ __volatile__ ("movl	(%eax), %edx");\
-	__asm__ __volatile__ (""::"c"(thisPtr));\
-	__asm__ __volatile__ ("call	*"#funcOffset"(%edx)");\
-	__asm__ __volatile__ ("":"=a"(resultName));\
+#define CALL_THISCALL_1_DOUBLE( resultName, thisPtr, funcOffset, addrparam )\
+    __asm__ __volatile__ ("pushl 4(%1)\n\t"                                 \
+                          "pushl (%1)\n\t"                                  \
+                          "movl (%2), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx);\n\t"                 \
+                          :"=a"(resultName) /* Output Operands */           \
+                          :"a"(addrparam),  /* Input Operands */            \
+                           /* Note: Using "r" above instead of "a" fails */ \
+                           /* when using GCC 3.3.3, and maybe later versions*/\
+                           "c"(thisPtr)                                     \
+                          );                                                \
+
+
+#define CALL_THISCALL_2( resultName, thisPtr, funcOffset, param1, param2 )  \
+    __asm__ __volatile__ ("pushl %1\n\t"                                    \
+                          "pushl %2\n\t"                                    \
+                          "movl (%3), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx)\n\t"                  \
+                          :"=a"(resultName) /* Output Operands */           \
+                          :"r"(param2),     /* Input Operands */            \
+                           "r"(param1),                                     \
+                           "c"(thisPtr)                                     \
+                          );                                                \
 
 
 #define CALL_THISCALL_4( resultName, thisPtr, funcOffset, param1, param2, param3, param4 )\
-	__asm__ __volatile__ (""::"a"(param4));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(param3));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(param2));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(param1));\
-	__asm__ __volatile__ ("pushl %eax");\
-	__asm__ __volatile__ (""::"a"(thisPtr));\
-	__asm__ __volatile__ ("movl	(%eax), %edx");\
-	__asm__ __volatile__ (""::"c"(thisPtr));\
-	__asm__ __volatile__ ("call	*"#funcOffset"(%edx)");\
-    __asm__ __volatile__ ("":"=a"(resultName));\
+    __asm__ __volatile__ ("pushl %1\n\t"                                    \
+                          "pushl %2\n\t"                                    \
+                          "pushl %3\n\t"                                    \
+                          "pushl %4\n\t"                                    \
+                          "movl (%5), %%edx\n\t"                            \
+                          "call *"#funcOffset"(%%edx)\n\t"                  \
+                          :"=a"(resultName) /* Output Operands */           \
+                          :"r"(param4),     /* Input Operands  */           \
+                           "r"(param3),                                     \
+                           "r"(param2),                                     \
+                           "r"(param1),                                     \
+                           "c"(thisPtr)                                     \
+                          );                                                \
 
-    
 #endif
 
 
@@ -417,7 +442,8 @@ ASIOError IASIOThiscallResolver::getLatencies(long *inputLatency, long *outputLa
     return result;
 }
 
-ASIOError IASIOThiscallResolver::getBufferSize(long *minSize, long *maxSize, long *preferredSize, long *granularity)
+ASIOError IASIOThiscallResolver::getBufferSize(long *minSize, long *maxSize,
+        long *preferredSize, long *granularity)
 {
     ASIOBool result;
     CALL_THISCALL_4( result, that_, 44, minSize, maxSize, preferredSize, granularity );
@@ -427,9 +453,7 @@ ASIOError IASIOThiscallResolver::getBufferSize(long *minSize, long *maxSize, lon
 ASIOError IASIOThiscallResolver::canSampleRate(ASIOSampleRate sampleRate)
 {
     ASIOBool result;
-    unsigned long hiword = *(((unsigned long*)&sampleRate)+1);
-    unsigned long loword = *((unsigned long*)&sampleRate);
-    CALL_THISCALL_2( result, that_, 48, loword, hiword );
+    CALL_THISCALL_1_DOUBLE( result, that_, 48, sampleRate );
     return result;
 }
 
@@ -441,11 +465,9 @@ ASIOError IASIOThiscallResolver::getSampleRate(ASIOSampleRate *sampleRate)
 }
 
 ASIOError IASIOThiscallResolver::setSampleRate(ASIOSampleRate sampleRate)
-{
+{    
     ASIOBool result;
-    unsigned long hiword = *(((unsigned long*)&sampleRate)+1);
-    unsigned long loword = *((unsigned long*)&sampleRate);
-    CALL_THISCALL_2( result, that_, 56, loword, hiword );
+    CALL_THISCALL_1_DOUBLE( result, that_, 56, sampleRate );
     return result;
 }
 
@@ -477,7 +499,8 @@ ASIOError IASIOThiscallResolver::getChannelInfo(ASIOChannelInfo *info)
     return result;
 }
 
-ASIOError IASIOThiscallResolver::createBuffers(ASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, ASIOCallbacks *callbacks)
+ASIOError IASIOThiscallResolver::createBuffers(ASIOBufferInfo *bufferInfos,
+        long numChannels, long bufferSize, ASIOCallbacks *callbacks)
 {
     ASIOBool result;
     CALL_THISCALL_4( result, that_, 76, bufferInfos, numChannels, bufferSize, callbacks );
@@ -537,3 +560,4 @@ ASIOError IASIOThiscallResolver::ASIOInit(ASIODriverInfo *info)
 #endif /* !defined(_MSC_VER) */
 
 #endif /* Win32 */
+

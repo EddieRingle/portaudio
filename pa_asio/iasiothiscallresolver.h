@@ -74,7 +74,12 @@
 //					to hold no entity, copyright holder or distributors liable
 //					for any loss of data or inaccurate representations of data
 //					as a result of using IASIOThiscallResolver.
-// Version:         1.3 Switched to including assert.h for better compatibility.
+// Version:         1.4 Added separate macro CALL_THISCALL_1_DOUBLE from
+//                  Andrew Baldwin, and volatile for whole gcc asm blocks,
+//                  both for compatibility with newer gcc versions (as yet
+//                  untested with gcc). Cleaned up Borland asm to use one less
+//                  register.
+//                  1.3 Switched to including assert.h for better compatibility.
 //                  Wrapped entire .h and .cpp contents with a check for
 //                  _MSC_VER to provide better compatibility with MS compilers.
 //                  Changed Singleton implementation to use static instance
@@ -91,11 +96,12 @@
 //					portability through the use of conditional compilation
 //					1.0 Initial working version.
 // Created:			6/09/2003
-// Author:          Fraser Adams
+// Authors:         Fraser Adams
 //                  Ross Bencina
 //                  Rene G. Ceballos
 //                  Martin Fay
 //                  Antti Silvast
+//                  Andrew Baldwin
 //
 // ****************************************************************************
 
@@ -131,8 +137,8 @@
 class IASIOThiscallResolver : public IASIO {
 private:
 	IASIO* that_; // Points to the real IASIO
-    
-	static IASIOThiscallResolver instance; // Singleton instance 
+
+	static IASIOThiscallResolver instance; // Singleton instance
 
 	// Constructors - declared private so construction is limited to
     // our Singleton instance
@@ -178,7 +184,7 @@ public:
 // Replace calls to ASIOInit with our interposing version.
 // This macro enables us to perform thiscall resolution simply by #including
 // <iasiothiscallresolver.h> after the asio #includes (this file _must_ be
-// included _after_ the asio #includes)               
+// included _after_ the asio #includes)
 
 #define ASIOInit(name) IASIOThiscallResolver::ASIOInit((name))
 
