@@ -309,6 +309,7 @@ int main(void)
     {
         err = Pa_StartStream( stream );
         if( err != paNoError ) goto done;
+        
         printf("Waiting for playback to finish.\n"); fflush(stdout);
 
         while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(100);
@@ -316,20 +317,21 @@ int main(void)
         
         err = Pa_CloseStream( stream );
         if( err != paNoError ) goto done;
+        
         printf("Done.\n"); fflush(stdout);
     }
 
 done:
     Pa_Terminate();
-    if (data.recordedSamples)       /* Sure it is NULL or valid. */
-        free(data.recordedSamples);
-    if (err != paNoError)
-        {
+    if( data.recordedSamples )       /* Sure it is NULL or valid. */
+        free( data.recordedSamples );
+    if( err != paNoError )
+    {
         fprintf( stderr, "An error occured while using the portaudio stream\n" );
         fprintf( stderr, "Error number: %d\n", err );
         fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
         err = 1;          /* Always return 0 or 1, but no other return codes. */
-        }
+    }
     return err;
 }
 
