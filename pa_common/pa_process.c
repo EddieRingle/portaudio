@@ -370,7 +370,7 @@ void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bp )
 }
 
 
-void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaTimestamp outTime )
+void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaTime outTime )
 {
     /* the first callback will be called to generate samples which will be
         outputted after the frames currently in the output buffer have been

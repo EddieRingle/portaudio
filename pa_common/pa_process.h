@@ -83,7 +83,7 @@ typedef struct {
     void **tempOutputBufferPtrs;    /* storage for non-interleaved buffer pointers, NULL for interleaved user output */
     unsigned long framesInTempOutputBuffer; /* frames remaining in input buffer from previous adaption iteration */
 
-    PaTimestamp hostOutTime;
+    PaTime hostOutTime;
     
     unsigned long hostInputFrameCount[2];
     PaUtilChannelDescriptor *hostInputChannels[2];
@@ -124,7 +124,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
 void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 
 
-void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaTimestamp outTime );
+void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor, PaTime outTime );
 
 unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, int *callbackResult );
 /*<< returns the number of frames processed */
