@@ -13,6 +13,9 @@ RANLIB = @RANLIB@
 INSTALL = @INSTALL@
 SHARED_FLAGS = @SHARED_FLAGS@
 DLL_LIBS = @DLL_LIBS@
+CXXFLAGS = @CXXFLAGS@
+NASM = @NASM@
+NASMOPT = @NASMOPT@
 
 OTHER_OBJS = @OTHER_OBJS@
 
@@ -36,7 +39,6 @@ TESTS = \
 	bin/pa_devs \
    bin/pa_fuzz \
 	bin/patest_sine \
-	bin/patest1
 
 # Most of these don't compile yet.  Put them in TESTS, above, if
 # you want to try to compile them...
@@ -121,6 +123,12 @@ clean:
 
 %.o: %.c Makefile $(PAINC)
 	$(CC) -c $(CFLAGS) $< -o $@
+
+%.o: %.cpp Makefile $(PAINC)
+	$(CXX) -c $(CXXFLAGS) $< -o $@
+
+%.o: %.asm
+	$(NASM) $(NASMOPT) -o $@ $<
 
 bin:
 	mkdir bin
