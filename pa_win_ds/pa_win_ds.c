@@ -399,9 +399,6 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
 
     if( deviceOK )
     {
-        deviceInfo->sampleRates = winDsDeviceInfo->sampleRates;
-        deviceInfo->nativeSampleFormats = paInt16;
-
         /* Allocate room for descriptive name. */
         if( lpszDesc != NULL )
         {
