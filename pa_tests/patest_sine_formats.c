@@ -1,6 +1,5 @@
 /** @file patest_sine_formats.c
 	@brief Play a sine wave for several seconds. Test various data formats.
-	@todo needs to be updated to use the V19 API
 	@author Phil Burk
 */
 /*
@@ -96,17 +95,19 @@ paTestData;
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patestCallback( void *inputBuffer, void *outputBuffer,
+static int patestCallback( const void *inputBuffer,
+                           void *outputBuffer,
                            unsigned long framesPerBuffer,
-                           PaTimestamp outTime, void *userData )
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void *userData )
 {
     paTestData *data = (paTestData*)userData;
     SAMPLE_t *out = (SAMPLE_t *)outputBuffer;
     int i;
     int framesToCalc;
     int finished = 0;
-    (void) outTime; /* Prevent unused variable warnings. */
-    (void) inputBuffer;
+    (void) inputBuffer; /* Prevent unused variable warnings. */
 
     if( data->framesToGo < framesPerBuffer )
     {
@@ -143,35 +144,32 @@ int main(void);
 int main(void)
 {
     PaStream *stream;
+    PaStreamParameters outputParameters;
     PaError err;
     paTestData data;
     int totalSamps;
 
     printf("PortAudio Test: output " FORMAT_NAME "\n");
 
-
     data.left_phase = data.right_phase = 0.0;
     data.framesToGo = totalSamps =  NUM_SECONDS * SAMPLE_RATE; /* Play for a few seconds. */
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-    err = Pa_OpenStream(
-              &stream,
-              paNoDevice,/* default input device */
-              0,              /* no input */
-              TEST_FORMAT,
-              0, /* default latency */
-              NULL,
-              Pa_GetDefaultOutputDevice(), /* default output device */
-              2,          /* stereo output */
-              TEST_FORMAT,
-              0, /* default latency */
-              NULL,
-              SAMPLE_RATE,
-              FRAMES_PER_BUFFER,
-              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
-              patestCallback,
-              &data );
+
+    outputParameters.device           = Pa_GetDefaultOutputDevice(); /* Default output device. */
+    outputParameters.channelCount     = 2;                           /* Stereo output */
+    outputParameters.sampleFormat     = TEST_FORMAT;                 /* Selected above. */
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+    err = Pa_OpenStream( &stream,
+                         NULL,                  /* No input. */
+                         &outputParameters,     /* As above. */
+                         SAMPLE_RATE,
+                         FRAMES_PER_BUFFER,
+                         paClipOff,      /* we won't output out of range samples so don't bother clipping them */
+                         patestCallback,
+                         &data );
     if( err != paNoError ) goto error;
 
     err = Pa_StartStream( stream );
