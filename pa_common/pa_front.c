@@ -1448,10 +1448,80 @@ PaError Pa_IsStreamActive( PaStream *stream )
 }
 
 
-PaTimestamp Pa_GetStreamTime( PaStream *stream )
+PaTime Pa_GetStreamInputLatency( PaStream *stream )
 {
     PaError error = ValidateStream( stream );
-    PaTimestamp result;
+    PaTime result;
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_GetStreamInputLatency called:\n" );
+    PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
+#endif
+
+    if( error != paNoError )
+    {
+        result = 0;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetStreamInputLatency returned:\n" );
+        PaUtil_DebugPrint("\tPaTime: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
+#endif
+
+    }
+    else
+    {
+        result = PA_STREAM_INTERFACE(stream)->GetInputLatency( stream );
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetStreamInputLatency returned:\n" );
+        PaUtil_DebugPrint("\tPaTime: %g\n\n", result );
+#endif
+
+    }
+
+    return result;
+}
+
+
+PaTime Pa_GetStreamOutputLatency( PaStream *stream )
+{
+    PaError error = ValidateStream( stream );
+    PaTime result;
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_GetStreamOutputLatency called:\n" );
+    PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
+#endif
+
+if( error != paNoError )
+    {
+        result = 0;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetStreamOutputLatency returned:\n" );
+        PaUtil_DebugPrint("\tPaTime: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
+#endif
+
+    }
+    else
+    {
+        result = PA_STREAM_INTERFACE(stream)->GetOutputLatency( stream );
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetStreamOutputLatency returned:\n" );
+        PaUtil_DebugPrint("\tPaTime: %g\n\n", result );
+#endif
+
+    }
+
+    return result;
+}
+
+
+PaTime Pa_GetStreamTime( PaStream *stream )
+{
+    PaError error = ValidateStream( stream );
+    PaTime result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetStreamTime called:\n" );
@@ -1464,7 +1534,7 @@ PaTimestamp Pa_GetStreamTime( PaStream *stream )
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetStreamTime returned:\n" );
-        PaUtil_DebugPrint("\tPaTimestamp: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
+        PaUtil_DebugPrint("\tPaTime: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
 #endif
 
     }
@@ -1474,7 +1544,7 @@ PaTimestamp Pa_GetStreamTime( PaStream *stream )
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetStreamTime returned:\n" );
-        PaUtil_DebugPrint("\tPaTimestamp: %g\n\n", result );
+        PaUtil_DebugPrint("\tPaTime: %g\n\n", result );
 #endif
 
     }
