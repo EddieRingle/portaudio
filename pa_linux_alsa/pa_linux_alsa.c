@@ -1120,7 +1120,7 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
     if( !parameters->hostApiSpecificStreamInfo )
     {
         const PaAlsaDeviceInfo *devInfo = GetDeviceInfo( hostApi, parameters->device );
-        numHostChannels = PA_MAX( parameters->channelCount, streamDir == StreamDirection_In ?
+        numHostChannels = PA_MAX( parameters->channelCount, StreamDirection_In == streamDir ?
                 devInfo->minInputChannels : devInfo->minOutputChannels );
     }
     else
@@ -1212,10 +1212,11 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
     /* Make sure things have an initial value */
     memset( self, 0, sizeof (PaAlsaStreamComponent) );
 
-    if( params->hostApiSpecificStreamInfo == NULL )
+    if( NULL == params->hostApiSpecificStreamInfo )
     {
-        self->numHostChannels = PA_MAX( params->channelCount,
-                GetDeviceInfo( &alsaApi->commonHostApiRep, params->device )->minInputChannels );
+        const PaAlsaDeviceInfo *devInfo = GetDeviceInfo( &alsaApi->commonHostApiRep, params->device );
+        self->numHostChannels = PA_MAX( params->channelCount, StreamDirection_In == streamDir ? devInfo->minInputChannels
+                : devInfo->minOutputChannels );
     }
     else
     {
@@ -1225,8 +1226,7 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
 
     PA_ENSURE( AlsaOpen( &alsaApi->commonHostApiRep, params, streamDir, &self->pcm ) );
     self->nfds = snd_pcm_poll_descriptors_count( self->pcm );
-    hostSampleFormat = PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( self->pcm ),
-                userSampleFormat );
+    hostSampleFormat = PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( self->pcm ), userSampleFormat );
 
     self->hostSampleFormat = hostSampleFormat;
     self->nativeFormat = Pa2AlsaFormat( hostSampleFormat );
@@ -1467,8 +1467,11 @@ static int CalculatePollTimeout( const PaAlsaStream *stream, unsigned long frame
     return (int)ceil( 1000 * frames / stream->streamRepresentation.streamInfo.sampleRate );
 }
 
-static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParameters *inParams, const PaStreamParameters *outParams,
-        double sampleRate, unsigned long framesPerHostBuffer, double *inputLatency, double *outputLatency,
+/** Configure the associated ALSA pcms of the stream.
+ *
+ */
+static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParameters *inParams, const PaStreamParameters
+        *outParams, double sampleRate, unsigned long framesPerHostBuffer, double *inputLatency, double *outputLatency,
         unsigned long *maxHostBufferSize )
 {
     PaError result = paNoError;
