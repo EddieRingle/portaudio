@@ -2129,9 +2129,18 @@ previousIndex = index;
                 // asio systemTime is supposed to be measured according to the same
                 // clock as timeGetTime
                 paTimeInfo.currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
+
+                /* patch from Paul Boege */
+                paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime -
+                    ((double)theAsioStream->inputLatency/theAsioStream->streamRepresentation.streamInfo.sampleRate);
+
+                paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime +
+                    ((double)theAsioStream->outputLatency/theAsioStream->streamRepresentation.streamInfo.sampleRate);
+
+                /* old version is buggy because the buffer processor also adds in its latency to the time parameters
                 paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
                 paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
-
+                */
 #if 1
 // detect underflows by checking inter-callback time > 2 buffer period
 static double previousTime = -1;
