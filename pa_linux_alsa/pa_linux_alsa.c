@@ -33,9 +33,17 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#define ALSA_PCM_NEW_HW_PARAMS_API
+#define ALSA_PCM_NEW_SW_PARAMS_API
+#include <alsa/asoundlib.h>
+#undef ALSA_PCM_NEW_HW_PARAMS_API
+#undef ALSA_PCM_NEW_SW_PARAMS_API
+
 #include <sys/poll.h>
 #include <string.h> /* strlen() */
 #include <limits.h>
+#include <math.h>
+#include <pthread.h>
 
 #include "portaudio.h"
 #include "pa_util.h"
@@ -47,7 +55,100 @@
 
 #include "pa_linux_alsa.h"
 
-pthread_mutex_t gmtx;    /* Used for synchronizing access to SetLastHostErrorInfo */
+#define MIN(x,y) ( (x) < (y) ? (x) : (y) )
+#define MAX(x,y) ( (x) > (y) ? (x) : (y) )
+
+pthread_mutex_t gmtx;   /* Global mutex */
+static PaError _paErr;    /* Used with ENSURE */
+
+#define STRINGIZE_HELPER(exp) #exp
+#define STRINGIZE(exp) STRINGIZE_HELPER(exp)
+
+/* Check return value of ALSA function, and map it to PaError */
+#define ENSURE(exp, code) \
+    if( (exp) < 0 ) \
+    { \
+        if( (code) == paUnanticipatedHostError ) \
+        { \
+            pthread_mutex_lock( &gmtx ); \
+            PaUtil_SetLastHostErrorInfo( paALSA, result, snd_strerror( result ) ); \
+            pthread_mutex_unlock( &gmtx ); \
+        } \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        result = (code); \
+        goto error; \
+    }
+
+/* Check PaError */
+#define PA_ENSURE(exp) \
+    if( (_paErr = (exp)) < paNoError ) \
+    { \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        result = _paErr; \
+        goto error; \
+    }
+
+#define UNLESS(exp, code) \
+    if( (exp) == 0 ) \
+    { \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        result = (code); \
+        goto error; \
+    }
+
+/* Implementation specific stream structure */
+typedef struct PaAlsaStream
+{
+    PaUtilStreamRepresentation streamRepresentation;
+    PaUtilCpuLoadMeasurer cpuLoadMeasurer;
+    PaUtilBufferProcessor bufferProcessor;
+
+    snd_pcm_t *pcm_capture;
+    snd_pcm_t *pcm_playback;
+
+    int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
+
+    snd_pcm_uframes_t frames_per_period;
+    snd_pcm_uframes_t playbackBufferSize;
+    snd_pcm_uframes_t captureBufferSize;
+    snd_pcm_format_t playbackNativeFormat;
+
+    int capture_channels;
+    int playback_channels;
+
+    int capture_interleaved;    /* bool: is capture interleaved? */
+    int playback_interleaved;   /* bool: is playback interleaved? */
+
+    int callback_mode;          /* bool: are we running in callback mode? */
+    pthread_t callback_thread;
+
+    /* the callback thread uses these to poll the sound device(s), waiting
+     * for data to be ready/available */
+    unsigned int capture_nfds;
+    unsigned int playback_nfds;
+    struct pollfd *pfds;
+    int pollTimeout;
+
+    /* these aren't really stream state, the callback uses them */
+    snd_pcm_uframes_t capture_offset;
+    snd_pcm_uframes_t playback_offset;
+
+    int pcmsSynced;	            /* Have we successfully synced pcms */
+    int callbackAbort;		    /* Drop frames? */
+    snd_pcm_uframes_t startThreshold;
+    pthread_mutex_t stateMtx;      /* Used to synchronize access to stream state */
+    pthread_mutex_t startMtx;      /* Used to synchronize stream start */
+    pthread_cond_t startCond;      /* Wait untill audio is started in callback thread */
+
+    /* Used by callback thread for underflow/overflow handling */
+    snd_pcm_sframes_t playbackAvail;
+    snd_pcm_sframes_t captureAvail;
+    int neverDropInput;
+
+    PaTime underrun;
+    PaTime overrun;
+}
+PaAlsaStream;
 
 /* PaAlsaHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -97,19 +198,18 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
-void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags );
 void CleanUpStream( PaAlsaStream *stream );
 int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate );
 int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate );
 
-/* blocking calls are in blocking_calls.c */
-extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-extern PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
-extern signed long GetStreamReadAvailable( PaStream* stream );
-extern signed long GetStreamWriteAvailable( PaStream* stream );
+/* Callback prototypes */
+static void *CallbackThread( void *userData );
 
-/* all callback-related functions are in callback_thread.c */
-extern void *CallbackThread( void *userData );
+/* Blocking prototypes */
+static signed long GetStreamReadAvailable( PaStream* s );
+static signed long GetStreamWriteAvailable( PaStream* s );
+static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
+static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
 
 
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
@@ -199,6 +299,8 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     snd_pcm_hw_params_any( pcm, hwParams );
 
     ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, (unsigned int *) channels ), paUnanticipatedHostError );
+    PA_DEBUG(( "maxChannels: %d\n", *channels ));
+    UNLESS( *channels > 0, paUnanticipatedHostError );
 
     if( *defaultSampleRate == 0 )           /* Default sample rate not set */
     {
@@ -245,6 +347,7 @@ error:
 }
 
 
+/* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
     PaUtilHostApiRepresentation *commonApi = &alsaApi->commonHostApiRep;
@@ -255,6 +358,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     snd_ctl_t *ctl;
     snd_ctl_card_info_t *card_info;
     PaError result = paNoError;
+    int blocking = getenv("PA_INITIALIZE_BLOCK") ? 0 : SND_PCM_NONBLOCK;
 
     /* These two will be set to the first working input and output device, respectively */
     commonApi->info.defaultInputDevice = paNoDevice;
@@ -291,7 +395,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         return paInsufficientMemory;
     }
 
-    /* now loop over the list of devices again, filling in the deviceInfo for each */
+    /* now loop over the list of devices again, filling in the deviceInfo for each
+     * A: If a device is deemed unavailable (can't get name), its not added to list of devices.
+     */
     card_idx = -1;
     device_idx = 0;
     snd_ctl_card_info_alloca( &card_info );
@@ -303,62 +409,66 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         char *deviceName;
         char alsaDeviceName[50];
         const char *cardName;
-        int ret;
 
-        /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object */
-        commonApi->deviceInfos[device_idx] = (PaDeviceInfo *) deviceInfo;
+        /* First of all, get name of card */
+        snprintf( alsaDeviceName, 50, "hw:%d", card_idx );
+        if( snd_ctl_open( &ctl, alsaDeviceName, 0 ) < 0 )
+            continue;   /* Unable to open card :( */
 
-        deviceInfo->deviceNumber = card_idx;
-        commonDeviceInfo->structVersion = 2;
-        commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
-
-        sprintf( alsaDeviceName, "hw:%d", card_idx );
-        snd_ctl_open( &ctl, alsaDeviceName, 0 );
         snd_ctl_card_info( ctl, card_info );
         snd_ctl_close( ctl );
         cardName = snd_ctl_card_info_get_name( card_info );
 
-        deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
-                                                        strlen(cardName) + 1 );
-        if( !deviceName )
-        {
-            return paInsufficientMemory;
-        }
+        /* Zero fields */
+        memset( commonDeviceInfo, 0, sizeof (PaDeviceInfo) );
+
+        UNLESS( deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
+                                                        strlen(cardName) + 1 ), paInsufficientMemory );
         strcpy( deviceName, cardName );
         commonDeviceInfo->name = deviceName;
 
-        /* to determine max. channels, we must open the device and query the
+        deviceInfo->deviceNumber = card_idx;    /* ALSA device number */
+
+        commonDeviceInfo->structVersion = 2;
+        commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
+
+        /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
-        commonDeviceInfo->defaultSampleRate = 0.0;
 
-        /* get max channels for capture */
-        commonDeviceInfo->maxInputChannels = 0;
-        if( (ret = snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) >= 0 ) {
-            ENSURE( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
-
-            if( GropeDevice( pcm, &commonDeviceInfo->maxInputChannels, &commonDeviceInfo->defaultLowInputLatency,
-                    &commonDeviceInfo->defaultHighInputLatency, &commonDeviceInfo->defaultSampleRate ) == paNoError
-                    && commonApi->info.defaultInputDevice == paNoDevice )
-                commonApi->info.defaultInputDevice = device_idx;
+        /* Query capture */
+        if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
+        {
+            if( snd_pcm_nonblock( pcm, 0 ) < 0 || GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
+                        &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
+                        &commonDeviceInfo->defaultSampleRate ) != paNoError )
+                continue;   /* Error */
         }
                 
-
-        /* get max channels for playback */
-        commonDeviceInfo->maxOutputChannels = 0;
-        if( (ret = snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) >= 0 )
+        /* Query playback */
+        if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
-            ENSURE( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
-
-            if( GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels, &commonDeviceInfo->defaultLowOutputLatency,
-                    &commonDeviceInfo->defaultHighOutputLatency, &commonDeviceInfo->defaultSampleRate ) == paNoError
-                    && commonApi->info.defaultOutputDevice == paNoDevice )
-                commonApi->info.defaultOutputDevice = device_idx;
+            if( snd_pcm_nonblock( pcm, 0 ) < 0 || GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
+                        &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
+                        &commonDeviceInfo->defaultSampleRate ) != paNoError )
+                continue;   /* Error */
         }
 
-        ++device_idx;
+        /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
+         * Should now be safe to add device info, unless the device supports neither capture nor playback
+         */
+        if( commonDeviceInfo->maxInputChannels || commonDeviceInfo->maxOutputChannels )
+        {
+            if( commonApi->info.defaultInputDevice == paNoDevice )
+                commonApi->info.defaultInputDevice = device_idx;
+
+            if( commonApi->info.defaultOutputDevice == paNoDevice )
+                commonApi->info.defaultOutputDevice = device_idx;
+
+            commonApi->deviceInfos[ device_idx++ ] = (PaDeviceInfo *) deviceInfo;
+        }
     }
 
-    commonApi->info.deviceCount = deviceCount;
+    commonApi->info.deviceCount = device_idx;   /* Number of successfully queried devices */
 
 end:
     return result;
@@ -389,19 +499,36 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     pthread_mutex_destroy( &gmtx );
 }
 
-
-static PaError ValidateParameters( const PaStreamParameters *parameters, int maxChannels )
+typedef enum IOValidate
 {
-    /* unless alternate device specification is supported, reject the use of
-            paUseHostApiSpecificDeviceSpecification
-            [JH] this could be supported in the future, to allow ALSA device strings
-                 like hw:0 */
+    validateIn = 0,
+    validateOut = 0
+} IOValidate;
+
+/* Check against known device capabilities */
+static PaError ValidateParameters( const PaStreamParameters *parameters, const PaAlsaDeviceInfo *deviceInfo, IOValidate io,
+        const PaAlsaStreamInfo *streamInfo )
+{
+    int maxChans;
+    if( streamInfo )
+    {
+        if( streamInfo->size != sizeof (PaAlsaStreamInfo) || streamInfo->version != 1 )
+            return paIncompatibleHostApiSpecificStreamInfo;
+        if( parameters->device != paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+    }
     if( parameters->device == paUseHostApiSpecificDeviceSpecification )
-        return paInvalidDevice;
-    if( parameters->channelCount > maxChannels )
+    {
+        if( streamInfo )
+            return paNoError;   /* Skip further checking */
+        else
+            return paInvalidDevice;
+    }
+
+    maxChans = io == validateIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
+        deviceInfo->commonDeviceInfo.maxOutputChannels; 
+    if( parameters->channelCount > maxChans )
         return paInvalidChannelCount;
-    if( parameters->hostApiSpecificStreamInfo )
-        return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
 
     return paNoError;
 }
@@ -417,32 +544,31 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
 
     snd_pcm_hw_params_any( pcm, hwParams );
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_FLOAT ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_FLOAT ) >= 0)
         available |= paFloat32;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S16 ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S16 ) >= 0)
         available |= paInt16;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24 ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24 ) >= 0)
         available |= paInt24;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S32 ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S32 ) >= 0)
         available |= paInt32;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S8 ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S8 ) >= 0)
         available |= paInt8;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_U8 ) == 0)
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_U8 ) >= 0)
         available |= paUInt8;
 
     return available;
 }
 
 
-static PaError TestParameters( const PaStreamParameters *parameters, int cardID, double sampleRate )
+static PaError TestParameters( const PaStreamParameters *parameters, const char *deviceString, double sampleRate )
 {
     PaError result = paNoError;
-    char device[50];
     snd_pcm_t *pcm = NULL;
     PaSampleFormat availableFormats;
     PaSampleFormat format;
@@ -450,8 +576,7 @@ static PaError TestParameters( const PaStreamParameters *parameters, int cardID,
     snd_pcm_hw_params_t *params;
     snd_pcm_hw_params_alloca( &params );
 
-    snprintf( device, 50, "hw:%d", cardID );
-    if( (ret = snd_pcm_open( &pcm, device, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
+    if( (ret = snd_pcm_open( &pcm, deviceString, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
     {
         pcm = NULL;     /* Not to be closed */
         /* Take action based on return value */
@@ -497,13 +622,21 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 {
     int inputChannelCount = 0, outputChannelCount = 0;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
-    PaError result;
+    PaError result = paFormatIsSupported;
+    const PaAlsaDeviceInfo *inputDeviceInfo = NULL, *outputDeviceInfo = NULL;
+    const PaAlsaStreamInfo *inputStreamInfo = NULL, *outputStreamInfo = NULL;
 
     if( inputParameters )
     {
-        if( (result = ValidateParameters( inputParameters,
-                hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )) != paNoError )
-            return result;
+        if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
+        {
+            assert( inputParameters->device < hostApi->info.deviceCount );
+            inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
+        }
+        else
+            inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
+
+        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, validateIn, inputStreamInfo ) );
 
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -511,9 +644,15 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
-        if( (result = ValidateParameters( outputParameters,
-                hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )) != paNoError )
-            return result;
+        if( outputParameters->device != paUseHostApiSpecificDeviceSpecification )
+        {
+            assert( outputParameters->device < hostApi->info.deviceCount );
+            outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
+        }
+        else
+            outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
+
+        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, validateOut, outputStreamInfo ) );
 
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
@@ -542,20 +681,32 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputChannelCount )
     {
-        PaAlsaDeviceInfo *devInfo = (PaAlsaDeviceInfo *) hostApi->deviceInfos[ inputParameters->device ];
-        if( (result = TestParameters( inputParameters, devInfo->deviceNumber, sampleRate )) != paNoError )
-            return result;
+        char *deviceName = alloca( 50 );
+
+        if( !inputStreamInfo )
+            snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
+        else
+            deviceName = (char *) inputStreamInfo->deviceString;
+
+        PA_ENSURE( TestParameters( inputParameters, deviceName, sampleRate ) );
     }
 
     if ( outputChannelCount )
     {
-        PaAlsaDeviceInfo *devInfo = (PaAlsaDeviceInfo *) hostApi->deviceInfos[ outputParameters->device ];
-        if( (result = TestParameters( outputParameters, devInfo->deviceNumber,
-                sampleRate )) != paNoError )
-            return result;
+        char *deviceName = alloca( 50 );
+
+        if( !outputStreamInfo )
+            snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
+        else
+            deviceName = (char *) outputStreamInfo->deviceString;
+
+        PA_ENSURE( TestParameters( outputParameters, deviceName, sampleRate ) );
     }
 
     return paFormatIsSupported;
+
+error:
+    return result;
 }
 
 
@@ -589,10 +740,9 @@ static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
 
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
-static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
-                                int *interleaved, double *sampleRate,
-                                PaSampleFormat paFormat, unsigned long *framesPerBuffer,
-                                PaTime *latency, int primeBuffers, snd_pcm_uframes_t *startThreshold )
+static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, double *sampleRate,
+                                PaSampleFormat paFormat, unsigned long framesPerBuffer, snd_pcm_uframes_t
+                                *bufferSize, PaTime *latency, int primeBuffers, int callbackMode )
 {
     /*
     int numPeriods;
@@ -620,10 +770,6 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
     snd_pcm_format_t alsaFormat;
     unsigned int bufTime;
     unsigned int numPeriods;
-    snd_pcm_uframes_t threshold = 0;
-    snd_pcm_uframes_t bufSz;
-
-    assert(pcm);
 
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_sw_params_alloca( &swParams );
@@ -665,10 +811,11 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
     /* Set buffer size */
     ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
     ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
-    ENSURE( snd_pcm_hw_params_set_period_size( pcm, hwParams, *framesPerBuffer, 0 ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_set_period_size( pcm, hwParams, framesPerBuffer, 0 ), paUnanticipatedHostError );
 
     /* Find an acceptable number of periods */
-    numPeriods = (*latency * *sampleRate) / *framesPerBuffer + 1;
+    numPeriods = (*latency * *sampleRate) / framesPerBuffer + 1;
+    numPeriods = MAX( numPeriods, 2 );  /* Should be at least 2 periods I think? */
     ENSURE( snd_pcm_hw_params_set_periods_near( pcm, hwParams, &numPeriods, 0 ), paUnanticipatedHostError );
 
     /*
@@ -689,6 +836,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
 
     /* Set the parameters! */
     ENSURE( snd_pcm_hw_params( pcm, hwParams ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, bufferSize ), paUnanticipatedHostError );
 
     /* Obtain correct latency */
     ENSURE( snd_pcm_hw_params_get_buffer_time( hwParams, &bufTime, 0 ), paUnanticipatedHostError );
@@ -696,31 +844,21 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
     *latency = (PaTime) bufTime / 1000000; /* Latency in seconds */
 
     /* Now software parameters... */
-    /* snd_pcm_uframes_t boundary; */
     ENSURE( snd_pcm_sw_params_current( pcm, swParams ), paUnanticipatedHostError );
 
-    ENSURE( snd_pcm_sw_params_set_start_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
-    ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, &bufSz ), paUnanticipatedHostError );
-    ENSURE( snd_pcm_sw_params_set_stop_threshold( pcm, swParams, bufSz ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_start_threshold( pcm, swParams, framesPerBuffer ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_stop_threshold( pcm, swParams, *bufferSize ), paUnanticipatedHostError );
 
-    /* If the user wants to prime the buffer before stream start, the start threshold will equal buffer size */
-    threshold = 0;
-    if( primeBuffers )
+    /* Silence buffer in the case of underrun */
+    if( !primeBuffers )
     {
-        snd_pcm_uframes_t bufSz;
-        ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, &bufSz ), paUnanticipatedHostError );
-        *startThreshold = bufSz;
-    }
-    else    /* Fill buffer with silence */
-    {
-        snd_pcm_uframes_t boundary;
-        ENSURE( snd_pcm_sw_params_get_boundary( swParams, &boundary ), paUnanticipatedHostError );
         ENSURE( snd_pcm_sw_params_set_silence_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
-        ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, boundary ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, INT_MAX ), paUnanticipatedHostError );
     }
         
-    ENSURE( snd_pcm_sw_params_set_avail_min( pcm, swParams, *framesPerBuffer ), paUnanticipatedHostError );
-    ENSURE( snd_pcm_sw_params_set_xfer_align(pcm, swParams, 1), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_avail_min( pcm, swParams, framesPerBuffer ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_xfer_align( pcm, swParams, 1 ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_tstamp_mode( pcm, swParams, SND_PCM_TSTAMP_MMAP ), paUnanticipatedHostError );
 
     /* Set the parameters! */
     ENSURE( snd_pcm_sw_params( pcm, swParams ), paUnanticipatedHostError );
@@ -730,6 +868,28 @@ end:
 
 error:
     goto end;   /* No particular action */
+}
+
+static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags )
+{
+    assert( stream );
+
+    stream->pcm_capture = NULL;
+    stream->pcm_playback = NULL;
+    stream->callback_finished = 0;
+    stream->callback_mode = callback;
+    stream->capture_nfds = 0;
+    stream->playback_nfds = 0;
+    stream->pfds = NULL;
+    stream->pollTimeout = 0;
+    stream->pcmsSynced = 0;
+    stream->callbackAbort = 0;
+    stream->startThreshold = 0;
+    pthread_mutex_init( &stream->stateMtx, NULL );
+    pthread_mutex_init( &stream->startMtx, NULL );
+    pthread_cond_init( &stream->startCond, NULL );
+    stream->neverDropInput = 0;
+    stream->underrun = stream->overrun = 0.0;
 }
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
@@ -744,42 +904,49 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 {
     PaError result = paNoError;
     PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
-    PaAlsaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
+    const PaAlsaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
     PaAlsaStream *stream = 0;
     PaSampleFormat hostInputSampleFormat = 0, hostOutputSampleFormat = 0;
     int numInputChannels = 0, numOutputChannels = 0;
     PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer;
-    int ofs = 0;
+    PaAlsaStreamInfo *inputStreamInfo = NULL, *outputStreamInfo = NULL;
 
     if( inputParameters )
     {
-        inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
-        if ( (result = ValidateParameters( inputParameters, inputDeviceInfo->commonDeviceInfo.maxInputChannels ))
-                != paNoError )
-            return result;
+        if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
+        {
+            assert( inputParameters->device < hostApi->info.deviceCount );
+            inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
+        }
+        else
+            inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
+
+        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, validateIn, inputStreamInfo ) );
 
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
     }
-    else
-    {
-        numInputChannels = 0;
-    }
 
     if( outputParameters )
     {
+        if( outputParameters->device != paUseHostApiSpecificDeviceSpecification )
+        {
+            assert( outputParameters->device < hostApi->info.deviceCount );
+            outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
+        }
+        else
+            outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
+
+        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, validateOut, outputStreamInfo ) );
+
+        /*
         outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
-        if( (result = ValidateParameters( outputParameters, outputDeviceInfo->commonDeviceInfo.maxOutputChannels ))
-                != paNoError )
-            return result;
+        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo->commonDeviceInfo.maxOutputChannels ) );
+        */
 
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-    }
-    else
-    {
-        numOutputChannels = 0;
     }
 
     /* validate platform specific flags */
@@ -816,9 +983,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numInputChannels > 0 )
     {
         int ret;
-        char deviceName[50];
+        char *deviceName = alloca( 50 );
 
-        snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
+        if( !inputStreamInfo )
+            snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
+        else
+            deviceName = (char *) inputStreamInfo->deviceString;
+
         if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
         {
             stream->pcm_capture = NULL;     /* Not to be closed */
@@ -836,9 +1007,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numOutputChannels > 0 )
     {
         int ret;
-        char deviceName[50];
+        char *deviceName = alloca( 50 );
 
-        snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
+        if( !outputStreamInfo )
+            snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
+        else
+            deviceName = (char *) outputStreamInfo->deviceString;
+
         if( (ret = snd_pcm_open( &stream->pcm_playback, deviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) < 0 )
         {
             stream->pcm_playback = NULL;     /* Not to be closed */
@@ -883,7 +1058,104 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
             if( stream->pcm_capture && stream->pcm_playback )
             {
-                /* TODO */
+                snd_pcm_uframes_t desiredLatency, e;
+                snd_pcm_uframes_t minPeriodSize, minPlayback, minCapture, maxPeriodSize, maxPlayback, maxCapture,
+                    optimalPeriodSize, periodSize;
+                int dir;
+
+                snd_pcm_t *pcm;
+                snd_pcm_hw_params_t *hwParamsPlayback, *hwParamsCapture;
+
+                snd_pcm_hw_params_alloca( &hwParamsPlayback );
+                snd_pcm_hw_params_alloca( &hwParamsCapture );
+
+                /* Come up with a common desired latency */
+                pcm = stream->pcm_playback;
+                snd_pcm_hw_params_any( pcm, hwParamsPlayback );
+                ENSURE( SetApproximateSampleRate( pcm, hwParamsPlayback, sampleRate ), paBadIODeviceCombination );
+                ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsPlayback, outputParameters->channelCount ),
+                        paBadIODeviceCombination );
+
+                ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsPlayback ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsPlayback, &minPlayback, &dir ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsPlayback, &maxPlayback, &dir ), paUnanticipatedHostError );
+
+                pcm = stream->pcm_capture;
+                ENSURE( snd_pcm_hw_params_any( pcm, hwParamsCapture ), paUnanticipatedHostError );
+                ENSURE( SetApproximateSampleRate( pcm, hwParamsCapture, sampleRate ), paBadIODeviceCombination );
+                ENSURE( snd_pcm_hw_params_set_channels( pcm, hwParamsCapture, inputParameters->channelCount ),
+                        paBadIODeviceCombination );
+
+                ENSURE( snd_pcm_hw_params_set_period_size_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_set_periods_integer( pcm, hwParamsCapture ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_get_period_size_min( hwParamsCapture, &minCapture, &dir ), paUnanticipatedHostError );
+                ENSURE( snd_pcm_hw_params_get_period_size_max( hwParamsCapture, &maxCapture, &dir ), paUnanticipatedHostError );
+
+                minPeriodSize = MAX( minPlayback, minCapture );
+                maxPeriodSize = MIN( maxPlayback, maxCapture );
+
+                desiredLatency = (snd_pcm_uframes_t) (MIN( outputParameters->suggestedLatency, inputParameters->suggestedLatency )
+                    * sampleRate);
+                /* Clamp desiredLatency */
+                {
+                    snd_pcm_uframes_t tmp, maxBufferSize = ULONG_MAX;
+                    ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsPlayback, &tmp ), paUnanticipatedHostError );
+                    maxBufferSize = MIN( maxBufferSize, tmp );
+                    ENSURE( snd_pcm_hw_params_get_buffer_size_max( hwParamsCapture, &tmp ), paUnanticipatedHostError );
+                    maxBufferSize = MIN( maxBufferSize, tmp );
+
+                    desiredLatency = MIN( desiredLatency, maxBufferSize );
+                }
+
+                /* Find the closest power of 2 */
+                e = ilogb( minPeriodSize );
+                if( minPeriodSize & (minPeriodSize - 1) )
+                    e += 1;
+
+                periodSize = (snd_pcm_uframes_t) pow( 2, e );
+                while( periodSize <= maxPeriodSize )
+                {
+                    if( snd_pcm_hw_params_test_period_size( stream->pcm_playback, hwParamsPlayback, periodSize, 0 ) >= 0 &&
+                            snd_pcm_hw_params_test_period_size( stream->pcm_capture, hwParamsCapture, periodSize, 0 ) >= 0 )
+                        break;  /* Ok! */
+
+                    periodSize *= 2;
+                }
+
+                /* 4 periods considered optimal */
+                optimalPeriodSize = MAX( desiredLatency / 4, minPeriodSize );
+                optimalPeriodSize = MIN( optimalPeriodSize, maxPeriodSize );
+
+                /* Find the closest power of 2 */
+                e = ilogb( optimalPeriodSize );
+                if( optimalPeriodSize & (optimalPeriodSize - 1) )
+                    e += 1;
+
+                optimalPeriodSize = (snd_pcm_uframes_t) pow( 2, e );
+                while( optimalPeriodSize >= periodSize )
+                {
+                    pcm = stream->pcm_playback;
+                    if( snd_pcm_hw_params_test_period_size( pcm, hwParamsPlayback, optimalPeriodSize, 0 ) < 0 )
+                        continue;
+
+                    pcm = stream->pcm_capture;
+                    if( snd_pcm_hw_params_test_period_size( pcm, hwParamsCapture, optimalPeriodSize, 0 ) >= 0 )
+                        break;
+
+                    optimalPeriodSize /= 2;
+                }
+
+                if( optimalPeriodSize >= periodSize )
+                    periodSize = optimalPeriodSize;
+
+                if( periodSize <= maxPeriodSize )
+                {
+                    /* Looks good */
+                    framesPerHostBuffer = periodSize;
+                }
+                else    /* XXX: Some more descriptive error code might be appropriate */
+                    PA_ENSURE( paBadIODeviceCombination );
             }
             else
             {
@@ -893,6 +1165,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 unsigned int numPeriods;
                 snd_pcm_t *pcm;
                 snd_pcm_hw_params_t *hwParams;
+
                 snd_pcm_hw_params_alloca( &hwParams );
 
                 if( stream->pcm_capture )
@@ -941,15 +1214,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaSampleFormat plain_format = hostInputSampleFormat & ~paNonInterleaved;
 
         PaTime latency = inputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
-        if( (result = ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
-                             &sampleRate, plain_format, &framesPerHostBuffer,
-                             &latency, 0, 0 )) != paNoError )
-        {
-            goto error;
-        }
+        PA_ENSURE( ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
+                             &sampleRate, plain_format, framesPerHostBuffer, &stream->captureBufferSize,
+                             &latency, 0, stream->callback_mode ) );
 
         stream->capture_interleaved = interleaved;
-        stream->streamRepresentation.streamInfo.inputLatency = latency;
+        stream->streamRepresentation.streamInfo.inputLatency = latency + PaUtil_GetBufferProcessorInputLatency(
+                &stream->bufferProcessor );
     }
 
     if( numOutputChannels > 0 )
@@ -959,15 +1230,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         PaTime latency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
         int primeBuffers = streamFlags & paPrimeOutputBuffersUsingStreamCallback;
-        if( (result = ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
-                             &sampleRate, plain_format, &framesPerHostBuffer,
-                             &latency, primeBuffers, &stream->startThreshold )) != paNoError )
-        {
-            goto error;
-        }
 
+        PA_ENSURE( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
+                             &sampleRate, plain_format, framesPerHostBuffer, &stream->playbackBufferSize,
+                             &latency, primeBuffers, stream->callback_mode ) );
+
+        /* If the user wants to prime the buffer before stream start, the start threshold will equal buffer size */
+        if( primeBuffers )
+            stream->startThreshold = stream->playbackBufferSize;
         stream->playback_interleaved = interleaved;
-        stream->streamRepresentation.streamInfo.outputLatency = latency;
+        stream->streamRepresentation.streamInfo.outputLatency = latency + PaUtil_GetBufferProcessorOutputLatency(
+                &stream->bufferProcessor );
     }
     /* Should be exact now */
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
@@ -980,29 +1253,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
 
     /* this will cause the two streams to automatically start/stop/prepare in sync.
-     * We only need to execute these operations on one of the pair. */
-    if( stream->pcm_capture && stream->pcm_playback && snd_pcm_link( stream->pcm_capture, 
-                stream->pcm_playback ) >= 0 )
+     * We only need to execute these operations on one of the pair.
+     * A: We don't want to do this on a blocking stream.
+     */
+    if( stream->callback_mode && stream->pcm_capture && stream->pcm_playback && 
+            snd_pcm_link( stream->pcm_capture, stream->pcm_playback ) >= 0 )
             stream->pcmsSynced = 1;
 
     UNLESS( stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture_nfds +
                     stream->playback_nfds + 1) * sizeof(struct pollfd) ), paInsufficientMemory );
 
-    /* get the fds, packing all applicable fds into a single array,
-     * so we can check them all with a single poll() call 
-     * A: Might as well do this once during initialization, instead 
-     * of for each iteration of the poll loop */
-    if( stream->pcm_capture )
-    {
-        snd_pcm_poll_descriptors( stream->pcm_capture, stream->pfds, stream->capture_nfds );
-        ofs += stream->capture_nfds;
-    }
-    if( stream->pcm_playback )
-        snd_pcm_poll_descriptors( stream->pcm_playback, stream->pfds + ofs, stream->playback_nfds );
-
     stream->frames_per_period = framesPerHostBuffer;
     stream->capture_channels = numInputChannels;
     stream->playback_channels = numOutputChannels;
+    stream->pollTimeout = (int) ceil( 1000 * stream->frames_per_period / sampleRate );    /* Period in msecs, rounded up */
 
     *s = (PaStream*)stream;
 
@@ -1031,6 +1295,50 @@ static PaError CloseStream( PaStream* s )
     CleanUpStream( stream );
 
     return result;
+}
+
+static void SilenceBuffer( PaAlsaStream *stream )
+{
+    const snd_pcm_channel_area_t *areas;
+    snd_pcm_uframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
+
+    snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
+    snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
+    snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames );
+}
+
+static PaError AlsaStart( PaAlsaStream *stream, int priming )
+{
+    PaError result = paNoError;
+
+    pthread_mutex_lock( &stream->startMtx );
+    if( stream->pcm_playback )
+    {
+        if( stream->callback_mode )
+        {
+            /* We're not priming buffer, so prepare and silence */
+            if( !priming )
+            {
+                ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
+                SilenceBuffer( stream );
+            }
+            ENSURE( snd_pcm_start( stream->pcm_playback ), paUnanticipatedHostError );
+        }
+        else
+            ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
+    }
+    if( stream->pcm_capture && !stream->pcmsSynced )
+    {
+        ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+        /* We want to start capture for a blocking stream as well, since nothing will happen otherwise */
+        ENSURE( snd_pcm_start( stream->pcm_capture ), paUnanticipatedHostError );
+    }
+
+end:
+    pthread_mutex_unlock( &stream->startMtx );
+    return result;
+error:
+    goto end;
 }
 
 static PaError StartStream( PaStream *s )
@@ -1068,6 +1376,33 @@ static PaError StartStream( PaStream *s )
     }
     else
         PA_ENSURE( AlsaStart( stream, 0 ) );
+
+end:
+    return result;
+error:
+    goto end;
+}
+
+static PaError AlsaStop( PaAlsaStream *stream, int abort )
+{
+    PaError result = paNoError;
+
+    if( abort )
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_drop( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_drop( stream->pcm_capture ), paUnanticipatedHostError );
+
+        PA_DEBUG(( "Dropped frames\n" ));
+    }
+    else
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_drain( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_drain( stream->pcm_capture ), paUnanticipatedHostError );
+    }
 
 end:
     return result;
@@ -1206,8 +1541,9 @@ static PaTime GetStreamTime( PaStream *s )
     }
 
     snd_pcm_status_get_tstamp( status, &timestamp );
+    PA_DEBUG(( "Time in secs: %d\n", timestamp.tv_sec ));
 
-    return timestamp.tv_sec + ((PaTime)timestamp.tv_usec/1000000);
+    return (PaTime) timestamp.tv_sec + (PaTime) timestamp.tv_usec/1000000;
 }
 
 
@@ -1216,26 +1552,6 @@ static double GetStreamCpuLoad( PaStream* s )
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
-}
-
-void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags )
-{
-    assert( stream );
-
-    stream->pcm_capture = NULL;
-    stream->pcm_playback = NULL;
-    stream->callback_finished = 0;
-    stream->callback_mode = callback;
-    stream->capture_nfds = 0;
-    stream->playback_nfds = 0;
-    stream->pfds = NULL;
-    stream->pcmsSynced = 0;
-    stream->callbackAbort = 0;
-    stream->startThreshold = 0;
-    pthread_mutex_init( &stream->stateMtx, NULL );
-    pthread_mutex_init( &stream->startMtx, NULL );
-    pthread_cond_init( &stream->startCond, NULL );
-    stream->neverDropInput = 0;
 }
 
 /*!
@@ -1303,67 +1619,812 @@ int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
     return err;
 }
 
-static void SilenceBuffer( PaAlsaStream *stream )
-{
-    const snd_pcm_channel_area_t *areas;
-    snd_pcm_uframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
 
-    snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
-    snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
-    snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames );
-}
+/* Utility functions for blocking/callback interfaces */
 
-PaError AlsaStart( PaAlsaStream *stream, int priming )
+/* Atomic restart of stream (we don't want the intermediate state visible) */
+static PaError AlsaRestart( PaAlsaStream *stream )
 {
     PaError result = paNoError;
 
-    pthread_mutex_lock( &stream->startMtx );
+    PA_DEBUG(( "Restarting audio\n" ));
+
+    pthread_mutex_lock( &stream->stateMtx );
+    PA_ENSURE( AlsaStop( stream, 0 ) );
+    PA_ENSURE( AlsaStart( stream, 0 ) );
+
+    PA_DEBUG(( "Restarted audio\n" ));
+
+end:
+    pthread_mutex_unlock( &stream->stateMtx );
+    return result;
+error:
+   goto end;
+}
+
+static PaError HandleXrun( PaAlsaStream *stream )
+{
+    PaError result = paNoError;
+    snd_pcm_status_t *st;
+    PaTime now = PaUtil_GetTime();
+    snd_timestamp_t t;
+
+    snd_pcm_status_alloca( &st );
+
     if( stream->pcm_playback )
     {
-        /* We're not priming buffer, so prepare and silence */
-        if( !priming )
+        snd_pcm_status( stream->pcm_playback, st );
+        if( snd_pcm_status_get_state( st ) == SND_PCM_STATE_XRUN )
         {
-            ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
-            SilenceBuffer( stream );
+            snd_pcm_status_get_trigger_tstamp( st, &t );
+            stream->underrun = now * 1000 - ((PaTime) t.tv_sec * 1000 + (PaTime) t.tv_usec / 1000);
         }
-        ENSURE( snd_pcm_start( stream->pcm_playback ), paUnanticipatedHostError );
     }
-    if( stream->pcm_capture && !stream->pcmsSynced )
+    if( stream->pcm_capture )
     {
-        ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+        snd_pcm_status( stream->pcm_capture, st );
+        if( snd_pcm_status_get_state( st ) == SND_PCM_STATE_XRUN )
+        {
+            snd_pcm_status_get_trigger_tstamp( st, &t );
+            stream->overrun = now * 1000 - ((PaTime) t.tv_sec * 1000 + (PaTime) t.tv_usec / 1000);
+        }
+    }
+
+    PA_ENSURE( AlsaRestart( stream ) );
+
+end:
+    return result;
+error:
+    goto end;
+}
+
+/*!
+  \brief Poll on I/O filedescriptors
+
+  Poll till we've determined there's data for read or write. In the full-duplex case,
+  we don't want to hang around forever waiting for either input or output frames, so
+  whenever we have a timed out filedescriptor we check if we're nearing under/overrun
+  for the other pcm (critical limit set at one buffer). If so, we exit the waiting state,
+  and go on with what we got.
+  */
+static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
+{
+    PaError result = paNoError;
+    int pollPlayback = 0, pollCapture = 0;
+    snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX;
+    snd_pcm_uframes_t commonAvail;
+    int xrun = 0;   /* Under/overrun? */
+
+    assert( stream && frames && stream->pollTimeout > 0 );
+
+    if( stream->pcm_capture )
+        pollCapture = 1;
+
+    if( stream->pcm_playback )
+        pollPlayback = 1;
+
+    while( pollPlayback || pollCapture )
+    {
+	unsigned short revents;
+        int totalFds = 0;
+        int ofs = 0;
+
+        /* get the fds, packing all applicable fds into a single array,
+         * so we can check them all with a single poll() call 
+         */
+        if( stream->pcm_capture && pollCapture )
+        {
+            snd_pcm_poll_descriptors( stream->pcm_capture, stream->pfds, stream->capture_nfds );
+            ofs += stream->capture_nfds;
+            totalFds += stream->capture_nfds;
+        }
+        if( stream->pcm_playback && pollPlayback )
+        {
+            snd_pcm_poll_descriptors( stream->pcm_playback, stream->pfds + ofs, stream->playback_nfds );
+            totalFds += stream->playback_nfds;
+        }
+
+        /* if the main thread has requested that we stop, do so now */
+        pthread_testcancel();
+
+        /* now poll on the combination of playback and capture fds. */
+        if( poll( stream->pfds, totalFds, stream->pollTimeout ) < 0 )
+        {
+            /*
+            if( errno == EINTR ) {
+            }
+            */
+
+            PA_ENSURE( paInternalError );
+        }
+
+        pthread_testcancel();
+
+        /* check the return status of our pfds */
+        if( pollCapture )
+        {
+            ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_capture, stream->pfds,
+                        stream->capture_nfds, &revents ), paUnanticipatedHostError );
+            if( revents )
+            {
+                if( revents & POLLERR )
+                    xrun = 1;
+
+                pollCapture = 0;
+            }
+            else     /* Timed out, go on with playback? */
+                if( stream->pcm_playback )
+                {
+                    if( snd_pcm_avail_update( stream->pcm_playback ) >= stream->playbackBufferSize - stream->frames_per_period )
+                    {
+                        PA_DEBUG(( "Capture timed out, pollTimeOut: %d\n", stream->pollTimeout ));
+                        pollCapture = 0;    /* Go on without me .. *sob* ... */
+                    }
+                }
+        }
+
+        if( pollPlayback )
+        {
+            unsigned short revents;
+            ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_playback, stream->pfds +
+                        stream->capture_nfds, stream->playback_nfds, &revents ), paUnanticipatedHostError );
+            if( revents )
+            {
+                if( revents & POLLERR )
+                    xrun = 1;
+
+                pollPlayback = 0;
+            }
+            else    /* Timed out, go on with capture? */
+                if( stream->pcm_capture )
+                {
+                    PA_DEBUG(( "Playback timed out\n" ));
+                    if( snd_pcm_avail_update( stream->pcm_capture ) >= stream->captureBufferSize - stream->frames_per_period )
+                        pollPlayback = 0;   /* Go on without me, son .. */
+                }
+        }
+    }
+
+    /* we have now established that there are buffers ready to be
+     * operated on.  Now determine how many frames are available.
+     */
+    if( stream->pcm_capture )
+    {
+        if( (captureAvail = snd_pcm_avail_update( stream->pcm_capture )) == -EPIPE )
+            xrun = 1;
+        else
+            ENSURE( captureAvail, paUnanticipatedHostError );
+
+        if( !captureAvail )
+            PA_DEBUG(( "Wait: captureAvail: 0\n" ));
+
+        captureAvail = captureAvail == 0 ? INT_MAX : captureAvail;      /* Disregard if zero */
+    }
+
+    if( stream->pcm_playback )
+    {
+        if( (playbackAvail = snd_pcm_avail_update( stream->pcm_playback )) == -EPIPE )
+            xrun = 1;
+        else
+            ENSURE( playbackAvail, paUnanticipatedHostError );
+
+        if( !playbackAvail )
+            PA_DEBUG(( "Wait: playbackAvail: 0\n" ));
+
+        playbackAvail = playbackAvail == 0 ? INT_MAX : playbackAvail;   /* Disregard if 0 */
+    }
+    
+    assert( !(captureAvail == playbackAvail == INT_MAX) );
+
+    if( xrun )
+    {
+        HandleXrun( stream );
+        *frames = 0;
+    }
+    else    /* Ok, we have available frames */
+    {
+        assert( captureAvail > 0 && playbackAvail > 0 );
+
+        commonAvail = (snd_pcm_uframes_t) MIN( captureAvail, playbackAvail );
+        commonAvail -= commonAvail % stream->frames_per_period;
+
+        *frames = commonAvail;
+    }
+
+end:
+    return result;
+error:
+    goto end;
+}
+
+/* Extract buffer from channel area */
+static unsigned char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
+{
+    return (unsigned char *) area->addr + (area->first + offset * area->step) / 8;
+}
+
+/* Get buffers from ALSA for read/write, and determine the amount of frames available.
+   Underflow/underflow complicates matters
+*/
+static PaError SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t requested, int alignFrames,
+        snd_pcm_uframes_t *frames )
+{
+    PaError result = paNoError;
+    int i;
+    snd_pcm_uframes_t captureFrames = requested, playbackFrames = requested, commonFrames;
+    const snd_pcm_channel_area_t *areas, *area;
+    unsigned char *buffer;
+
+    assert( stream && frames );
+
+    if( stream->pcm_capture )
+    {
+        ENSURE( snd_pcm_mmap_begin( stream->pcm_capture, &areas, &stream->capture_offset, &captureFrames ),
+                paUnanticipatedHostError );
+
+        if( stream->capture_interleaved )
+        {
+            buffer = ExtractAddress( areas, stream->capture_offset );
+            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
+                                                 0, /* starting at channel 0 */
+                                                 buffer,
+                                                 0  /* default numInputChannels */
+                                               );
+        }
+        else
+            /* noninterleaved */
+            for( i = 0; i < stream->capture_channels; ++i )
+            {
+                area = &areas[i];
+                buffer = ExtractAddress( area, stream->capture_offset );
+                PaUtil_SetNonInterleavedInputChannel( &stream->bufferProcessor,
+                                                      i,
+                                                      buffer );
+            }
+    }
+
+    if( stream->pcm_playback )
+    {
+        ENSURE( snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &playbackFrames ),
+                paUnanticipatedHostError );
+
+        if( stream->playback_interleaved )
+        {
+            buffer = ExtractAddress( areas, stream->playback_offset );
+            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
+                                                 0, /* starting at channel 0 */
+                                                 buffer,
+                                                 0  /* default numInputChannels */
+                                               );
+        }
+        else
+            /* noninterleaved */
+            for( i = 0; i < stream->playback_channels; ++i )
+            {
+                area = &areas[i];
+                buffer = ExtractAddress( area, stream->playback_offset );
+                PaUtil_SetNonInterleavedOutputChannel( &stream->bufferProcessor,
+                                                      i,
+                                                      buffer );
+            }
+    }
+
+    if( alignFrames )
+    {
+        playbackFrames -= (playbackFrames % stream->frames_per_period);
+        captureFrames -= (captureFrames % stream->frames_per_period);
+    }
+    commonFrames = MIN( captureFrames, playbackFrames );
+
+    if( stream->pcm_playback && stream->pcm_capture )
+    {
+        /* Full-duplex, but we are starved for data in either end
+           If we're out of input, go on. Input buffer will be zeroed.
+           In the case of output underflow, drop input frames unless stream->neverDropInput.
+           If we're starved for output, while keeping input, we'll discard output samples.
+       */
+        if( !commonFrames ) 
+        {
+            if( !captureFrames )    /* Input underflow */
+                commonFrames = playbackFrames;  /* We still want output */
+            else                    /* Output underflow */
+                if( stream->neverDropInput )    /* Output underflow, but do not drop input */
+                    commonFrames = captureFrames;
+        }
+        else    /* Safe to commit commonFrames for both */
+            playbackFrames = captureFrames = commonFrames;
+    }
+    
+    /* Inform PortAudio of the number of frames we got.
+       We might be experiencing underflow in either end; if its an input underflow, we go on
+       with output. If its output underflow however, depending on the paNeverDropInput flag,
+       we may want to simply discard the excess input or call the callback with
+       paOutputOverflow flagged.
+    */
+    if( stream->pcm_capture )
+    {
+        if( captureFrames || !commonFrames )    /* Either we have input, or we have neither */
+            PaUtil_SetInputFrameCount( &stream->bufferProcessor, commonFrames );
+        else    /* We have input underflow */
+            PaUtil_SetNoInput( &stream->bufferProcessor );
+    }
+    if( stream->pcm_playback )
+    {
+        if( playbackFrames || !commonFrames )   /* Either we have output, or we have neither */
+            PaUtil_SetOutputFrameCount( &stream->bufferProcessor, commonFrames );
+        else    /* We have output underflow, but keeping input data (paNeverDropInput) */
+        {
+            /*
+            PaUtil_SetNoOutput( &stream->bufferProcessor );
+            */
+        }
+    }
+
+    /* PA_DEBUG(( "SetUpBuffers: captureAvail: %d, playbackAvail: %d, commonFrames: %d\n\n", captureFrames, playbackFrames, commonFrames )); */
+    stream->playbackAvail = playbackFrames;
+    stream->captureAvail = captureFrames;
+
+    *frames = commonFrames;
+
+end:
+    return result;
+error:
+    goto end;
+}
+
+/* Callback interface */
+
+static void OnExit( void *data )
+{
+    PaAlsaStream *stream = (PaAlsaStream *) data;
+
+    assert( data );
+
+    stream->callback_finished = 1;  /* Let the outside world know stream was stopped in callback */
+
+    AlsaStop( stream, stream->callbackAbort );
+    if( stream->callbackAbort )
+        stream->callbackAbort = 0;
+    
+    PA_DEBUG(( "Stoppage\n" ));
+
+    /* Eventually notify user all buffers have played */
+    if( stream->streamRepresentation.streamFinishedCallback )
+        stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+}
+
+void *CallbackThread( void *userData )
+{
+    PaError result = paNoError;
+    PaAlsaStream *stream = (PaAlsaStream*) userData;
+    snd_pcm_uframes_t framesAvail, framesGot, framesProcessed;
+    snd_pcm_sframes_t startThreshold = stream->startThreshold;
+    snd_pcm_status_t *capture_status, *playback_status;
+    int *pres;
+
+    assert( userData );
+
+    /* Allocation should happen here, once per iteration is no good */
+    snd_pcm_status_alloca( &capture_status );
+    snd_pcm_status_alloca( &playback_status );
+
+    pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
+
+    PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
+
+    if( startThreshold <= 0 )
+    {
+        PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
+        pthread_mutex_lock( &stream->startMtx);
+        pthread_cond_signal( &stream->startCond );
+        pthread_mutex_unlock( &stream->startMtx);
+    }
+    else /* Priming output? Prepare first */
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+    }
+
+    while(1)
+    {
+        PaError callbackResult;
+	PaStreamCallbackTimeInfo timeInfo = {0,0,0};
+        PaStreamCallbackFlags cbFlags = 0;
+
+        pthread_testcancel();
+        {
+            /* calculate time info */
+            snd_timestamp_t capture_timestamp;
+            snd_timestamp_t playback_timestamp;
+
+            if( stream->pcm_capture )
+            {
+                snd_pcm_status( stream->pcm_capture, capture_status );
+                snd_pcm_status_get_tstamp( capture_status, &capture_timestamp );
+            }
+            if( stream->pcm_playback )
+            {
+                snd_pcm_status( stream->pcm_playback, playback_status );
+                snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
+            }
+
+            /* Hmm, we potentially have both a playback and a capture timestamp.
+             * Hopefully they are the same... */
+            if( stream->pcm_capture && stream->pcm_playback )
+            {
+                PaTime capture_time = capture_timestamp.tv_sec +
+                                     ((PaTime)capture_timestamp.tv_usec/1000000);
+                PaTime playback_time= playback_timestamp.tv_sec +
+                                     ((PaTime)playback_timestamp.tv_usec/1000000);
+                if( fabsf(capture_time-playback_time) > 0.01 )
+                    PA_DEBUG(("Capture time and playback time differ by %f\n", fabsf(capture_time-playback_time)));
+                timeInfo.currentTime = capture_time;
+            }
+            else
+            {
+                if( stream->pcm_playback )
+                {
+                    timeInfo.currentTime = (PaTime)playback_timestamp.tv_sec +
+                                           (PaTime)playback_timestamp.tv_usec/1000000;
+                }
+                else
+                    timeInfo.currentTime = (PaTime)capture_timestamp.tv_sec +
+                                           (PaTime)capture_timestamp.tv_usec/1000000;
+            }
+            if( stream->pcm_capture )
+            {
+                snd_pcm_sframes_t capture_delay = snd_pcm_status_get_delay( capture_status );
+                timeInfo.inputBufferAdcTime = timeInfo.currentTime -
+                    (PaTime)capture_delay / stream->streamRepresentation.streamInfo.sampleRate;
+            }
+
+            if( stream->pcm_playback )
+            {
+                snd_pcm_sframes_t playback_delay = snd_pcm_status_get_delay( playback_status );
+                timeInfo.outputBufferDacTime = timeInfo.currentTime +
+                    (PaTime)playback_delay / stream->streamRepresentation.streamInfo.sampleRate;
+            }
+        }
+
+        /*
+            depending on whether the host buffers are interleaved, non-interleaved
+            or a mixture, you will want to call PaUtil_ProcessInterleavedBuffers(),
+            PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
+        */
+
+        /* Set callback flags *after* one of these has been detected */
+        if( stream->underrun != 0.0 )
+        {
+            cbFlags |= paOutputUnderflow;
+            stream->underrun = 0.0;
+        }
+        if( stream->overrun != 0.0 )
+        {
+            cbFlags |= paInputOverflow;
+            stream->overrun = 0.0;
+        }
+
+        PA_ENSURE( Wait( stream, &framesAvail ) );
+        while( framesAvail > 0 )
+        {
+            pthread_testcancel();
+
+            /* Priming output */
+            if( startThreshold > 0 )
+            {
+                PA_DEBUG(( "Priming\n" ));
+                cbFlags |= paPrimingOutput;
+                framesAvail = MIN( framesAvail, startThreshold );
+            }
+
+            /* now we know the soundcard is ready to produce/receive at least
+             * one period.  we just need to get the buffers for the client
+             * to read/write. */
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
+
+            PA_ENSURE( SetUpBuffers( stream, framesAvail, 1, &framesGot ) );
+            /* Check for underflow/overflow */
+            if( stream->pcm_playback && stream->pcm_capture )
+            {
+                if( !stream->captureAvail )
+                {
+                    cbFlags |= paInputUnderflow;
+                    PA_DEBUG(( "Input underflow\n" ));
+                }
+                if( !stream->playbackAvail )
+                {
+                    if( !framesGot )    /* The normal case, dropping input */
+                    {
+                        cbFlags |= paInputOverflow;
+                        PA_DEBUG(( "Input overflow\n" ));
+                    }
+                    else                /* Keeping input (paNeverDropInput) */
+                    {
+                        cbFlags |= paOutputOverflow;
+                        PA_DEBUG(( "Output overflow\n" ));
+                    }
+                }
+            }
+
+            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+
+            callbackResult = paContinue;
+
+            /* this calls the callback */
+            framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
+                                                          &callbackResult );
+            PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
+
+            /* Inform ALSA how many frames we read/wrote
+               Now, this number may differ between capture and playback, due to under/overflow.
+               If we're dropping input frames, we effectively sink them here.
+             */
+            if( stream->pcm_capture )
+            {
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, stream->captureAvail ),
+                        paUnanticipatedHostError );
+            }
+            if( stream->pcm_playback )
+            {
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, stream->playbackAvail ),
+                        paUnanticipatedHostError );
+            }
+
+            /* If threshold for starting stream specified (priming buffer), decrement and compare */
+            if( startThreshold > 0 )
+            {
+                if( (startThreshold -= framesGot) <= 0 )
+                {
+                    PA_ENSURE( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
+                    pthread_mutex_lock( &stream->startMtx);
+                    pthread_cond_signal( &stream->startCond );
+                    pthread_mutex_unlock( &stream->startMtx);
+                }
+            }
+
+            if( callbackResult != paContinue )
+                break;
+
+            framesAvail -= framesGot;
+        }
+
+
+        /*
+            If you need to byte swap outputBuffer, you can do it here using
+            routines in pa_byteswappers.h
+        */
+
+        if( callbackResult != paContinue )
+        {
+            stream->callbackAbort = (callbackResult == paAbort);
+            goto end;
+            
+        }
+    }
+
+    /* This code is unreachable, but important to include regardless because it
+     * is possibly a macro with a closing brace to match the opening brace in
+     * pthread_cleanup_push() above.  The documentation states that they must
+     * always occur in pairs. */
+    pthread_cleanup_pop( 1 );
+
+end:
+    pthread_exit( NULL );
+
+error:
+    /* Pass on error code */
+    pres = malloc( sizeof (int) );
+    *pres = (result);
+    
+    pthread_exit( pres );
+}
+
+/* Blocking interface */
+
+static PaError ReadStream( PaStream* s,
+                           void *buffer,
+                           unsigned long frames )
+{
+    PaError result = paNoError;
+    signed long err;
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+    snd_pcm_uframes_t framesGot, framesAvail;
+    void *userBuffer;
+    int i;
+    snd_pcm_t *save;
+
+    assert( stream );
+
+    /* Disregard playback */
+    save =  stream->pcm_playback;
+    stream->pcm_playback = NULL;
+
+    if( !stream->pcm_capture )
+        PA_ENSURE( paCanNotReadFromAnOutputOnlyStream );
+
+
+    if( stream->overrun )
+    {
+        result = paInputOverflowed;
+        stream->overrun = 0.0;
+    }
+
+    if( stream->bufferProcessor.userInputIsInterleaved )
+        userBuffer = buffer;
+    else /* Copy channels into local array */
+    {
+        int numBytes = sizeof (void *) * stream->capture_channels;
+        UNLESS( userBuffer = alloca( numBytes ), paInsufficientMemory );
+        for( i = 0; i < stream->capture_channels; ++i )
+            ((const void **) userBuffer)[i] = ((const void **) buffer)[i];
+    }
+
+    /* Start stream if in prepared state */
+    if( snd_pcm_state( stream->pcm_capture ) == SND_PCM_STATE_PREPARED )
+    {
         ENSURE( snd_pcm_start( stream->pcm_capture ), paUnanticipatedHostError );
     }
 
+    while( frames > 0 )
+    {
+        if( (err = GetStreamReadAvailable( stream )) == paInputOverflowed )
+            err = 0;    /* Wait will detect the (unlikely) xrun, and restart capture */
+        PA_ENSURE( err );
+        framesAvail = (snd_pcm_uframes_t) err;
+
+        if( framesAvail == 0 )
+            PA_ENSURE( Wait( stream, &framesAvail ) );
+        framesAvail = MIN( framesAvail, frames );
+
+        PA_ENSURE( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
+        framesGot = PaUtil_CopyInput( &stream->bufferProcessor, &userBuffer, framesGot );
+        ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, framesGot ),
+                paUnanticipatedHostError );
+
+        frames -= framesGot;
+    }
+
 end:
-    pthread_mutex_unlock( &stream->startMtx );
+    stream->pcm_playback = save;
     return result;
 error:
     goto end;
 }
 
-PaError AlsaStop( PaAlsaStream *stream, int abort )
+static PaError WriteStream( PaStream* s,
+                            const void *buffer,
+                            unsigned long frames )
 {
     PaError result = paNoError;
+    signed long err;
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+    snd_pcm_uframes_t framesGot, framesAvail;
+    const void *userBuffer;
+    int i;
+    snd_pcm_t *save;
+    
+    /* Disregard capture */
+    save = stream->pcm_capture;
+    stream->pcm_capture = NULL;
 
-    if( abort )
+    assert( stream );
+    if( !stream->pcm_playback )
+        PA_ENSURE( paCanNotWriteToAnInputOnlyStream );
+
+    if( stream->underrun )
     {
-        if( stream->pcm_playback )
-            ENSURE( snd_pcm_drop( stream->pcm_playback ), paUnanticipatedHostError );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            ENSURE( snd_pcm_drop( stream->pcm_capture ), paUnanticipatedHostError );
-
-        PA_DEBUG(( "Dropped frames\n" ));
+        result = paOutputUnderflowed;
+        stream->underrun = 0.0;
     }
-    else
+
+    if( stream->bufferProcessor.userOutputIsInterleaved )
+        userBuffer = buffer;
+    else /* Copy channels into local array */
     {
-        if( stream->pcm_playback )
-            ENSURE( snd_pcm_drain( stream->pcm_playback ), paUnanticipatedHostError );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            ENSURE( snd_pcm_drain( stream->pcm_capture ), paUnanticipatedHostError );
+        int numBytes = sizeof (void *) * stream->playback_channels;
+        UNLESS( userBuffer = alloca( numBytes ), paInsufficientMemory );
+        for( i = 0; i < stream->playback_channels; ++i )
+            ((const void **) userBuffer)[i] = ((const void **) buffer)[i];
+    }
+
+    while( frames > 0 )
+    {
+        snd_pcm_uframes_t hwAvail;
+
+        PA_ENSURE( err = GetStreamWriteAvailable( stream ) );
+        framesAvail = err;
+        if( framesAvail == 0 )
+            PA_ENSURE( Wait( stream, &framesAvail ) );
+        framesAvail = MIN( framesAvail, frames );
+
+        PA_ENSURE( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
+        framesGot = PaUtil_CopyOutput( &stream->bufferProcessor, &userBuffer, framesGot );
+        ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, framesGot ),
+                paUnanticipatedHostError );
+
+        frames -= framesGot;
+
+        /* Frames residing in buffer */
+        PA_ENSURE( err = GetStreamWriteAvailable( stream ) );
+        framesAvail = err;
+        hwAvail = stream->playbackBufferSize - framesAvail;
+
+        /* Start stream after one period of samples worth */
+        if( snd_pcm_state( stream->pcm_playback ) == SND_PCM_STATE_PREPARED &&
+            hwAvail >= stream->frames_per_period )
+        {
+            ENSURE( snd_pcm_start( stream->pcm_playback ), paUnanticipatedHostError );
+        }
     }
 
 end:
+    stream->pcm_capture = save;
     return result;
 error:
     goto end;
+}
+
+
+/* Return frames available for reading. In the event of an overflow, the capture pcm will be restarted */
+static signed long GetStreamReadAvailable( PaStream* s )
+{
+    PaError result = paNoError;
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+    snd_pcm_sframes_t avail = snd_pcm_avail_update( stream->pcm_capture );
+
+    if( avail < 0 )
+    {
+        if( avail == -EPIPE )
+        {
+            PA_ENSURE( HandleXrun( stream ) );
+            avail = snd_pcm_avail_update( stream->pcm_capture );
+        }
+
+        if( avail == -EPIPE )
+            PA_ENSURE( paInputOverflowed );
+        ENSURE( avail, paUnanticipatedHostError );
+    }
+
+    return avail;
+
+error:
+    return result;
+}
+
+
+/* Return frames available for writing. In the event of an underflow, the playback pcm will be prepared */
+static signed long GetStreamWriteAvailable( PaStream* s )
+{
+    PaError result = paNoError;
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+    snd_pcm_sframes_t avail = snd_pcm_avail_update( stream->pcm_playback );
+
+    if( avail < 0 )
+    {
+        if( avail == -EPIPE )
+        {
+            PA_ENSURE( HandleXrun( stream ) );
+            avail = snd_pcm_avail_update( stream->pcm_playback );
+        }
+
+        /* avail should not contain -EPIPE now, since HandleXrun will only prepare the pcm */
+        ENSURE( avail, paUnanticipatedHostError );
+    }
+
+    return avail;
+
+error:
+    return result;
+}
+
+/* Extensions */
+
+/* Initialize host api specific structure */
+void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info )
+{
+    info->size = sizeof (PaAlsaStreamInfo);
+    info->hostApiType = paALSA;
+    info->version = 1;
 }
