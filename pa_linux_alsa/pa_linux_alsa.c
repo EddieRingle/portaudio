@@ -65,6 +65,13 @@ typedef struct
 }
 PaAlsaHostApiRepresentation;
 
+typedef struct PaAlsaDeviceInfo
+{
+    PaDeviceInfo commonDeviceInfo;
+    int deviceNumber;
+}
+PaAlsaDeviceInfo;
+
 
 /* prototypes for functions declared in this file */
 
@@ -129,7 +136,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     *hostApi = (PaUtilHostApiRepresentation*)alsaHostApi;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paALSA;
-    (*hostApi)->info.name = "ALSA implementation";
+    (*hostApi)->info.name = "ALSA";
 
     BuildDeviceList( alsaHostApi );
 
@@ -174,7 +181,7 @@ error:
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
     PaUtilHostApiRepresentation *commonApi = &alsaApi->commonHostApiRep;
-    PaDeviceInfo *deviceInfoArray;
+    PaAlsaDeviceInfo *deviceInfoArray;
     int deviceCount = 0;
     int card_idx;
     int device_idx;
@@ -205,8 +212,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     }
 
     /* allocate all device info structs in a contiguous block */
-    deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
-            alsaApi->allocations, sizeof(PaDeviceInfo) * deviceCount );
+    deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
+            alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * deviceCount );
     if( !deviceInfoArray )
     {
         return paInsufficientMemory;
@@ -217,21 +224,22 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     device_idx = 0;
     while( snd_card_next( &card_idx ) == 0 && card_idx >= 0 )
     {
-        PaDeviceInfo *deviceInfo = &deviceInfoArray[device_idx];
+        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[device_idx];
         char *deviceName;
         char alsaDeviceName[50];
         const char *cardName;
 
-        commonApi->deviceInfos[device_idx++] = deviceInfo;
+        commonApi->deviceInfos[device_idx++] = (PaDeviceInfo*)deviceInfo;
 
-        deviceInfo->structVersion = 2;
-        deviceInfo->hostApi = alsaApi->hostApiIndex;
+        deviceInfo->deviceNumber = card_idx;
+        deviceInfo->commonDeviceInfo.structVersion = 2;
+        deviceInfo->commonDeviceInfo.hostApi = alsaApi->hostApiIndex;
 
         sprintf( alsaDeviceName, "hw:%d", card_idx );
         snd_ctl_open( &ctl, alsaDeviceName, 0 );
         snd_ctl_card_info_malloc( &card_info );
         snd_ctl_card_info( ctl, card_info );
-        cardName = snd_ctl_card_info_get_id( card_info );
+        cardName = snd_ctl_card_info_get_name( card_info );
 
         deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
                                                         strlen(cardName) + 1 );
@@ -240,7 +248,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             return paInsufficientMemory;
         }
         strcpy( deviceName, cardName );
-        deviceInfo->name = deviceName;
+        deviceInfo->commonDeviceInfo.name = deviceName;
 
         snd_ctl_card_info_free( card_info );
 
@@ -254,14 +262,14 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
             /* get max channels for capture */
 
-            if( snd_pcm_open( &pcm_handle, alsaDeviceName, SND_PCM_STREAM_CAPTURE, 0 ) < 0 )
+            if( snd_pcm_open( &pcm_handle, alsaDeviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK ) < 0 )
             {
-                deviceInfo->maxInputChannels = 0;
+                deviceInfo->commonDeviceInfo.maxInputChannels = 0;
             }
             else
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
-                deviceInfo->maxInputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
+                deviceInfo->commonDeviceInfo.maxInputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
                 snd_pcm_close( pcm_handle );
 
                 /* TWEAKME:
@@ -283,30 +291,30 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                  *         select the nearest setting that will work at stream
                  *         config time.
                  */
-                deviceInfo->defaultLowInputLatency = 4096. / 44100;
-                deviceInfo->defaultHighInputLatency = 16384. / 44100;
+                deviceInfo->commonDeviceInfo.defaultLowInputLatency = 4096. / 44100;
+                deviceInfo->commonDeviceInfo.defaultHighInputLatency = 16384. / 44100;
             }
 
             /* get max channels for playback */
-            if( snd_pcm_open( &pcm_handle, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, 0 ) < 0 )
+            if( snd_pcm_open( &pcm_handle, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK ) < 0 )
             {
-                deviceInfo->maxOutputChannels = 0;
+                deviceInfo->commonDeviceInfo.maxOutputChannels = 0;
             }
             else
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
-                deviceInfo->maxOutputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
+                deviceInfo->commonDeviceInfo.maxOutputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
                 snd_pcm_close( pcm_handle );
 
                 /* TWEAKME: see above */
-                deviceInfo->defaultLowOutputLatency = 4096. / 44100;
-                deviceInfo->defaultHighOutputLatency = 16384. / 44100;
+                deviceInfo->commonDeviceInfo.defaultLowOutputLatency = 4096. / 44100;
+                deviceInfo->commonDeviceInfo.defaultHighOutputLatency = 16384. / 44100;
             }
 
             snd_pcm_hw_params_free( hw_params );
         }
 
-        deviceInfo->defaultSampleRate = 44100.; /* IMPLEMENT ME */
+        deviceInfo->commonDeviceInfo.defaultSampleRate = 44100.; /* IMPLEMENT ME */
     }
 
     commonApi->info.deviceCount = deviceCount;
@@ -534,6 +542,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     ENSURE( snd_pcm_hw_params_set_rate( stream, hw_params, rate, 0 ) );
 
     /* ... set the number of channels */
+    PA_DEBUG(("channels: %d\n", channels));
     ENSURE( snd_pcm_hw_params_set_channels( stream, hw_params, channels ) );
 
     /* ... set the period size, which is essentially the hardware buffer size */
@@ -587,8 +596,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            void *userData )
 {
     PaError result = paNoError;
-    PaAlsaHostApiRepresentation *alsaHostApi =
-        (PaAlsaHostApiRepresentation*)hostApi;
+    PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
+    PaAlsaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
     PaAlsaStream *stream = 0;
     PaSampleFormat hostInputSampleFormat = 0, hostOutputSampleFormat = 0;
     int numInputChannels = 0, numOutputChannels = 0;
@@ -597,6 +606,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputParameters )
     {
+        inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
@@ -608,7 +618,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidDevice;
 
         /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        if( numInputChannels > inputDeviceInfo->commonDeviceInfo.maxInputChannels )
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
@@ -622,6 +632,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
+        outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
 
@@ -634,7 +645,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidDevice;
 
         /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        if( numOutputChannels > outputDeviceInfo->commonDeviceInfo.maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
@@ -658,6 +669,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         result = paInsufficientMemory;
         goto error;
     }
+
     InitializeStream( stream, (int) callback, streamFlags );    // Initialize structure
 
     if( callback )
@@ -682,8 +694,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numInputChannels > 0 )
     {
         int ret;
-        snprintf( deviceName, 50, "hw:CARD=%s", hostApi->deviceInfos[inputParameters->device]->name );
-		if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
+        snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
+        if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
         {
             if (ret == -EBUSY)
                 result = paDeviceUnavailable;
@@ -707,7 +719,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numOutputChannels > 0 )
     {
         int ret;
-        snprintf( deviceName, 50, "hw:CARD=%s", hostApi->deviceInfos[outputParameters->device]->name );
+        snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
         if( (ret = snd_pcm_open( &stream->pcm_playback, deviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) < 0 )
         {
             if (ret == -EBUSY)
