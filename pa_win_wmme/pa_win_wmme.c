@@ -1220,7 +1220,7 @@ static PaError CalculateBufferSettings(
                     ? PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_
                     : PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_HALF_DUPLEX_;
 
-            unsigned long maximumBufferSize = floor(PA_MME_MAX_HOST_BUFFER_SECS_ * sampleRate) * hostInputFrameSize;
+            unsigned long maximumBufferSize = (long) ((PA_MME_MAX_HOST_BUFFER_SECS_ * sampleRate) * hostInputFrameSize);
             if( maximumBufferSize > PA_MME_MAX_HOST_BUFFER_BYTES_ )
                 maximumBufferSize = PA_MME_MAX_HOST_BUFFER_BYTES_;
 
@@ -1295,7 +1295,7 @@ static PaError CalculateBufferSettings(
 
             hostOutputFrameSize = hostOutputSampleSize * effectiveOutputChannelCount;
             
-            maximumBufferSize = floor(PA_MME_MAX_HOST_BUFFER_SECS_ * sampleRate) * hostOutputFrameSize;
+            maximumBufferSize = (long) ((PA_MME_MAX_HOST_BUFFER_SECS_ * sampleRate) * hostOutputFrameSize);
             if( maximumBufferSize > PA_MME_MAX_HOST_BUFFER_BYTES_ )
                 maximumBufferSize = PA_MME_MAX_HOST_BUFFER_BYTES_;
 
@@ -2982,7 +2982,7 @@ static PaError StopStream( PaStream *s )
 {
     PaError result = paNoError;
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
-    int timeout;
+    int timeout, waitCount;
     DWORD waitResult;
     MMRESULT mmresult;
     unsigned int i;
@@ -3024,6 +3024,34 @@ static PaError StopStream( PaStream *s )
 
         CloseHandle( stream->processingThread );
         stream->processingThread = NULL;
+    }
+    else
+    {
+        /* blocking read / write stream */
+
+        if( PA_IS_OUTPUT_STREAM_(stream) )
+        {
+            timeout = (stream->allBuffersDurationMs / stream->output.bufferCount) + 1;
+            if( timeout < PA_MME_MIN_TIMEOUT_MSEC_ )
+                timeout = PA_MME_MIN_TIMEOUT_MSEC_;
+
+            waitCount = 0;
+            while( !NoBuffersAreQueued( &stream->output ) && waitCount <= stream->output.bufferCount )
+            {
+                /* wait for MME to signal that a buffer is available */
+                waitResult = WaitForSingleObject( stream->output.bufferEvent, timeout );
+                if( waitResult == WAIT_FAILED )
+                {
+                    break;
+                }
+                else if( waitResult == WAIT_TIMEOUT )
+                {
+                    /* keep waiting */
+                }
+
+                ++waitCount;
+            }
+        }
     }
 
     if( PA_IS_OUTPUT_STREAM_(stream) )
@@ -3218,7 +3246,7 @@ static PaError ReadStream( PaStream* s,
             {
                 if( NoBuffersAreQueued( &stream->input ) )
                 {
-                    /** @todo REVIEW: consier what to do if the input overflows.
+                    /** @todo REVIEW: consider what to do if the input overflows.
                         do we requeue all of the buffers? should we be running
                         a thread to make sure they are always queued? */
 
