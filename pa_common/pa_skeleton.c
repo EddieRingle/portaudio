@@ -404,8 +404,8 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     */
 
     /*
-        If you need to byte swap inputBuffer, you can do it here using
-        routines in pa_byteswappers.h
+        If you need to byte swap or shift inputBuffer to convert it into a
+        portaudio format, do it here.
     */
 
 
@@ -434,8 +434,8 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
 
     
     /*
-        If you need to byte swap outputBuffer, you can do it here using
-        routines in pa_byteswappers.h
+        If you need to byte swap or shift outputBuffer to convert it to
+        host format, do it here.
     */
 
     PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
