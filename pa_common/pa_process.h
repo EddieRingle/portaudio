@@ -540,7 +540,7 @@ void PaUtil_SetOutputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 
 
-/** Provide the buffer processor with a pointer to an number of interleaved
+/** Provide the buffer processor with a pointer to a number of interleaved
  host output channels.
 
  @param bufferProcessor The buffer processor.
