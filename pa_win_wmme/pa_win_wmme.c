@@ -2,7 +2,7 @@
  * $Id$
  * pa_win_wmme.c
  * Implementation of PortAudio for Windows MultiMedia Extensions (WMME)       
- *
+ *                                                                                         
  * PortAudio Portable Real-Time Audio Library
  * Latest Version at: http://www.portaudio.com
  *
@@ -68,21 +68,20 @@
 
 	@todo Investigate supporting host buffer formats > 16 bits
 
-	@todo Implement buffer size and number of buffers code, 
-		this code should generate defaults the way the old code did (isn't this implemented now?)
-
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
 
-	@todo Fix fixmes
-
     @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
-    
-    @todo implement IsFormatSupported
+            see V18 code for old default values.
 
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
     @todo make sure all buffers have been played before stopping the stream
         when the stream callback returns paComplete
+
+    @todo review CalculateBufferSettings() and friends - try to honour
+        PA_MAX_MSEC_PER_HOST_BUFFER_
+    
+    @todo Fix fixmes
 */
 
 /*
@@ -391,6 +390,7 @@ static PaDeviceIndex GetEnvDefaultDeviceID( char *envName )
     return recommendedIndex;
 }
 
+
 static void InitializeDefaultDeviceIdsFromEnv( PaWinMmeHostApiRepresentation *hostApi )
 {
     PaDeviceIndex device;
@@ -425,24 +425,86 @@ static UINT LocalDeviceIndexToWinMmeDeviceId( PaWinMmeHostApiRepresentation *hos
 }
 
 
-static int QueryInputSampleRate( int deviceId, WAVEFORMATEX *waveFormatEx )
+static PaError QueryInputWaveFormatEx( int deviceId, WAVEFORMATEX *waveFormatEx )
 {
-    return ( waveInOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY )
-                == MMSYSERR_NOERROR ) ? 1 : 0;
+    MMRESULT mmresult;
+    
+    switch( mmresult = waveInOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY ) )
+    {
+        case MMSYSERR_NOERROR:
+            return paNoError;
+        case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
+            return paDeviceUnavailable;
+        case MMSYSERR_NODRIVER:	    /* No device driver is present. */
+            return paDeviceUnavailable;
+        case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
+            return paInsufficientMemory;
+        case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
+            return paSampleFormatNotSupported;
+                    
+        case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
+            /* falls through */
+        default:
+            PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+            return paUnanticipatedHostError;
+    }
 }
 
-static int QueryOutputSampleRate( int deviceId, WAVEFORMATEX *waveFormatEx )
+
+static PaError QueryOutputWaveFormatEx( int deviceId, WAVEFORMATEX *waveFormatEx )
 {
-    return ( waveOutOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY )
-                == MMSYSERR_NOERROR ) ? 1 : 0;
+    MMRESULT mmresult;
+    
+    switch( mmresult = waveOutOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY ) )
+    {
+        case MMSYSERR_NOERROR:
+            return paNoError;
+        case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
+            return paDeviceUnavailable;
+        case MMSYSERR_NODRIVER:	    /* No device driver is present. */
+            return paDeviceUnavailable;
+        case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
+            return paInsufficientMemory;
+        case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
+            return paSampleFormatNotSupported;
+                    
+        case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
+            /* falls through */
+        default:
+            PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+            return paUnanticipatedHostError;
+    }
 }
 
-static int QuerySampleRate( PaDeviceInfo *deviceInfo,
-        int (*sampleRateQueryFunction)(int, WAVEFORMATEX*),
+
+static PaError QueryFormatSupported( PaDeviceInfo *deviceInfo,
+        PaError (*waveFormatExQueryFunction)(int, WAVEFORMATEX*),
         int winMmeDeviceId, int channels, double sampleRate )
 {
-    int result;
+    PaWinMmeDeviceInfo *winMmeDeviceInfo = (PaWinMmeDeviceInfo*)deviceInfo;
     WAVEFORMATEX waveFormatEx;
+    
+    if( sampleRate == 11025.0
+        && ( (channels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1M16))
+            || (channels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1S16)) ) ){
+
+        return paNoError;
+    }
+
+    if( sampleRate == 22050.0
+        && ( (channels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2M16))
+            || (channels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2S16)) ) ){
+
+        return paNoError;
+    }
+
+    if( sampleRate == 44100.0
+        && ( (channels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4M16))
+            || (channels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4S16)) ) ){
+
+        return paNoError;
+    }
+
     waveFormatEx.wFormatTag = WAVE_FORMAT_PCM;
     waveFormatEx.nChannels = (WORD)channels;
     waveFormatEx.nSamplesPerSec = (DWORD)sampleRate;
@@ -451,76 +513,35 @@ static int QuerySampleRate( PaDeviceInfo *deviceInfo,
     waveFormatEx.wBitsPerSample = 16;
     waveFormatEx.cbSize = 0;
 
-    result = sampleRateQueryFunction( winMmeDeviceId, &waveFormatEx );
-    if( result )
-        deviceInfo->defaultSampleRate = sampleRate;
-
-    return result;
+    return waveFormatExQueryFunction( winMmeDeviceId, &waveFormatEx );
 }
 
-static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeDeviceId,
-        int (*sampleRateQueryFunction)(int, WAVEFORMATEX*), int maxChannels )
-{
-    PaError result = paNoError;
-    PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
 
+#define PA_MME_DEFAULT_SAMPLE_RATE_COUNT_  (13) /* must match array length below */
+static double defaultSampleRatesToTry[] =
+    { 44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0, 192000.0,
+        16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
+
+static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeDeviceId,
+        PaError (*waveFormatExQueryFunction)(int, WAVEFORMATEX*), int maxChannels )
+{
+    PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
+    int i;
+    
     deviceInfo->defaultSampleRate = 0.;
 
-    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4M16))
-        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4S16))
-        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 44100.0 )) )
+    for( i=0; i < PA_MME_DEFAULT_SAMPLE_RATE_COUNT_; ++i )
     {
-        deviceInfo->defaultSampleRate = 44100.;
-        return result;
+        double sampleRate = defaultSampleRatesToTry[ i ]; 
+        PaError paerror = QueryFormatSupported( deviceInfo, waveFormatExQueryFunction, winMmeDeviceId, maxChannels, sampleRate );
+        if( paerror == paNoError )
+        {
+            deviceInfo->defaultSampleRate = sampleRate;
+            break;
+        }
     }
 
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 48000.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 32000.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 24000.0 ) )
-        return result;
-
-    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2M16))
-        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2S16))
-        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 22050.0 )) )
-    {
-        deviceInfo->defaultSampleRate = 22050.;
-        return result;
-    }
-    
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 88200.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 96000.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 192000.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 16000.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 12000.0 ) )
-        return result;
-
-    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1M16))
-        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1S16))
-        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 11025.0 )) )
-    {
-        deviceInfo->defaultSampleRate = 11025.;
-        return result;
-    }
-    
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 9600.0 ) )
-        return result;
-
-    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 8000.0 ) )
-        return result;
-
-    return result;
+    return paNoError;
 }
 
 
@@ -591,7 +612,7 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     winMmeDeviceInfo->dwFormats = wic.dwFormats;
 
     result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeInputDeviceId,
-            QueryInputSampleRate, deviceInfo->maxInputChannels );
+            QueryInputWaveFormatEx, deviceInfo->maxInputChannels );
 
     *success = 1;
     
@@ -667,7 +688,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     winMmeDeviceInfo->dwFormats = woc.dwFormats;
 
     result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeOutputDeviceId,
-            QueryOutputSampleRate, deviceInfo->maxOutputChannels );
+            QueryOutputWaveFormatEx, deviceInfo->maxOutputChannels );
 
     *success = 1;
     
@@ -882,13 +903,25 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
+    PaWinMmeHostApiRepresentation *winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
+    PaDeviceInfo *inputDeviceInfo, *outputDeviceInfo;
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
+    UINT winMmeInputDeviceId, winMmeOutputDeviceId;
+    PaError paerror;
+
     
     if( inputParameters )
     {
+        inputDeviceInfo = hostApi->deviceInfos[ inputParameters->device ];
+
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
+
+        /* all standard sample formats are supported by the buffer adapter, but
+            we don't support any custom sample formats */
+        if( inputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -897,12 +930,22 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidDevice;
 
         /* check that input device can support inputChannelCount */
-        if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+        if( inputChannelCount > inputDeviceInfo->maxInputChannels )
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+
+        /* We assume that the channel count and format are OK and that therefore
+            the only thing that could fail is the sample rate. This isn't strictly
+            true, but i can't think of a better way to isolate the sample rate as the
+            point of failure.
+        */
+        winMmeInputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputParameters->device );
+        paerror = QueryFormatSupported( inputDeviceInfo, QueryInputWaveFormatEx, winMmeInputDeviceId, inputChannelCount, sampleRate );
+        if( paerror != paNoError )
+            return paerror;
     }
     else
     {
@@ -911,22 +954,39 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
+        outputDeviceInfo = hostApi->deviceInfos[ outputParameters->device ];
+        
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        
+
+        /* all standard sample formats are supported by the buffer adapter, but
+            we don't support any custom sample formats */
+        if( outputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
+
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support inputChannelCount */
-        if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+        /* check that output device can support outputChannelCount */
+        if( outputChannelCount > outputDeviceInfo->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+
+        /* We assume that the channel count and format are OK and that therefore
+            the only thing that could fail is the sample rate. This isn't strictly
+            true, but i can't think of better way to isolate the sample rate as the
+            point of failure.
+        */
+        winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputParameters->device );
+        paerror = QueryFormatSupported( outputDeviceInfo, QueryOutputWaveFormatEx, winMmeOutputDeviceId, outputChannelCount, sampleRate );
+        if( paerror != paNoError )
+            return paInvalidSampleRate;
     }
     else
     {
@@ -934,15 +994,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     }
     
     /*
-        IMPLEMENT ME:
-            - check that input device can support inputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
-
-            - check that output device can support outputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
-
             - if a full duplex stream is requested, check that the combination
                 of input and output parameters is supported
 
