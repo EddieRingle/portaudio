@@ -40,6 +40,7 @@ TESTS = \
 	bin/patest_callbackstop \
 	bin/patest_clip \
 	bin/patest_leftright \
+	bin/patest_many \
 	bin/patest_prime \
 	bin/patest_read_record \
 	bin/patest_record \
@@ -49,6 +50,8 @@ TESTS = \
 	bin/patest_start_stop \
 	bin/patest_stop \
 	bin/patest_sync \
+	bin/patest_underflow \
+	bin/patest_wire \
 	bin/patest_write_sine \
 	bin/pa_devs \
 	bin/pa_fuzz
@@ -85,6 +88,7 @@ ALL_TESTS = \
 	bin/patest_maxsines \
 	bin/patest_multi_sine \
 	bin/patest_pink \
+	bin/patest_read_record \
 	bin/patest_record \
 	bin/patest_ringmix \
 	bin/patest_saw \
@@ -97,7 +101,8 @@ ALL_TESTS = \
 	bin/patest_sync \
 	bin/patest_toomanysines \
 	bin/patest_underflow \
-	bin/patest_wire
+	bin/patest_wire \
+	bin/patest_write_sine
 
 OBJS = $(COMMON_OBJS) $(OTHER_OBJS)
 
