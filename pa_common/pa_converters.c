@@ -52,6 +52,7 @@
 #include "pa_converters.h"
 #include "pa_dither.h"
 #include "pa_endianness.h"
+#include "pa_types.h"
 
 
 PaSampleFormat PaUtil_SelectClosestAvailableFormat(
@@ -1659,8 +1660,8 @@ static void Copy_16_To_16(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    unsigned short *src = (unsigned short*)sourceBuffer;
-    unsigned short *dest = (unsigned short*)destinationBuffer;
+    PaUint16 *src = (PaUint16 *)sourceBuffer;
+    PaUint16 *dest = (PaUint16 *)destinationBuffer;
                                                         
     (void) ditherGenerator; /* unused parameter */
     
@@ -1703,8 +1704,8 @@ static void Copy_32_To_32(
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator )
 {
-    unsigned long *dest = (unsigned long*)destinationBuffer;
-    unsigned long *src = (unsigned long*)sourceBuffer;
+    PaUint32 *dest = (PaUint32 *)destinationBuffer;
+    PaUint32 *src = (PaUint32 *)sourceBuffer;
 
     (void) ditherGenerator; /* unused parameter */
     
@@ -1868,7 +1869,7 @@ static void Zero8( void *destinationBuffer, signed int destinationStride,
 static void Zero16( void *destinationBuffer, signed int destinationStride,
         unsigned int count )
 {
-    unsigned short *dest = (unsigned short*)destinationBuffer;
+    PaUint16 *dest = (PaUint16 *)destinationBuffer;
 
     while( count-- )
     {
@@ -1900,7 +1901,7 @@ static void Zero24( void *destinationBuffer, signed int destinationStride,
 static void Zero32( void *destinationBuffer, signed int destinationStride,
         unsigned int count )
 {
-    unsigned long *dest = (unsigned long*)destinationBuffer;
+    PaUint32 *dest = (PaUint32 *)destinationBuffer;
 
     while( count-- )
     {
