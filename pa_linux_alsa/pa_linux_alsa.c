@@ -495,7 +495,6 @@ static void CallbackUpdate( PaAlsaThreading *th )
 
 /* prototypes for functions declared in this file */
 
-PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
@@ -552,6 +551,10 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     (*hostApi)->OpenStream = OpenStream;
     (*hostApi)->IsFormatSupported = IsFormatSupported;
 
+    ENSURE_PA( BuildDeviceList( alsaHostApi ) );
+
+    mainThread_ = pthread_self();
+
     PaUtil_InitializeStreamInterface( &alsaHostApi->callbackStreamInterface,
                                       CloseStream, StartStream,
                                       StopStream, AbortStream,
@@ -570,10 +573,6 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       GetStreamReadAvailable,
                                       GetStreamWriteAvailable );
 
-    ENSURE_PA( BuildDeviceList( alsaHostApi ) );
-
-    mainThread_ = pthread_self();
-
     return result;
 
 error:
@@ -591,6 +590,20 @@ error:
     return result;
 }
 
+static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
+{
+    PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
+
+    assert( hostApi );
+
+    if( alsaHostApi->allocations )
+    {
+        PaUtil_FreeAllAllocations( alsaHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( alsaHostApi->allocations );
+    }
+
+    PaUtil_FreeMemory( alsaHostApi );
+}
 
 /*! \brief Determine max channels and default latencies
  *
@@ -808,9 +821,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                         paInsufficientMemory );
             }
 
-            deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
-            deviceNames[ numDeviceNames - 1 ].name = deviceName;
-            deviceNames[ numDeviceNames - 1 ].isPlug = 1;
+            deviceNames[numDeviceNames - 1].alsaName = alsaDeviceName;
+            deviceNames[numDeviceNames - 1].name = deviceName;
+            deviceNames[numDeviceNames - 1].isPlug = 1;
         }
     }
     else
@@ -831,7 +844,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     for( i = 0, devIdx = 0; i < numDeviceNames; ++i )
     {
         snd_pcm_t *pcm;
-        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[ devIdx ];
+        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
         PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
 
         /* Zero fields */
@@ -845,7 +858,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         {
             if( GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
-                        &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
+                        &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
                     continue;   /* Error */
         }
                 
@@ -854,28 +867,27 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         {
             if( GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
-                        &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
+                        &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
                     continue;   /* Error */
         }
 
         commonDeviceInfo->structVersion = 2;
         commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
-        deviceInfo->alsaName = deviceNames[ i ].alsaName;
-        deviceInfo->isPlug = deviceNames[ i ].isPlug;
-        commonDeviceInfo->name = deviceNames[ i ].name;
+        commonDeviceInfo->name = deviceNames[i].name;
+        deviceInfo->alsaName = deviceNames[i].alsaName;
+        deviceInfo->isPlug = deviceNames[i].isPlug;
 
         /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
          * Should now be safe to add device info, unless the device supports neither capture nor playback
          */
         if( commonDeviceInfo->maxInputChannels > 0 || commonDeviceInfo->maxOutputChannels > 0 )
         {
-            if( commonDeviceInfo->maxInputChannels > 0 && commonApi->info.defaultInputDevice == paNoDevice )
+            if( commonApi->info.defaultInputDevice == paNoDevice && commonDeviceInfo->maxInputChannels > 0 )
                 commonApi->info.defaultInputDevice = devIdx;
-
-            if( commonDeviceInfo->maxOutputChannels > 0 && commonApi->info.defaultOutputDevice == paNoDevice )
+            if(  commonApi->info.defaultOutputDevice == paNoDevice && commonDeviceInfo->maxOutputChannels > 0 )
                 commonApi->info.defaultOutputDevice = devIdx;
 
-            commonApi->deviceInfos[ devIdx++ ] = (PaDeviceInfo *) deviceInfo;
+            commonApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
         }
     }
     free( deviceNames );
@@ -889,21 +901,6 @@ error:
     goto end;   /* No particular action */
 }
 
-
-static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
-{
-    PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
-
-    assert( hostApi );
-
-    if( alsaHostApi->allocations )
-    {
-        PaUtil_FreeAllAllocations( alsaHostApi->allocations );
-        PaUtil_DestroyAllocationGroup( alsaHostApi->allocations );
-    }
-
-    PaUtil_FreeMemory( alsaHostApi );
-}
 
 /* Check against known device capabilities */
 static PaError ValidateParameters( const PaStreamParameters *parameters, const PaAlsaDeviceInfo *deviceInfo, StreamIO io,
@@ -1087,7 +1084,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
         {
             assert( inputParameters->device < hostApi->info.deviceCount );
-            inputDeviceInfo = (PaAlsaDeviceInfo *)hostApi->deviceInfos[ inputParameters->device ];
+            inputDeviceInfo = (PaAlsaDeviceInfo *)hostApi->deviceInfos[inputParameters->device];
         }
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1326,12 +1323,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAlsaStreamInfo *inputStreamInfo = NULL, *outputStreamInfo = NULL;
     PaTime inputLatency, outputLatency;
 
+    /* validate platform specific flags */
+    if( (streamFlags & paPlatformSpecificFlags) != 0 )
+        return paInvalidFlag; /* unexpected platform specific flag */
+
     if( inputParameters )
     {
         if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
         {
             assert( inputParameters->device < hostApi->info.deviceCount );
-            inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
+            inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[inputParameters->device];
         }
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1346,7 +1347,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device != paUseHostApiSpecificDeviceSpecification )
         {
             assert( outputParameters->device < hostApi->info.deviceCount );
-            outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
+            outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[outputParameters->device];
         }
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1356,10 +1357,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
     }
-
-    /* validate platform specific flags */
-    if( (streamFlags & paPlatformSpecificFlags) != 0 )
-        return paInvalidFlag; /* unexpected platform specific flag */
 
     /* allocate and do basic initialization of the stream structure */
 
@@ -1376,7 +1373,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &alsaHostApi->blockingStreamInterface,
-                                               callback, userData );
+                                               NULL, userData );
     }
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
