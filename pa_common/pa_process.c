@@ -297,11 +297,11 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
                 goto error;
             }
         }
-        
+
         bp->hostOutputChannels[0] = (PaUtilChannelDescriptor*)
-                PaUtil_AllocateMemory( sizeof(PaUtilChannelDescriptor)*numOutputChannels );
+                PaUtil_AllocateMemory( sizeof(PaUtilChannelDescriptor)*numOutputChannels * 2 );
         if( bp->hostOutputChannels[0] == 0 )
-        {
+        {                                                                     
             result = paInsufficientMemory;
             goto error;
         }
