@@ -29,9 +29,9 @@ AC_SUBST(DLL_LIBS)
 dnl checks for various host APIs and arguments to configure that
 dnl turn them on or off
 
-AC_CHECK_LIB(libasound, snd_pcm_open, have_alsa=yes, have_alsa=no)
+AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
 
-PKG_CHECK_MODULES(JACK, jack, have_jack=true, have_jack=false)
+PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
 
 AC_ARG_WITH(alsa, 
             [  --with-alsa (default=auto)],
@@ -87,21 +87,25 @@ case "${host_os}" in
 
 	if [[ $have_alsa = "yes" ] && [ $with_alsa != "no" ]] ; then
    	LIBS="$LIBS -lasound"
-		OTHER_OBJS="$OPTOBJS pa_alsa/pa_alsa.o"
+		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/pa_linux_alsa.o"
+		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/callback_thread.o"
+		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/blocking_calls.o"
 	fi
 
 	if [[ $have_jack = "yes" ] && [ $with_jack != "no" ]] ; then
    	LIBS="$LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
-		OTHER_OBJS="$OPTOBJS pa_jack/pa_jack.o"
+		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
 	fi
 
 	if [[ $with_oss != "no" ]] ; then
-		OTHER_OBJS="$OPTOBJS pa_unix_oss/pa_unix_oss.o"
+		OTHER_OBJS="$OTHER_OBJS pa_unix_oss/pa_unix_oss.o"
 	fi
 	LIBS="-lm -lpthread";
 	PADLL="libportaudio.so";
 	SHARED_FLAGS="-shared";
+
+        OTHER_OBJS="$OTHER_OBJS pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o"
 esac
 
 AC_OUTPUT([Makefile])
