@@ -1006,6 +1006,8 @@ double Pa_GetStreamCpuLoad( PaStream* stream );
  the entire buffer has been filled - this may involve waiting for the operating
  system to supply the data.
 
+ @param stream A pointer to an open stream previously created with Pa_OpenStream.
+ 
  @param buffer A pointer to a buffer of sample frames. The buffer contains
  samples in the format specified by the inputParameters->sampleFormat field
  used to open the stream, and the number of channels specified by
@@ -1029,6 +1031,8 @@ PaError Pa_ReadStream( PaStream* stream,
 /** Write samples to an output stream. This function doesn't return until the
  entire buffer has been consumed - this may involve waiting for the operating
  system to consume the data.
+
+ @param stream A pointer to an open stream previously created with Pa_OpenStream.
 
  @param buffer A pointer to a buffer of sample frames. The buffer contains
  samples in the format specified by the outputParameters->sampleFormat field

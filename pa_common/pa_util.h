@@ -41,7 +41,8 @@ extern "C"
 
 struct PaUtilHostApiRepresentation;
 
-/** @file Utility functions used by PortAudio implementations.
+/** @file
+    Utility functions used by PortAudio implementations.
 
     @todo Document and adhere to the alignment guarantees provided by
     PaUtil_AllocateMemory().

@@ -692,7 +692,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->maxInputChannels = 0;
                 deviceInfo->maxOutputChannels = 0;
 
-                /* @todo: tune the following values, NT may need to be higher */
+                /** @todo: tune the following values, NT may need to be higher */
                 deviceInfo->defaultLowInputLatency = 0.2;
                 deviceInfo->defaultLowOutputLatency = 0.2;
                 deviceInfo->defaultHighInputLatency = 0.4;
@@ -728,7 +728,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->maxInputChannels = 0;
                 deviceInfo->maxOutputChannels = 0;
 
-                /* @todo: tune the following values, NT may need to be higher */
+                /** @todo: tune the following values, NT may need to be higher */
                 deviceInfo->defaultLowInputLatency = 0.2;
                 deviceInfo->defaultLowOutputLatency = 0.2;
                 deviceInfo->defaultHighInputLatency = 0.4;
@@ -1328,8 +1328,8 @@ struct PaWinMmeStream
 
     DWORD allBuffersDurationMs; /* used to calculate timeouts */
 
-    /* @todo FIXME: we no longer need the following for GetStreamTime support */
-    /* GetStreamTime() support ------------- */
+    /** @todo FIXME: we no longer need the following for GetStreamTime support */
+    /** GetStreamTime() support ------------- */
 
     PaTime streamPosition;
     long previousStreamPosition;                /* used to track frames played. */
@@ -2226,7 +2226,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
                         (!PA_IS_FULL_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
-                    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement inputBufferAdcTime and currentTime */
+                    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime and currentTime */
 
 
                     if( hostOutputBufferIndex != -1 )
@@ -2259,7 +2259,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /* @todo pass underflow/overflow flags when necessary */  );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /** @todo pass underflow/overflow flags when necessary */  );
 
                     if( hostInputBufferIndex != -1 )
                     {
@@ -2501,7 +2501,7 @@ static PaError StartStream( PaStream *s )
     int callbackResult;
 	unsigned int channel;
  	unsigned long framesProcessed;
-	PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement this for stream priming */
+	PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement this for stream priming */
     
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
     
@@ -2572,7 +2572,7 @@ static PaError StartStream( PaStream *s )
 
                     if( callbackResult != paContinue )
                     {
-                        /* @todo: fix this, what do we do if callback result is non-zero during stream
+                        /** @todo: fix this, what do we do if callback result is non-zero during stream
                             priming?
 
                             for complete: play out primed buffers as usual

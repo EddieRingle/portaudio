@@ -300,7 +300,7 @@ static PaError TerminateDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *gu
     if( guidVector->items != NULL )
     {
         if( LocalFree( guidVector->items ) != NULL )
-            result = paInsufficientMemory;              /* @todo this isn't the correct error to return from a deallocation failure */
+            result = paInsufficientMemory;              /** @todo this isn't the correct error to return from a deallocation failure */
 
         guidVector->items = NULL;
     }
@@ -443,11 +443,11 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                 /* Mono or stereo device? */
                 deviceInfo->maxOutputChannels = ( caps.dwFlags & DSCAPS_PRIMARYSTEREO ) ? 2 : 1;
 
-                deviceInfo->defaultLowInputLatency = 0.;    /* @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;   /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;   /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultSampleRate = 0;          /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowInputLatency = 0.;    /** @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;   /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
+                deviceInfo->defaultSampleRate = 0;          /** @todo IMPLEMENT ME */
             }
         }
 
@@ -542,11 +542,11 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
                 deviceInfo->maxInputChannels = caps.dwChannels;
                 deviceInfo->maxOutputChannels = 0;
 
-                deviceInfo->defaultLowInputLatency = 0.;    /* @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;   /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;   /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultSampleRate = 0;          /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowInputLatency = 0.;    /** @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;   /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
+                deviceInfo->defaultSampleRate = 0;          /** @todo IMPLEMENT ME */
             }
         }
         
@@ -576,7 +576,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     DSDeviceNameAndGUIDVector inputNamesAndGUIDs, outputNamesAndGUIDs;
     PaDeviceInfo *deviceInfoArray;
 
-    HRESULT hr = CoInitialize(NULL);        /* @todo: should uninitialize too */
+    HRESULT hr = CoInitialize(NULL);        /** @todo: should uninitialize too */
     if( FAILED(hr) ){
         return paUnanticipatedHostError;
     }            
@@ -1109,7 +1109,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         {
-            /* @todo REVIEW: this calculation seems incorrect to me - rossb. */
+            /** @todo REVIEW: this calculation seems incorrect to me - rossb. */
             int msecLatency = (int) ((stream->framesPerDSBuffer * MSEC_PER_SECOND) / sampleRate);
             PRINT(("PortAudio on DirectSound - Latency = %d frames, %d msec\n", stream->framesPerDSBuffer, msecLatency ));
         }
@@ -1232,7 +1232,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     long              bytesProcessed;
     HRESULT           hresult;
     double            outputLatency = 0;
-    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* @todo implement inputBufferAdcTime */
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /** @todo implement inputBufferAdcTime */
 /* Input */
     LPBYTE            lpInBuf1 = NULL;
     LPBYTE            lpInBuf2 = NULL;
@@ -1277,7 +1277,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         timeInfo.outputBufferDacTime = timeInfo.currentTime + outputLatency;
 
 
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /* @todo pass underflow/overflow flags when necessary */ );
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /** @todo pass underflow/overflow flags when necessary */ );
 
     /* Input */
         if( stream->bufferProcessor.inputChannelCount > 0 )

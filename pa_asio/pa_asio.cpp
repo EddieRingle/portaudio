@@ -1068,10 +1068,10 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels = %d\n", i,paAsioDriverInfo.numOutputChannels));
 
 
-                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowInputLatency = 0.;  /** @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;  /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;  /** @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
 
                 deviceInfo->defaultSampleRate = 0.;
                 for( int j=0; j < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++j )
@@ -1958,7 +1958,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                 }
             }
 
-            PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo, 0 /* @todo pass underflow/overflow flags when necessary */ );
+            PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, &paTimeInfo, 0 /** @todo pass underflow/overflow flags when necessary */ );
 
             PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
             for( i=0; i<theAsioStream->numInputChannels; ++i )
