@@ -45,8 +45,8 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
                                        double (*GetCpuLoad)( PaStream* ),
                                        PaError (*Read)( PaStream*, void *, unsigned long ),
                                        PaError (*Write)( PaStream*, void *, unsigned long ),
-                                       unsigned long (*GetReadAvailable)( PaStream* ),
-                                       unsigned long (*GetWriteAvailable)( PaStream* )  )
+                                       signed long (*GetReadAvailable)( PaStream* ),
+                                       signed long (*GetWriteAvailable)( PaStream* )  )
 {
     streamInterface->Close = Close;
     streamInterface->Start = Start;
@@ -96,7 +96,7 @@ PaError PaUtil_DummyReadWrite( PaStream* stream,
 }
 
 
-unsigned long PaUtil_DummyGetAvailable( PaStream* stream )
+signed long PaUtil_DummyGetAvailable( PaStream* stream )
 {
     (void)stream; /* unused parameter */
 

@@ -59,8 +59,8 @@ typedef struct {
     double (*GetCpuLoad)( PaStream* stream );
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames );
     PaError (*Write)( PaStream* stream, void *buffer, unsigned long frames );
-    unsigned long (*GetReadAvailable)( PaStream* stream );
-    unsigned long (*GetWriteAvailable)( PaStream* stream );
+    signed long (*GetReadAvailable)( PaStream* stream );
+    signed long (*GetWriteAvailable)( PaStream* stream );
 } PaUtilStreamInterface;
 
 
@@ -77,8 +77,8 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     double (*GetCpuLoad)( PaStream* ),
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames ),
     PaError (*Write)( PaStream* stream, void *buffer, unsigned long frames ),
-    unsigned long (*GetReadAvailable)( PaStream* stream ),
-    unsigned long (*GetWriteAvailable)( PaStream* stream ) );
+    signed long (*GetReadAvailable)( PaStream* stream ),
+    signed long (*GetWriteAvailable)( PaStream* stream ) );
 
 
 /*
@@ -90,7 +90,7 @@ PaError PaUtil_DummyReadWrite( PaStream* stream,
                        unsigned long frames );
 
                        
-unsigned long PaUtil_DummyGetAvailable( PaStream* stream );
+signed long PaUtil_DummyGetAvailable( PaStream* stream );
 
 /*
     use PaUtil_DummyGetCpuLoad for read/write streams
