@@ -95,11 +95,6 @@
 
     @todo miscellaneous other FIXMEs
 
-    @todo implement the following somewhere:
-
-        if( stream->streamRepresentation.streamFinishedCallback != 0 )
-            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-
     @todo provide an asio-specific method for setting the systems specific
         value (aka main window handle) - check that this matches the value
         passed to PaAsio_ShowControlPanel, or remove it entirely from
@@ -1275,7 +1270,8 @@ typedef struct PaAsioStream
     volatile bool stopProcessing;
     int stopPlayoutCount;
     HANDLE completedBuffersPlayedEvent;
-                         
+
+    bool streamFinishedCallbackCalled;
     volatile int isActive;
     volatile bool zeroOutput; /* all future calls to the callback will output silence */
 }
@@ -1896,6 +1892,9 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                 if( theAsioStream->stopPlayoutCount == 2 )
                 {
                     theAsioStream->isActive = 0;
+                    if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
+                        theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
+                    theAsioStream->streamFinishedCallbackCalled = true;
                     SetEvent( theAsioStream->completedBuffersPlayedEvent );
                 }
             }
@@ -1966,6 +1965,9 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         {
             /* finish playback immediately  */
             theAsioStream->isActive = 0;
+            if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
+                theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
+            theAsioStream->streamFinishedCallbackCalled = true;
             SetEvent( theAsioStream->completedBuffersPlayedEvent );
             theAsioStream->zeroOutput = true;
         }
@@ -2110,6 +2112,7 @@ static PaError StartStream( PaStream *s )
         if( asioError == ASE_OK )
         {
             stream->isActive = 1;
+            stream->streamFinishedCallbackCalled = false;
         }
         else
         {
@@ -2157,6 +2160,12 @@ static PaError StopStream( PaStream *s )
 
     theAsioStream = 0;
     stream->isActive = 0;
+
+    if( !stream->streamFinishedCallbackCalled )
+    {
+        if( stream->streamRepresentation.streamFinishedCallback != 0 )
+            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+    }
     
     return result;
 }
@@ -2180,6 +2189,12 @@ static PaError AbortStream( PaStream *s )
     theAsioStream = 0;
     stream->isActive = 0;
 
+    if( !stream->streamFinishedCallbackCalled )
+    {
+        if( stream->streamRepresentation.streamFinishedCallback != 0 )
+            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+    }
+    
     return result;
 }
 
