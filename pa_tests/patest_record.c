@@ -186,15 +186,16 @@ static int playCallback( const void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PaStreamParameters inputParameters, outputParameters;
-    PaStream *stream;
-    PaError    err;
-    paTestData data;
-    int        i;
-    int        totalFrames;
-    int        numSamples;
-    int        numBytes;
-    SAMPLE     max, average, val;
+    PaStreamParameters  inputParameters,
+                        outputParameters;
+    PaStream*           stream;
+    PaError             err = paNoError;
+    paTestData          data;
+    int                 i;
+    int                 totalFrames;
+    int                 numSamples;
+    int                 numBytes;
+    SAMPLE              max, average, val;
 
     printf("patest_record.c\n"); fflush(stdout);
 
