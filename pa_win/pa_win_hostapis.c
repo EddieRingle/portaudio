@@ -50,7 +50,7 @@ const PaUtilHostApiInitializer *paHostApiInitializers[] =
 #endif
 
 #ifndef PA_NO_ASIO
-        //PaAsio_Initialize,
+        PaAsio_Initialize,
 #endif
 
         PaSkeleton_Initialize, /* just for testing */
