@@ -218,37 +218,40 @@ static void* ConfigureUserOutputBufferPtr( PaUtilBufferProcessor *bp, void *host
     }
     else
     {
-        if( bp->outputConverter )
+        if( bp->userOutputIsInterleaved )
         {
-            if( bp->userOutputIsInterleaved )
-            {
 
-                /* user output is interleaved */
-                result = bp->tempOutputBuffer;
+            /* user output is interleaved */
+            result = bp->tempOutputBuffer;
 
-            }
-            else
-            {
-
-                /* user output is non-interleaved */
-                p = bp->tempOutputBuffer;
-
-                for( i=0; i < bp->numOutputChannels; ++i )
-                {
-                    bp->tempOutputBufferPtrs[i] = p;
-                    p +=  bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
-                }
-
-                result = bp->tempOutputBufferPtrs;
-            }
         }
         else
         {
-            /* pass output buffer directly if no conversion is needed */
-            result = hostBuffer;
 
-            /* REVIEW: what if no conversion is necessary but the host is interleaved and the user isn't or vice versa ? */
+            /* user output is non-interleaved */
+            p = bp->tempOutputBuffer;
+
+            for( i=0; i < bp->numOutputChannels; ++i )
+            {
+                bp->tempOutputBufferPtrs[i] = p;
+                p +=  bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
+            }
+
+            result = bp->tempOutputBufferPtrs;
         }
+
+
+    /*
+        if( bp->outputConverter )
+        {
+
+        }
+        else
+        {
+            // pass output buffer directly if no conversion is needed
+            result = hostBuffer;
+        }
+    */
     }
 
     return result;
@@ -533,7 +536,7 @@ int PaUtil_ProcessNonInterleavedBuffers( PaUtilBufferProcessor* bp,
             ++destNonInterleavedPtr;
         }
     }
-
+    
     return result;
 }
 
