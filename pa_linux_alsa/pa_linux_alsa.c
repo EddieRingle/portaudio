@@ -1759,7 +1759,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-                    sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
+                    sampleRate, streamFlags, framesPerBuffer, stream->framesPerHostBuffer,
                     hostBufferSizeMode, callback, userData ) );
 
     /* Ok, buffer processor is initialized, now we can deduce it's latency */
@@ -2464,10 +2464,8 @@ static PaError SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t requested, 
      * one of these further down */
     if( stream->alignFrames )
     {
-        if( playbackFrames > stream->framesPerHostBuffer )
-            playbackFrames -= playbackFrames % stream->framesPerHostBuffer;
-        if( captureFrames > stream->framesPerHostBuffer )
-            captureFrames -= captureFrames % stream->framesPerHostBuffer;
+        playbackFrames -= playbackFrames % stream->framesPerHostBuffer;
+        captureFrames -= captureFrames % stream->framesPerHostBuffer;
     }
     commonFrames = PA_MIN( captureFrames, playbackFrames );
 
