@@ -31,7 +31,7 @@ x- patest_saw.c
 x- patest_sine.c
 x- patest_sine8.c
 x- patest_sine_formats.c
-o- patest_sine_time.c
+x- patest_sine_time.c
 x- patest_start_stop.c
 x- patest_stop.c
 x- patest_sync.c
