@@ -64,7 +64,8 @@ static struct PaUtilAllocationGroupLink *AllocateLinks( long count,
     struct PaUtilAllocationGroupLink *result;
     int i;
     
-    result = PaUtil_AllocateMemory( sizeof(struct PaUtilAllocationGroupLink) * count );
+    result = (struct PaUtilAllocationGroupLink *)PaUtil_AllocateMemory(
+            sizeof(struct PaUtilAllocationGroupLink) * count );
     if( result )
     {
         /* the block link */

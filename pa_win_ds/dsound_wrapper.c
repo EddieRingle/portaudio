@@ -210,7 +210,7 @@ HRESULT DSW_InitOutputDevice( DSoundWrapper *dsw, LPGUID lpGUID )
 }
 
 /************************************************************************************/
-HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int nChannels, int bytesPerBuffer )
+HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     DWORD          dwDataLen;
     DWORD          playCursor;
@@ -267,7 +267,7 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     wfFormat.nChannels = nChannels;
     wfFormat.nSamplesPerSec = nFrameRate;
     wfFormat.wBitsPerSample = 8 * sizeof(short);
-    wfFormat.nBlockAlign = wfFormat.nChannels * wfFormat.wBitsPerSample / 8;
+    wfFormat.nBlockAlign = (WORD)(wfFormat.nChannels * (wfFormat.wBitsPerSample / 8));
     wfFormat.nAvgBytesPerSec = wfFormat.nSamplesPerSec * wfFormat.nBlockAlign;
     wfFormat.cbSize = 0;  /* No extended format info. */
     // Set the primary buffer's format
@@ -514,7 +514,7 @@ HRESULT DSW_InitInputDevice( DSoundWrapper *dsw, LPGUID lpGUID )
     return hr;
 }
 /************************************************************************************/
-HRESULT DSW_InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int nChannels, int bytesPerBuffer )
+HRESULT DSW_InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     DSCBUFFERDESC  captureDesc;
     WAVEFORMATEX   wfFormat;
@@ -527,7 +527,7 @@ HRESULT DSW_InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int n
     wfFormat.nChannels       = nChannels;
     wfFormat.nSamplesPerSec  = nFrameRate;
     wfFormat.wBitsPerSample  = 8 * sizeof(short);
-    wfFormat.nBlockAlign     = wfFormat.nChannels * (wfFormat.wBitsPerSample / 8);
+    wfFormat.nBlockAlign     = (WORD)(wfFormat.nChannels * (wfFormat.wBitsPerSample / 8));
     wfFormat.nAvgBytesPerSec = wfFormat.nSamplesPerSec * wfFormat.nBlockAlign;
     wfFormat.cbSize          = 0;   /* No extended format info. */
     dsw->dsw_InputSize = bytesPerBuffer;

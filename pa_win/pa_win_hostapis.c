@@ -29,13 +29,21 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-
 #include "pa_hostapi.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
 
 PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 
 PaUtilHostApiInitializer *paHostApiInitializers[] =

@@ -92,7 +92,17 @@
 
 /* prototypes for functions declared in this file */
 
-PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
+
+PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -138,7 +148,7 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
 
 typedef struct PaWinDsDeviceInfo
 {
-    GUID                             GUID;
+    GUID                             guid;
     GUID                            *lpGUID;
     double                           sampleRates[3];
 } PaWinDsDeviceInfo;
@@ -235,7 +245,7 @@ static PaError InitializeDSDeviceNameAndGUIDVector(
 
     guidVector->count = 0;
     guidVector->free = 8;
-    guidVector->items = LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * guidVector->free );
+    guidVector->items = (DSDeviceNameAndGUID*)LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * guidVector->free );
     if( guidVector->items == NULL )
         result = paInsufficientMemory;
     
@@ -252,7 +262,7 @@ static PaError ExpandDSDeviceNameAndGUIDVector( DSDeviceNameAndGUIDVector *guidV
     int size = guidVector->count + guidVector->free;
     guidVector->free += size;
 
-    newItems = LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * size * 2 );
+    newItems = (DSDeviceNameAndGUID*)LocalAlloc( LMEM_FIXED, sizeof(DSDeviceNameAndGUID) * size * 2 );
     if( newItems == NULL )
     {
         result = paInsufficientMemory;
@@ -374,8 +384,8 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     }
     else
     {
-        memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
-        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->GUID;      
+        memcpy( &winDsDeviceInfo->guid, lpGUID, sizeof(GUID) );
+        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->guid;
     }
 
     
@@ -484,8 +494,8 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
     }
     else
     {
-        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->GUID;
-        memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
+        winDsDeviceInfo->lpGUID = &winDsDeviceInfo->guid;
+        memcpy( &winDsDeviceInfo->guid, lpGUID, sizeof(GUID) );
     }
 
 
@@ -926,7 +936,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
-        suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
+        suggestedInputLatencyFrames = (unsigned long)(inputParameters->suggestedLatency * sampleRate);
 
         /* IDEA: the following 3 checks could be performed by default by pa_front
             unless some flag indicated otherwise */
@@ -955,7 +965,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
+        suggestedOutputLatencyFrames = (unsigned long)(outputParameters->suggestedLatency * sampleRate);
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -1108,9 +1118,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* ------------------ OUTPUT */
         if( outputParameters )
         {
+            /*
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputParameters->device ];
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputParameters->device));
-
+            */
+            
             bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->channelCount * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
@@ -1135,7 +1147,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitOutputBuffer( dsw,
                                        (unsigned long) (sampleRate + 0.5),
-                                       outputParameters->channelCount, bytesPerDirectSoundBuffer );
+                                       (WORD)outputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -1152,7 +1164,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* ------------------ INPUT */
         if( inputParameters )
         {
+            /*
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputParameters->device ];
+            DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", inputParameters->device));
+            */
             
             bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->channelCount * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
@@ -1177,7 +1192,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitInputBuffer( dsw,
                                       (unsigned long) (sampleRate + 0.5),
-                                      inputParameters->channelCount, bytesPerDirectSoundBuffer );
+                                      (WORD)inputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitInputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -1355,6 +1370,12 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
 {
     PaWinDsStream *stream;
 
+    /* suppress unused variable warnings */
+    (void) uID;
+    (void) uMsg;
+    (void) dw1;
+    (void) dw2;
+    
     stream = (PaWinDsStream *) dwUser;
     if( stream == NULL ) return;
 
@@ -1527,7 +1548,6 @@ static PaError StopStream( PaStream *s )
 /***********************************************************************************/
 static PaError AbortStream( PaStream *s )
 {
-    PaError result = paNoError;
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
     stream->abortProcessing = 1;
@@ -1555,6 +1575,10 @@ static PaError IsStreamActive( PaStream *s )
 /***********************************************************************************/
 static PaTime GetStreamTime( PaStream *s )
 {
+    /* suppress unused variable warnings */
+    (void) s;
+
+    
 /*
     new behavior for GetStreamTime is to return a stream based seconds clock
     used for the outTime parameter to the callback.
@@ -1592,6 +1616,11 @@ static PaError ReadStream( PaStream* s,
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) buffer;
+    (void) frames;
+    (void) stream;
+
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return paNoError;
@@ -1605,6 +1634,11 @@ static PaError WriteStream( PaStream* s,
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) buffer;
+    (void) frames;
+    (void) stream;
+
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return paNoError;
@@ -1615,6 +1649,9 @@ static PaError WriteStream( PaStream* s,
 static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
+
+    /* suppress unused variable warnings */
+    (void) stream;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
@@ -1627,6 +1664,9 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;

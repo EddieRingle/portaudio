@@ -1413,7 +1413,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
-        suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
+        suggestedInputLatencyFrames = (unsigned long)(inputParameters->suggestedLatency * sampleRate);
 
         asioDeviceIndex = inputParameters->device;
 
@@ -1436,7 +1436,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
+        suggestedOutputLatencyFrames = (unsigned long)(outputParameters->suggestedLatency * sampleRate);
 
         asioDeviceIndex = outputParameters->device;
 

@@ -51,7 +51,18 @@
 
 /* prototypes for functions declared in this file */
 
-PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
+
+PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
@@ -72,8 +83,6 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTime GetStreamInputLatency( PaStream *stream );
-static PaTime GetStreamOutputLatency( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -306,6 +315,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
             - check that the device supports sampleRate
     */
+
+
+    /* suppress unused variable warnings */
+    (void) sampleRate;
+    (void) inputSampleFormat;
+    (void) outputSampleFormat;
 
     return paFormatIsSupported;
 }
@@ -613,8 +628,14 @@ static PaError StartStream( PaStream *s )
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
-    
+
     /* IMPLEMENT ME, see portaudio.h for required behavior */
+
+    /* suppress unused function warning. the code in ExampleHostProcessingLoop or
+       something similar should be implemented to feed samples to and from the
+       host after StartStream() is called.
+    */
+    (void) ExampleHostProcessingLoop;
 
     return result;
 }
@@ -624,6 +645,9 @@ static PaError StopStream( PaStream *s )
 {
     PaError result = paNoError;
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
+
+    /* suppress unused variable warnings */
+    (void) stream;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
@@ -636,6 +660,9 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
     return result;
@@ -646,6 +673,9 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
     return 0;
@@ -656,6 +686,9 @@ static PaError IsStreamActive( PaStream *s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
     return 0;
@@ -666,6 +699,9 @@ static PaTime GetStreamTime( PaStream *s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;
@@ -692,6 +728,11 @@ static PaError ReadStream( PaStream* s,
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) buffer;
+    (void) frames;
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return paNoError;
@@ -704,6 +745,11 @@ static PaError WriteStream( PaStream* s,
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) buffer;
+    (void) frames;
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return paNoError;
@@ -714,6 +760,9 @@ static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;
@@ -724,10 +773,14 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
+    /* suppress unused variable warnings */
+    (void) stream;
+    
     /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;
 }
+
 
 
 

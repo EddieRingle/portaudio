@@ -125,7 +125,7 @@ const char* Pa_GetVersionText( void )
 
 static char lastHostErrorText_[ PA_LAST_HOST_ERROR_TEXT_LENGTH_ + 1 ] = {0};
 
-static PaHostErrorInfo lastHostErrorInfo_ = { -1, 0, lastHostErrorText_ };
+static PaHostErrorInfo lastHostErrorInfo_ = { (PaHostApiTypeId)-1, 0, lastHostErrorText_ };
 
 
 void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
@@ -196,7 +196,8 @@ static PaError InitializeHostApis( void )
 
     initializerCount = CountHostApiInitializers();
 
-    hostApis_ = PaUtil_AllocateMemory( sizeof(PaUtilHostApiRepresentation*) * initializerCount );
+    hostApis_ = (PaUtilHostApiRepresentation**)PaUtil_AllocateMemory(
+            sizeof(PaUtilHostApiRepresentation*) * initializerCount );
     if( !hostApis_ )
     {
         result = paInsufficientMemory;

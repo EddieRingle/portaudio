@@ -102,7 +102,7 @@ typedef struct
 HRESULT DSW_Init( DSoundWrapper *dsw );
 void DSW_Term( DSoundWrapper *dsw );
 HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate,
-                              int nChannels, int bufSize );
+                              WORD nChannels, int bufSize );
 HRESULT DSW_StartOutput( DSoundWrapper *dsw );
 HRESULT DSW_StopOutput( DSoundWrapper *dsw );
 DWORD   DSW_GetOutputStatus( DSoundWrapper *dsw );
@@ -112,7 +112,7 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty );
 HRESULT DSW_Enumerate( DSoundWrapper *dsw );
 
 HRESULT DSW_InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate,
-                             int nChannels, int bufSize );
+                             WORD nChannels, int bufSize );
 HRESULT DSW_StartInput( DSoundWrapper *dsw );
 HRESULT DSW_StopInput( DSoundWrapper *dsw );
 HRESULT DSW_ReadBlock( DSoundWrapper *dsw, char *buf, long numBytes );

@@ -1,11 +1,5 @@
 #ifndef PA_WIN_WMME_H
 #define PA_WIN_WMME_H
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
-
 /*
  *
  * PortAudio Portable Real-Time Audio Library
@@ -38,8 +32,13 @@ extern "C"
  *
  */
 
-
 #include "portaudio.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
+
 
 #define PaWinMmeUseLowLevelLatencyParameters            (0x01)
 #define PaWinMmeUseMultipleDevices                      (0x02)  /* use mme specific multiple device feature */

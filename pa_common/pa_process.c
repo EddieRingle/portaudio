@@ -63,8 +63,8 @@
 
 
     @todo rename the following variables in the adaptor functions for improved clarity:
-        srcStride -> srcSampleStrideSamples /* stride from one sample to the next within a channel, in samples * /
-        srcBytePtrStride -> srcChannelStrideBytes  /* stride from one channel to the next, in bytes * /
+        srcStride -> srcSampleStrideSamples ( stride from one sample to the next within a channel, in samples )
+        srcBytePtrStride -> srcChannelStrideBytes  ( stride from one channel to the next, in bytes )
         
 */
 
@@ -249,7 +249,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
         if( userInputSampleFormat & paNonInterleaved )
         {
             bp->tempInputBufferPtrs =
-                PaUtil_AllocateMemory( sizeof(void*)*inputChannelCount );
+                (void **)PaUtil_AllocateMemory( sizeof(void*)*inputChannelCount );
             if( bp->tempInputBufferPtrs == 0 )
             {
                 result = paInsufficientMemory;
@@ -315,7 +315,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
         if( userOutputSampleFormat & paNonInterleaved )
         {
             bp->tempOutputBufferPtrs =
-                PaUtil_AllocateMemory( sizeof(void*)*outputChannelCount );
+                (void **)PaUtil_AllocateMemory( sizeof(void*)*outputChannelCount );
             if( bp->tempOutputBufferPtrs == 0 )
             {
                 result = paInsufficientMemory;
@@ -420,7 +420,7 @@ void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaStreamCallbackTi
         
     bp->timeInfo->inputBufferAdcTime -= bp->framesInTempInputBuffer * bp->samplePeriod;
     
-    bp->timeInfo->currentTime; /* FIXME: @todo time info currentTime not implemented */
+    bp->timeInfo->currentTime = 0; /* FIXME: @todo time info currentTime not implemented */
 
     /* the first streamCallback will be called to generate samples which will be
         outputted after the frames currently in the output buffer have been
@@ -860,7 +860,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                     buffers in-place.
                 */
             
-                destBytePtr = bp->tempInputBuffer;
+                destBytePtr = (unsigned char *)bp->tempInputBuffer;
 
                 if( bp->userInputIsInterleaved )
                 {
@@ -958,7 +958,7 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                         buffers in-place.
                     */
             
-                    srcBytePtr = bp->tempOutputBuffer;
+                    srcBytePtr = (unsigned char *)bp->tempOutputBuffer;
 
                     if( bp->userOutputIsInterleaved )
                     {
