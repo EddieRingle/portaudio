@@ -2380,6 +2380,58 @@ static void OnExit( void *data )
     stream->isActive = 0;
 }
 
+static void CalculateTimeInfo( PaAlsaStream *stream, PaStreamCallbackTimeInfo *timeInfo )
+{
+    /* Allocation should happen here, once per iteration is no good */
+    snd_pcm_status_t *capture_status, *playback_status;
+    snd_timestamp_t capture_timestamp, playback_timestamp;
+
+    snd_pcm_status_alloca( &capture_status );
+    snd_pcm_status_alloca( &playback_status );
+
+    PaTime capture_time = 0., playback_time = 0.;
+
+    if( stream->pcm_capture )
+    {
+        snd_pcm_sframes_t capture_delay;
+
+        snd_pcm_status( stream->pcm_capture, capture_status );
+        snd_pcm_status_get_tstamp( capture_status, &capture_timestamp );
+
+        capture_time = capture_timestamp.tv_sec +
+            ((PaTime)capture_timestamp.tv_usec/1000000);
+        timeInfo->currentTime = capture_time;
+
+        capture_delay = snd_pcm_status_get_delay( capture_status );
+        timeInfo->inputBufferAdcTime = timeInfo->currentTime -
+            (PaTime)capture_delay / stream->streamRepresentation.streamInfo.sampleRate;
+    }
+    if( stream->pcm_playback )
+    {
+        snd_pcm_sframes_t playback_delay;
+
+        snd_pcm_status( stream->pcm_playback, playback_status );
+        snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
+
+        playback_time = playback_timestamp.tv_sec +
+            ((PaTime)playback_timestamp.tv_usec/1000000);
+
+        if( stream->pcm_capture ) /* Full duplex */
+        {
+            /* Hmm, we have both a playback and a capture timestamp.
+             * Hopefully they are the same... */
+            if( fabs( capture_time - playback_time ) > 0.01 )
+                PA_DEBUG(("Capture time and playback time differ by %f\n", fabs(capture_time-playback_time)));
+        }
+        else
+            timeInfo->currentTime = playback_time;
+
+        playback_delay = snd_pcm_status_get_delay( playback_status );
+        timeInfo->outputBufferDacTime = timeInfo->currentTime +
+            (PaTime)playback_delay / stream->streamRepresentation.streamInfo.sampleRate;
+    }
+}
+
 /* \brief Callback thread's function
  *
  * Roughly, the workflow consists of waiting untill ALSA reports available frames, and then consuming these frames in an inner loop
@@ -2392,13 +2444,8 @@ static void *CallbackThreadFunc( void *userData )
     PaAlsaStream *stream = (PaAlsaStream*) userData;
     snd_pcm_uframes_t framesAvail, framesGot, framesProcessed;
     snd_pcm_sframes_t startThreshold = stream->startThreshold;
-    snd_pcm_status_t *capture_status, *playback_status;
 
     assert( userData );
-
-    /* Allocation should happen here, once per iteration is no good */
-    snd_pcm_status_alloca( &capture_status );
-    snd_pcm_status_alloca( &playback_status );
 
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
 
@@ -2417,61 +2464,14 @@ static void *CallbackThreadFunc( void *userData )
             ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
     }
 
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0};
+    PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
     while( 1 )
     {
-        PaError callbackResult;
-	PaStreamCallbackTimeInfo timeInfo = {0,0,0};
-        PaStreamCallbackFlags cbFlags = 0;
-
         pthread_testcancel();
 
-        {
-            /* calculate time info */
-            snd_timestamp_t capture_timestamp, playback_timestamp;
-            PaTime capture_time = 0., playback_time = 0.;
-
-            if( stream->pcm_capture )
-            {
-                snd_pcm_sframes_t capture_delay;
-
-                snd_pcm_status( stream->pcm_capture, capture_status );
-                snd_pcm_status_get_tstamp( capture_status, &capture_timestamp );
-
-                capture_time = capture_timestamp.tv_sec +
-                                     ((PaTime)capture_timestamp.tv_usec/1000000);
-                timeInfo.currentTime = capture_time;
-
-                capture_delay = snd_pcm_status_get_delay( capture_status );
-                timeInfo.inputBufferAdcTime = timeInfo.currentTime -
-                    (PaTime)capture_delay / stream->streamRepresentation.streamInfo.sampleRate;
-            }
-            if( stream->pcm_playback )
-            {
-                snd_pcm_sframes_t playback_delay;
-
-                snd_pcm_status( stream->pcm_playback, playback_status );
-                snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
-
-                playback_time = playback_timestamp.tv_sec +
-                                     ((PaTime)playback_timestamp.tv_usec/1000000);
-
-                if( stream->pcm_capture ) /* Full duplex */
-                {
-                    /* Hmm, we have both a playback and a capture timestamp.
-                     * Hopefully they are the same... */
-                    if( fabs( capture_time - playback_time ) > 0.01 )
-                        PA_DEBUG(("Capture time and playback time differ by %f\n", fabs(capture_time-playback_time)));
-                }
-                else
-                    timeInfo.currentTime = playback_time;
-
-                playback_delay = snd_pcm_status_get_delay( playback_status );
-                timeInfo.outputBufferDacTime = timeInfo.currentTime +
-                    (PaTime)playback_delay / stream->streamRepresentation.streamInfo.sampleRate;
-            }
-        }
-
-        /* Set callback flags *after* one of these has been detected */
+        ENSURE_PA( Wait( stream, &framesAvail ) );  /* Wait on available frames */
+        /* Set callback flags after one of these has been detected (in Wait()) */
         if( stream->underrun != 0.0 )
         {
             cbFlags |= paOutputUnderflow;
@@ -2483,9 +2483,11 @@ static void *CallbackThreadFunc( void *userData )
             stream->overrun = 0.0;
         }
 
-        ENSURE_PA( Wait( stream, &framesAvail ) );
+        /* Consume available frames */
         while( framesAvail > 0 )
         {
+            PaError callbackResult = paContinue;
+
             pthread_testcancel();
 
             /* Priming output */
@@ -2499,8 +2501,6 @@ static void *CallbackThreadFunc( void *userData )
             /* now we know the soundcard is ready to produce/receive at least
              * one period.  we just need to get the buffers for the client
              * to read/write. */
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
-
             ENSURE_PA( SetUpBuffers( stream, framesAvail, 1, &framesGot ) );
             /* Check for under/overflow */
             if( stream->pcm_playback && stream->pcm_capture )
@@ -2525,15 +2525,19 @@ static void *CallbackThreadFunc( void *userData )
                 }
             }
 
+            CalculateTimeInfo( stream, &timeInfo );
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
+            cbFlags = 0;    /* Reset callback flags */
+
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             CallbackUpdate( &stream->threading );   /* Report to watchdog */
 
-            callbackResult = paContinue;
             /* this calls the callback */
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
+            assert( framesProcessed == framesGot ); /* These should be the same, since we don't use block adaption */
 
             /* Inform ALSA how many frames we read/wrote
                Now, this number may differ between capture and playback, due to under/overflow.
@@ -2541,7 +2545,8 @@ static void *CallbackThreadFunc( void *userData )
              */
             if( stream->pcm_capture )
             {
-                int res = snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, stream->captureAvail );
+                int res = snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, MIN( stream->captureAvail,
+                            framesProcessed ) );
 
                 /* Non-fatal error? Terminate loop (go back to polling for frames)*/
                 if( res == -EPIPE || res == -ESTRPIPE )
@@ -2551,7 +2556,8 @@ static void *CallbackThreadFunc( void *userData )
             }
             if( stream->pcm_playback )
             {
-                int res = snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, stream->playbackAvail );
+                int res = snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, MIN( stream->playbackAvail,
+                            framesProcessed ) );
 
                 /* Non-fatal error? Terminate loop (go back to polling for frames) */
                 if( res == -EPIPE || res == -ESTRPIPE )
@@ -2573,22 +2579,12 @@ static void *CallbackThreadFunc( void *userData )
             }
 
             if( callbackResult != paContinue )
-                break;
+            {
+                stream->callbackAbort = (callbackResult == paAbort);
+                goto end;
+            }
 
             framesAvail -= framesGot;
-        }
-
-
-        /*
-            If you need to byte swap outputBuffer, you can do it here using
-            routines in pa_byteswappers.h
-        */
-
-        if( callbackResult != paContinue )
-        {
-            stream->callbackAbort = (callbackResult == paAbort);
-            goto end;
-            
         }
     }
 
