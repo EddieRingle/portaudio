@@ -1,5 +1,6 @@
 /** @file patest_out_underflow.c
-	@brief Count output underflows under overloaded and normal conditions.
+	@brief Count output underflows (using paOutputUnderflow flag) 
+	under overloaded and normal conditions.
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>
 */

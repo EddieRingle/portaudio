@@ -1,5 +1,6 @@
 /** @file patest_in_overflow.c
-	@brief Count input overflows under overloaded and normal conditions.
+	@brief Count input overflows (using paInputOverflow flag) under 
+	overloaded and normal conditions.
     This test uses the same method to overload the stream as does
     patest_out_underflow.c -- it generates sine waves until the cpu load
     exceeds a certain level. However this test is only concerned with
