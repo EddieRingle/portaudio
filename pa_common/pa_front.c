@@ -758,7 +758,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
 */
 static int SampleFormatIsValid( PaSampleFormat sampleFormat )
 {
-    switch( sampleFormat )
+    switch( sampleFormat & ~paNonInterleaved )
     {
     case paFloat32: return 1;
     case paInt16: return 1;

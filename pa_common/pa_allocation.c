@@ -45,10 +45,10 @@
 
 #define PA_INITIAL_LINK_COUNT_    16
 
-struct PaUtilAllocationContextLink
+struct PaUtilAllocationGroupLink
 {
+    struct PaUtilAllocationGroupLink *next;
     void *buffer;
-    struct PaUtilAllocationContextLink *next;
 };
 
 /*
@@ -57,14 +57,14 @@ struct PaUtilAllocationContextLink
     links will have NULL buffer members, and each link will point to
     the next link except the last, which will point to <nextSpare>
 */
-static struct PaUtilAllocationContextLink *AllocateLinks( long count,
-        struct PaUtilAllocationContextLink *nextBlock,
-        struct PaUtilAllocationContextLink *nextSpare )
+static struct PaUtilAllocationGroupLink *AllocateLinks( long count,
+        struct PaUtilAllocationGroupLink *nextBlock,
+        struct PaUtilAllocationGroupLink *nextSpare )
 {
-    struct PaUtilAllocationContextLink *result;
+    struct PaUtilAllocationGroupLink *result;
     int i;
     
-    result = PaUtil_AllocateMemory( sizeof(struct PaUtilAllocationContextLink) * count );
+    result = PaUtil_AllocateMemory( sizeof(struct PaUtilAllocationGroupLink) * count );
     if( result )
     {
         /* the block link */
@@ -84,16 +84,16 @@ static struct PaUtilAllocationContextLink *AllocateLinks( long count,
 }
 
 
-PaUtilAllocationContext* PaUtil_CreateAllocationContext( void )
+PaUtilAllocationGroup* PaUtil_CreateAllocationGroup( void )
 {
-    PaUtilAllocationContext* result = 0;
-    struct PaUtilAllocationContextLink *links;
+    PaUtilAllocationGroup* result = 0;
+    struct PaUtilAllocationGroupLink *links;
 
 
     links = AllocateLinks( PA_INITIAL_LINK_COUNT_, 0, 0 );
     if( links != 0 )
     {
-        result = (PaUtilAllocationContext*)PaUtil_AllocateMemory( sizeof(PaUtilAllocationContext) );
+        result = (PaUtilAllocationGroup*)PaUtil_AllocateMemory( sizeof(PaUtilAllocationGroup) );
         if( result )
         {
             result->linkCount = PA_INITIAL_LINK_COUNT_;
@@ -111,10 +111,10 @@ PaUtilAllocationContext* PaUtil_CreateAllocationContext( void )
 }
 
 
-void PaUtil_DestroyAllocationContext( PaUtilAllocationContext* context )
+void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* context )
 {
-    struct PaUtilAllocationContextLink *current = context->linkBlocks;
-    struct PaUtilAllocationContextLink *next;
+    struct PaUtilAllocationGroupLink *current = context->linkBlocks;
+    struct PaUtilAllocationGroupLink *next;
 
     while( current )
     {
@@ -127,9 +127,9 @@ void PaUtil_DestroyAllocationContext( PaUtilAllocationContext* context )
 }
 
 
-void* PaUtil_ContextAllocateMemory( PaUtilAllocationContext* context, long size )
+void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* context, long size )
 {
-    struct PaUtilAllocationContextLink *links, *link;
+    struct PaUtilAllocationGroupLink *links, *link;
     void *result = 0;
     
     /* allocate more links if necessary */
@@ -164,10 +164,10 @@ void* PaUtil_ContextAllocateMemory( PaUtilAllocationContext* context, long size 
 }
 
 
-void PaUtil_ContextFreeMemory( PaUtilAllocationContext* context, void *buffer )
+void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer )
 {
-    struct PaUtilAllocationContextLink *current = context->allocations;
-    struct PaUtilAllocationContextLink *previous = 0;
+    struct PaUtilAllocationGroupLink *current = context->allocations;
+    struct PaUtilAllocationGroupLink *previous = 0;
 
     if( buffer == 0 )
         return;
@@ -191,10 +191,10 @@ void PaUtil_ContextFreeMemory( PaUtilAllocationContext* context, void *buffer )
 }
 
 
-void PaUtil_FreeAllAllocations( PaUtilAllocationContext* context )
+void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* context )
 {
-    struct PaUtilAllocationContextLink *current = context->allocations;
-    struct PaUtilAllocationContextLink *previous = 0;
+    struct PaUtilAllocationGroupLink *current = context->allocations;
+    struct PaUtilAllocationGroupLink *previous = 0;
 
     /* free all buffers in the allocations list */
     while( current )

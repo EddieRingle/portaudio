@@ -41,9 +41,6 @@ extern "C"
 #endif /* __cplusplus */
 
 
-typedef struct PaUtilChannelDescriptor PaUtilChannelDescriptor;
-
-
 typedef struct {
     unsigned long framesPerUserBuffer;
     unsigned long framesPerHostBuffer;

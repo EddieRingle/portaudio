@@ -39,10 +39,6 @@ extern "C"
 #endif /* __cplusplus */
 
 
-/* forward reference */
-typedef struct PaUtilTriangularDitherGenerator PaUtilTriangularDitherGenerator;
-
-
 /**
 Choose a format from availableFormats which can best be used to represent
 format. If the requested format is not available better formats are
@@ -56,7 +52,7 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableForm
 typedef void PaUtilConverter(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
-    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator );
+    unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator );
 /**< The generic converter prototype. Converters convert count samples from
     sourceBuffer to destinationBuffer. The actual type of the data pointed to
     by these parameters varys for different converter functions.

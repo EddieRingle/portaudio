@@ -59,8 +59,6 @@
 
 /*
 TODO:
-
-
     o- implement buffer size and number of buffers code
         x- write template function and ask phil to implement it
         x- template should take: host input and output sample formats,
@@ -183,7 +181,7 @@ typedef struct
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
-    PaUtilAllocationContext *allocations;
+    PaUtilAllocationGroup *allocations;
     
     int numInputDevices, numOutputDevices;
 }
@@ -313,7 +311,7 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     if( inputWinMmeId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
-        deviceName = (char *)PaUtil_ContextAllocateMemory(
+        deviceName = (char *)PaUtil_GroupAllocateMemory(
                     winMmeHostApi->allocations, strlen( wic.szPname ) + 1 + sizeof(constInputMapperSuffix_) );
         if( !deviceName )
         {
@@ -325,7 +323,7 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     }
     else
     {
-        deviceName = (char*)PaUtil_ContextAllocateMemory(
+        deviceName = (char*)PaUtil_GroupAllocateMemory(
                     winMmeHostApi->allocations, strlen( wic.szPname ) + 1 );
         if( !deviceName )
         {
@@ -402,7 +400,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     if( outputWinMmeId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
-        deviceName = (char *)PaUtil_ContextAllocateMemory(
+        deviceName = (char *)PaUtil_GroupAllocateMemory(
                     winMmeHostApi->allocations, strlen( woc.szPname ) + 1 + sizeof(constOutputMapperSuffix_) );
         if( !deviceName )
         {
@@ -414,7 +412,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     }
     else
     {
-        deviceName = (char*)PaUtil_ContextAllocateMemory(
+        deviceName = (char*)PaUtil_GroupAllocateMemory(
                     winMmeHostApi->allocations, strlen( woc.szPname ) + 1 );
         if( !deviceName )
         {
@@ -511,7 +509,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         goto error;
     }
 
-    winMmeHostApi->allocations = PaUtil_CreateAllocationContext();
+    winMmeHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !winMmeHostApi->allocations )
     {
         result = paInsufficientMemory;
@@ -527,7 +525,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     if( (*hostApi)->deviceCount > 0 )
     {
-        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_ContextAllocateMemory(
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
                 winMmeHostApi->allocations, sizeof(PaDeviceInfo*) * (*hostApi)->deviceCount );
         if( !(*hostApi)->deviceInfos )
         {
@@ -536,7 +534,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_ContextAllocateMemory(
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
                 winMmeHostApi->allocations, sizeof(PaDeviceInfo) * (*hostApi)->deviceCount );
         if( !deviceInfoArray )
         {
@@ -555,7 +553,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             deviceInfo->numSampleRates = 0;
 
             /* allocate space for all possible sample rates */
-            sampleRates = (double*)PaUtil_ContextAllocateMemory(
+            sampleRates = (double*)PaUtil_GroupAllocateMemory(
                     winMmeHostApi->allocations, PA_MAX_NUMSAMPLINGRATES_ * sizeof(double) );
             if( !sampleRates )
             {
@@ -606,7 +604,7 @@ error:
         if( winMmeHostApi->allocations )
         {
             PaUtil_FreeAllAllocations( winMmeHostApi->allocations );
-            PaUtil_DestroyAllocationContext( winMmeHostApi->allocations );
+            PaUtil_DestroyAllocationGroup( winMmeHostApi->allocations );
         }
         
         PaUtil_FreeMemory( winMmeHostApi );
@@ -623,7 +621,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     if( winMmeHostApi->allocations )
     {
         PaUtil_FreeAllAllocations( winMmeHostApi->allocations );
-        PaUtil_DestroyAllocationContext( winMmeHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( winMmeHostApi->allocations );
     }
 
     PaUtil_FreeMemory( winMmeHostApi );

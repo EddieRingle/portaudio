@@ -119,7 +119,7 @@ typedef struct
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
-    PaUtilAllocationContext *allocations;
+    PaUtilAllocationGroup *allocations;
 
     /* implementation specific data goes here */
     PaWinDsDeviceInfo       *winDsDeviceInfos;
@@ -201,7 +201,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
     {
         char *deviceName;
         int len = strlen(lpszDesc);
-        deviceName = (char*)PaUtil_ContextAllocateMemory( winDsHostApi->allocations, len + 1 );
+        deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
         if( !deviceName )
         {
             winDsHostApi->enumerationError = paInsufficientMemory;
@@ -304,7 +304,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
     {
         char *deviceName;
         int len = strlen(lpszDesc);
-        deviceName = (char*)PaUtil_ContextAllocateMemory( winDsHostApi->allocations, len + 1 );
+        deviceName = (char*)PaUtil_GroupAllocateMemory( winDsHostApi->allocations, len + 1 );
         if( !deviceName )
         {
             winDsHostApi->enumerationError = paInsufficientMemory;
@@ -371,7 +371,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         goto error;
     }
 
-    winDsHostApi->allocations = PaUtil_CreateAllocationContext();
+    winDsHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !winDsHostApi->allocations )
     {
         result = paInsufficientMemory;
@@ -394,7 +394,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     
     if( deviceCount > 0 )
     {
-        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_ContextAllocateMemory(
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaDeviceInfo*) * deviceCount );
         if( !(*hostApi)->deviceInfos )
         {
@@ -403,7 +403,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_ContextAllocateMemory(
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaDeviceInfo) * deviceCount );
         if( !deviceInfoArray )
         {
@@ -412,7 +412,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         }
 
         /* allocate all DSound specific info structs in a contiguous block */
-        winDsHostApi->winDsDeviceInfos = (PaWinDsDeviceInfo*)PaUtil_ContextAllocateMemory(
+        winDsHostApi->winDsDeviceInfos = (PaWinDsDeviceInfo*)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaWinDsDeviceInfo) * deviceCount );
         if( !winDsHostApi->winDsDeviceInfos )
         {
@@ -458,7 +458,7 @@ error:
         if( winDsHostApi->allocations )
         {
             PaUtil_FreeAllAllocations( winDsHostApi->allocations );
-            PaUtil_DestroyAllocationContext( winDsHostApi->allocations );
+            PaUtil_DestroyAllocationGroup( winDsHostApi->allocations );
         }
                 
         PaUtil_FreeMemory( winDsHostApi );
@@ -474,13 +474,13 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation context
+            - clean up any resourced not handled by the allocation group
     */
 
     if( winDsHostApi->allocations )
     {
         PaUtil_FreeAllAllocations( winDsHostApi->allocations );
-        PaUtil_DestroyAllocationContext( winDsHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( winDsHostApi->allocations );
     }
 
     PaUtil_FreeMemory( winDsHostApi );

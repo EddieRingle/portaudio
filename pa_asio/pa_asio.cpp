@@ -60,11 +60,21 @@
         12-05-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
 
         TO DO :
+
+        (critical...)
+
         - select buffer size based on latency parameters
             - use greater of input and output latency
-            
+
+        - implement block adaption
+
+        - pa_asio.h with low level latency parameter settings.
+
+        - implement timecode parameter in callback
+
+        (less critical...)
+        
         - implement GetStreamTime
-        - implement block adaption        
         - work out how to implement stream stoppage from callback
         - implement IsStreamActive
 
@@ -175,7 +185,7 @@ typedef struct
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
-    PaUtilAllocationContext *allocations;
+    PaUtilAllocationGroup *allocations;
 
     /* the ASIO C API only allows one ASIO driver to be open at a time,
         so we kee track of whether we have the driver open here, and
@@ -189,20 +199,20 @@ PaAsioHostApiRepresentation;
 
 /*
     Retrieve <driverCount> driver names from ASIO, returned in a char**
-    allocated in <context>.
+    allocated in <group>.
 */
-static char **GetAsioDriverNames( PaUtilAllocationContext *context, long driverCount )
+static char **GetAsioDriverNames( PaUtilAllocationGroup *group, long driverCount )
 {
     char **result = 0;
     int i;
     
-    result =(char**)PaUtil_ContextAllocateMemory(
-            context, sizeof(char*) * driverCount );
+    result =(char**)PaUtil_GroupAllocateMemory(
+            group, sizeof(char*) * driverCount );
     if( !result )
         goto error;
 
-    result[0] = (char*)PaUtil_ContextAllocateMemory(
-            context, 32 * driverCount );
+    result[0] = (char*)PaUtil_GroupAllocateMemory(
+            group, 32 * driverCount );
     if( !result[0] )
         goto error;
 
@@ -771,7 +781,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         goto error;
     }
 
-    asioHostApi->allocations = PaUtil_CreateAllocationContext();
+    asioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !asioHostApi->allocations )
     {
         result = paInsufficientMemory;
@@ -821,7 +831,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
         /* allocate enough space for all drivers, even if some aren't installed */
 
-        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_ContextAllocateMemory(
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
                 asioHostApi->allocations, sizeof(PaDeviceInfo*) * driverCount );
         if( !(*hostApi)->deviceInfos )
         {
@@ -830,7 +840,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_ContextAllocateMemory(
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
                 asioHostApi->allocations, sizeof(PaDeviceInfo) * driverCount );
         if( !deviceInfoArray )
         {
@@ -883,7 +893,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 deviceInfo->numSampleRates = 0;
 
                 /* allocate space for all possible sample rates */
-                sampleRates = (double*)PaUtil_ContextAllocateMemory(
+                sampleRates = (double*)PaUtil_GroupAllocateMemory(
                         asioHostApi->allocations, PA_NUM_POSSIBLESAMPLINGRATES_ * sizeof(double) );
                 if( !sampleRates )
                 {
@@ -954,7 +964,7 @@ error:
         if( asioHostApi->allocations )
         {
             PaUtil_FreeAllAllocations( asioHostApi->allocations );
-            PaUtil_DestroyAllocationContext( asioHostApi->allocations );
+            PaUtil_DestroyAllocationGroup( asioHostApi->allocations );
         }
                 
         PaUtil_FreeMemory( asioHostApi );
@@ -969,13 +979,13 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resources not handled by the allocation context
+            - clean up any resources not handled by the allocation group
     */
 
     if( asioHostApi->allocations )
     {
         PaUtil_FreeAllAllocations( asioHostApi->allocations );
-        PaUtil_DestroyAllocationContext( asioHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( asioHostApi->allocations );
     }
 
     PaUtil_FreeMemory( asioHostApi );

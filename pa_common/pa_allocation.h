@@ -38,13 +38,13 @@ extern "C"
 #endif /* __cplusplus */
 
 /*
-An allocation context is useful for keeping track of multiple blocks
+An allocation group is useful for keeping track of multiple blocks
 of memory which are allocated at the same time (such as during initialization)
-and need to be deallocated at the same time. The context maintains a list 
+and need to be deallocated at the same time. The group maintains a list 
 of allocated blocks, and can deallocate them all simultaneously which can
 be usefull for cleaning up after a partially initialized object fails.
 
-The PortAudio allocation context mechanism is built on top of the lower
+The PortAudio allocation group mechanism is built on top of the lower
 level allocation functions defined in pa_util.h
 */
 
@@ -53,24 +53,24 @@ level allocation functions defined in pa_util.h
 typedef struct
 {
     long linkCount;
-    struct PaUtilAllocationContextLink *linkBlocks;
-    struct PaUtilAllocationContextLink *spareLinks;
-    struct PaUtilAllocationContextLink *allocations;
-}PaUtilAllocationContext;
+    struct PaUtilAllocationGroupLink *linkBlocks;
+    struct PaUtilAllocationGroupLink *spareLinks;
+    struct PaUtilAllocationGroupLink *allocations;
+}PaUtilAllocationGroup;
 
 
-PaUtilAllocationContext* PaUtil_CreateAllocationContext( void );
+PaUtilAllocationGroup* PaUtil_CreateAllocationGroup( void );
 
-void PaUtil_DestroyAllocationContext( PaUtilAllocationContext* context );
-/**< frees the context, but not the memory allocated through the context */
+void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* context );
+/**< frees the group, but not the memory allocated through the group */
 
-void* PaUtil_ContextAllocateMemory( PaUtilAllocationContext* context, long size );
+void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* context, long size );
 
-void PaUtil_ContextFreeMemory( PaUtilAllocationContext* context, void *buffer );
+void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer );
 /**< calling this is a relatively time consuming operation */
 
-void PaUtil_FreeAllAllocations( PaUtilAllocationContext* context );
-/**< frees all allocations made through the context, but not the context */
+void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* context );
+/**< frees all allocations made through the group, doesn't free the group itself */
 
 
 #ifdef __cplusplus

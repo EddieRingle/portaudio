@@ -92,7 +92,7 @@ typedef struct
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
-    PaUtilAllocationContext *allocations;
+    PaUtilAllocationGroup *allocations;
 
     /* implementation specific data goes here */
 }
@@ -113,7 +113,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
         goto error;
     }
 
-    skeletonHostApi->allocations = PaUtil_CreateAllocationContext();
+    skeletonHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !skeletonHostApi->allocations )
     {
         result = paInsufficientMemory;
@@ -133,7 +133,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
     
     if( deviceCount > 0 )
     {
-        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_ContextAllocateMemory(
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
                 skeletonHostApi->allocations, sizeof(PaDeviceInfo*) * deviceCount );
         if( !(*hostApi)->deviceInfos )
         {
@@ -142,7 +142,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_ContextAllocateMemory(
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
                 skeletonHostApi->allocations, sizeof(PaDeviceInfo) * deviceCount );
         if( !deviceInfoArray )
         {
@@ -156,7 +156,7 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
             deviceInfo->structVersion = 2;
             deviceInfo->hostApi = hostApiIndex;
             deviceInfo->name = 0; /* IMPLEMENT ME: allocate block and copy name eg:
-                deviceName = (char*)PaUtil_ContextAllocateMemory( skeletonHostApi->allocations, strlen(srcName) + 1 );
+                deviceName = (char*)PaUtil_GroupAllocateMemory( skeletonHostApi->allocations, strlen(srcName) + 1 );
                 if( !deviceName )
                 {
                     result = paInsufficientMemory;
@@ -195,7 +195,7 @@ error:
         if( skeletonHostApi->allocations )
         {
             PaUtil_FreeAllAllocations( skeletonHostApi->allocations );
-            PaUtil_DestroyAllocationContext( skeletonHostApi->allocations );
+            PaUtil_DestroyAllocationGroup( skeletonHostApi->allocations );
         }
                 
         PaUtil_FreeMemory( skeletonHostApi );
@@ -210,13 +210,13 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation context
+            - clean up any resourced not handled by the allocation group
     */
 
     if( skeletonHostApi->allocations )
     {
         PaUtil_FreeAllAllocations( skeletonHostApi->allocations );
-        PaUtil_DestroyAllocationContext( skeletonHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( skeletonHostApi->allocations );
     }
 
     PaUtil_FreeMemory( skeletonHostApi );

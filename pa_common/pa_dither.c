@@ -1,5 +1,3 @@
-
-
 /*
  * $Id$
  * Portable Audio I/O Library triangular dither generator
