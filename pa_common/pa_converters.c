@@ -1217,8 +1217,9 @@ static void Int16_To_Int32(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        /* REVIEW */
+        
+        *dest = *src << 16;
 
         src += sourceStride;
         dest += destinationStride;
