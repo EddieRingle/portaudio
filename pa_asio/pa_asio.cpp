@@ -59,14 +59,11 @@
         30-04-02 Pa_ASIO_QueryDeviceInfo bug correction, memory allocation checking, better error handling : D Viens, P Burk, S Letz
         12-06-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
         18-06-02 Added pa_asio.h, PaAsio_GetAvailableLatencyValues() : Ross B.
-
+        21-06-02 Added SelectHostBufferSize() which selects host buffer size based on user latency parameters : Ross Bencina
         
         TO DO :
 
         (critical...)
-
-        - select buffer size based on latency parameters
-            - use greater of input and output latency
 
         - implement block adaption
 
@@ -802,6 +799,77 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
 
 
 
+typedef struct PaAsioDriverInfo
+{
+    ASIODriverInfo asioDriverInfo;
+    long numInputChannels, numOutputChannels;
+    long bufferMinSize, bufferMaxSize, bufferPreferredSize, bufferGranularity;
+    bool postOutput;
+}
+PaAsioDriverInfo;
+
+/*
+    load the asio driver named by <driverName> and return statistics about
+    the driver in info. If no error occurred, the driver will remain open
+    and must be closed by the called by calling ASIOExit() - if an error
+    is returned the driver will already be closed.
+*/
+static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
+{
+    PaError result = paNoError;
+    ASIOError asioError;
+    int asioIsInitialized = 0;
+    
+    if( !loadAsioDriver( const_cast<char*>(driverName) ) )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( 0 );
+        goto error;
+    }
+
+    if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+    else
+    {
+        asioIsInitialized = 1;
+    }
+
+    if( (asioError = ASIOGetChannels(&info->numInputChannels,
+            &info->numOutputChannels)) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+
+    if( (asioError = ASIOGetBufferSize(&info->bufferMinSize,
+            &info->bufferMaxSize, &info->bufferPreferredSize,
+            &info->bufferGranularity)) != ASE_OK )
+    {
+        result = paHostError;
+        PaUtil_SetHostError( asioError );
+        goto error;
+    }
+
+    if( ASIOOutputReady() == ASE_OK )
+        info->postOutput = true;
+    else
+        info->postOutput = false;
+
+    return result;
+
+error:
+    if( asioIsInitialized )
+        ASIOExit();
+        
+    return result;
+}
+
+
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
 static ASIOSampleRate possibleSampleRates_[]
     = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
@@ -814,12 +882,12 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     PaAsioHostApiRepresentation *asioHostApi;
     PaAsioDeviceInfo *deviceInfoArray;
     char **names;
+    PaAsioDriverInfo paAsioDriverInfo;
     ASIOError asioError;
     ASIODriverInfo asioDriverInfo;
     ASIOChannelInfo asioChannelInfo;
-    long inputChannels, outputChannels;
     double *sampleRates;
-    long minBufferSize, maxBufferSize, preferredBufferSize, bufferGranularity;
+    
 
     asioHostApi = (PaAsioHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaAsioHostApiRepresentation) );
     if( !asioHostApi )
@@ -905,28 +973,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
         for( i=0; i < driverCount; ++i )
         {
-
             /* Attempt to load the asio driver... */
-            if ( !loadAsioDriver( names[i] ) )
-            {
-                PA_DEBUG(("PaAsio_Initialize: could not loadAsioDriver %s\n", names[i]));
-            }
-            else if( (asioError = ASIOInit(&asioDriverInfo)) != ASE_OK )
-            {
-                PA_DEBUG(("PaAsio_Initialize: ASIOInit returned %d for %s\n", asioError, names[i]));
-            }
-            else if( (asioError = ASIOGetChannels(&inputChannels, &outputChannels)) != ASE_OK )
-            {
-                PA_DEBUG(("PaAsio_Initialize: could not ASIOGetChannels for %s\n", names[i]));
-
-                /* you would think that we should unload the driver here, but it seems to cause crashes, so don't */
-                /* ASIOExit(); */
-            }
-            else if( (asioError = ASIOGetBufferSize( &minBufferSize, &maxBufferSize, &preferredBufferSize, &bufferGranularity )) != ASE_OK )
-            {
-                PA_DEBUG(("PaAsio_Initialize: could not ASIOGetBufferSize for %s\n", names[i]));
-            }
-            else
+            if( LoadAsioDriver( names[i], &paAsioDriverInfo ) == paNoError )
             {
                 PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->deviceCount ];
                 PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
@@ -936,16 +984,17 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
                 deviceInfo->name = names[i];
 
-                deviceInfo->maxInputChannels = inputChannels;
-                deviceInfo->maxOutputChannels = outputChannels;
+                deviceInfo->maxInputChannels = paAsioDriverInfo.numInputChannels;
+                deviceInfo->maxOutputChannels = paAsioDriverInfo.numOutputChannels;
 
                 PA_DEBUG(("PaAsio_Initialize: inputChannels = %d\n", inputChannels ));
                 PA_DEBUG(("PaAsio_Initialize: outputChannels = %d\n", outputChannels ));
 
-                asioDeviceInfo->minBufferSize = minBufferSize;
-                asioDeviceInfo->maxBufferSize = maxBufferSize;
-                asioDeviceInfo->preferredBufferSize = preferredBufferSize;
-                asioDeviceInfo->bufferGranularity = bufferGranularity;
+
+                asioDeviceInfo->minBufferSize = paAsioDriverInfo.bufferMinSize;
+                asioDeviceInfo->maxBufferSize = paAsioDriverInfo.bufferMaxSize;
+                asioDeviceInfo->preferredBufferSize = paAsioDriverInfo.bufferPreferredSize;
+                asioDeviceInfo->bufferGranularity = paAsioDriverInfo.bufferGranularity;
 
                 deviceInfo->numSampleRates = 0;
 
@@ -1048,15 +1097,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaUtil_FreeMemory( asioHostApi );
 }
 
-typedef struct
-{
-    ASIODriverInfo asioDriverInfo;
-    long numInputChannels, numOutputChannels;
-    long bufferMinSize, bufferMaxSize, bufferPreferredSize, bufferGranularity;
-    bool postOutput;
-}
-PaAsioDriverInfo;
-
 
 /* PaAsioStream - a stream data structure specifically for this implementation */
 
@@ -1097,68 +1137,6 @@ PaAsioStream;
 static PaAsioStream *theAsioStream = 0; /* due to ASIO sdk limitations there can be only one stream */
 
 
-/*
-    load the asio driver named by <driverName> and return statistics about
-    the driver in info. If no error occurred, the driver will remain open
-    and must be closed by the called by calling ASIOExit() - if an error
-    is returned the driver will already be closed.
-*/
-static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
-{
-    PaError result = paNoError;
-    ASIOError asioError;
-    int asioIsInitialized = 0;
-    
-    if( !loadAsioDriver( const_cast<char*>(driverName) ) )
-    {
-        result = paHostError;
-        PaUtil_SetHostError( 0 );
-        goto error;
-    }
-
-    if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
-    {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
-        goto error;
-    }
-    else
-    {
-        asioIsInitialized = 1;
-    }
-
-    if( (asioError = ASIOGetChannels(&info->numInputChannels,
-            &info->numOutputChannels)) != ASE_OK )
-    {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
-        goto error;
-    }
-
-    if( (asioError = ASIOGetBufferSize(&info->bufferMinSize,
-            &info->bufferMaxSize, &info->bufferPreferredSize,
-            &info->bufferGranularity)) != ASE_OK )
-    {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
-        goto error;
-    }
-
-    if( ASIOOutputReady() == ASE_OK )
-        info->postOutput = true;
-    else
-        info->postOutput = false;
-
-    return result;
-
-error:
-    if( asioIsInitialized )
-        ASIOExit();
-        
-    return result;
-}
-
-
 static void ZeroOutputBuffers( PaAsioStream *stream, long index )
 {
     int i;
@@ -1171,6 +1149,62 @@ static void ZeroOutputBuffers( PaAsioStream *stream, long index )
 
         memset( buffer, 0, stream->framesPerHostCallback * bytesPerSample );
     }
+}
+
+
+static unsigned long SelectHostBufferSize( unsigned long inputLatency,
+        unsigned long outputLatency, PaAsioDriverInfo *driverInfo )
+{
+    unsigned long result;
+    unsigned long latency = (inputLatency > outputLatency) ?
+                                inputLatency : outputLatency;
+
+    if( latency == 0 )
+    {
+        result = driverInfo->bufferPreferredSize;
+    }
+    else{
+        if( latency <= driverInfo->bufferMinSize )
+        {
+            result = driverInfo->bufferMinSize;
+        }
+        else if( latency >= driverInfo->bufferMaxSize )
+        {
+            result = driverInfo->bufferMaxSize;
+        }
+        else
+        {
+            if( driverInfo->bufferGranularity == -1 )
+            {
+                /* power-of-two */
+                result = 2;
+
+                while( result < latency )
+                    result *= result;
+
+                if( result < driverInfo->bufferMinSize )
+                    result = driverInfo->bufferMinSize;
+
+                if( result > driverInfo->bufferMaxSize )
+                    result = driverInfo->bufferMaxSize;
+            }
+            else if( driverInfo->bufferGranularity == 0 )
+            {
+                result = driverInfo->bufferPreferredSize;
+            }
+            else
+            {
+                /* modulo granularity */
+
+                result = latency +
+                        (driverInfo->bufferGranularity - (latency % driverInfo->bufferGranularity));
+                if( result > driverInfo->bufferMaxSize )
+                    result = driverInfo->bufferMaxSize;
+            }
+        }
+    }
+
+    return result;
 }
 
 
@@ -1269,7 +1303,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         with an allowable host buffer size...
     */
 
-    framesPerHostBuffer = driverInfo.bufferPreferredSize;
+    framesPerHostBuffer = SelectHostBufferSize( inputLatency, outputLatency, &driverInfo );
     framesPerCallback = framesPerHostBuffer;
     
     /*
