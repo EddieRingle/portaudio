@@ -69,11 +69,6 @@
 #include "pa_process.h"
 #include "../pa_unix/pa_unix_util.h"
 
-/* TODO: add error text handling
-#define PA_UNIX_OSS_ERROR( errorCode, errorText ) \
-    PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
-*/
-
 static int sysErr_;
 static pthread_t mainThread_;
 
@@ -125,7 +120,7 @@ PaOSSHostApiRepresentation;
 
 /** Per-direction structure for PaOssStream.
  *
- * Aspect Duplexity: In case the user requests to open the same device for both capture and playback,
+ * Aspect StreamChannels: In case the user requests to open the same device for both capture and playback,
  * but with different number of channels we will have to adapt between the number of user and host
  * channels for at least one direction, since the configuration space is the same for both directions
  * of an OSS device.
@@ -139,13 +134,10 @@ typedef struct
     PaSampleFormat userFormat, hostFormat;
     double latency;
     unsigned long hostFrames, numBufs;
-    struct pollfd *pfd;
 } PaOssStreamComponent;
 
 /** Implementation specific representation of a PaStream.
  *
- * Aspect Duplexity: Data for capture and playback parts of the stream are kept in separate components,
- * as PaOssStreamComponentObjects.
  */
 typedef struct PaOssStream
 {
@@ -173,8 +165,6 @@ typedef struct PaOssStream
     int callbackStop, callbackAbort;
 
     PaOssStreamComponent *capture, *playback;
-    struct pollfd pfds[2];
-    int nfds;
     unsigned long pollTimeout;
     sem_t semaphore;
 }
@@ -693,7 +683,7 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
 }
 
 static PaError PaOssStreamComponent_Initialize( PaOssStreamComponent *component, const PaStreamParameters *parameters, int fd,
-        const char *deviceName, struct pollfd *pfd )
+        const char *deviceName )
 {
     assert( component );
 
@@ -702,10 +692,6 @@ static PaError PaOssStreamComponent_Initialize( PaOssStreamComponent *component,
     component->userChannelCount = parameters->channelCount;
     component->userFormat = parameters->sampleFormat;
     component->latency = parameters->suggestedLatency;
-
-    pfd->fd = fd;
-    pfd->events = pfd->revents = 0;
-    component->pfd = pfd;
 
     return paNoError;
 }
@@ -820,14 +806,12 @@ static PaError PaOssStream_Initialize( PaOssStream *stream, const PaStreamParame
     if( inputParameters )
     {
         PA_UNLESS( stream->capture = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
-        PA_ENSURE( PaOssStreamComponent_Initialize( stream->capture, inputParameters, idev, idevName, &stream->pfds[
-                    stream->nfds++] ) );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->capture, inputParameters, idev, idevName ) );
     }
     if( outputParameters )
     {
         PA_UNLESS( stream->playback = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
-        PA_ENSURE( PaOssStreamComponent_Initialize( stream->playback, outputParameters, odev, odevName, &stream->pfds[
-                    stream->nfds++] ) );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->playback, outputParameters, odev, odevName ) );
     }
 
     if( callback != NULL )
@@ -997,7 +981,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
         /* This needs to be the last ioctl call before the first read/write, according to the OSS programmer's guide */
         ENSURE_( ioctl( component->fd, SNDCTL_DSP_GETBLKSIZE, &bytesPerBuf ), paUnanticipatedHostError );
 
-        component->hostFrames = bytesPerBuf / 2 / chans;
+        component->hostFrames = bytesPerBuf / Pa_GetSampleSize( hostFormat ) / chans;
         component->hostChannelCount = chans;
         component->hostFormat = hostFormat;
     }
@@ -1014,6 +998,32 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
 
     PA_UNLESS( component->buffer = PaUtil_AllocateMemory( PaOssStreamComponent_BufferSize( component ) ),
             paInsufficientMemory );
+
+error:
+    return result;
+}
+
+static PaError PaOssStreamComponent_Read( PaOssStreamComponent *component, unsigned long *frames )
+{
+    PaError result = paNoError;
+    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
+    ssize_t bytesRead;
+
+    ENSURE_( bytesRead = read( component->fd, component->buffer, len ), paUnanticipatedHostError );
+    *frames = bytesRead / PaOssStreamComponent_FrameSize( component );
+
+error:
+    return result;
+}
+
+static PaError PaOssStreamComponent_Write( PaOssStreamComponent *component, unsigned long *frames )
+{
+    PaError result = paNoError;
+    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
+    ssize_t bytesWritten;
+
+    ENSURE_( bytesWritten = write( component->fd, component->buffer, len ), paUnanticipatedHostError );
+    *frames = bytesWritten / PaOssStreamComponent_FrameSize( component );
 
 error:
     return result;
@@ -1207,6 +1217,7 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
     int nfds = 0;
     struct timeval selectTimeval = {0, 0};
     unsigned long timeout = stream->pollTimeout;    /* In usecs */
+    int captureFd = -1, playbackFd = -1;
 
     assert( stream );
     assert( frames );
@@ -1214,36 +1225,36 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
     if( stream->capture )
     {
         pollCapture = 1;
+        captureFd = stream->capture->fd;
         /* stream->capture->pfd->events = POLLIN; */
     }
     if( stream->playback )
     {
         pollPlayback = 1;
+        playbackFd = stream->playback->fd;
         /* stream->playback->pfd->events = POLLOUT; */
     }
+
+    FD_ZERO( &readFds );
+    FD_ZERO( &writeFds );
 
     while( pollPlayback || pollCapture )
     {
         pthread_testcancel();
 
-        /* PA_DEBUG(( "Poll timeout in usecs: %lu, polling for capture: %d, playback: %d\n", (size_t) pollTimeout.tv_usec,
-                    pollPlayback, pollCapture ));*/
-
-        /* We need to reinitialize the parameters to select between each call */
+        /* select may modify the timeout parameter */
         selectTimeval.tv_usec = timeout;
-        FD_ZERO( &readFds );
-        FD_ZERO( &writeFds );
         nfds = 0;
 
         if( pollCapture )
         {
-            FD_SET( stream->capture->fd, &readFds );
-            nfds = stream->capture->fd + 1;
+            FD_SET( captureFd, &readFds );
+            nfds = captureFd + 1;
         }
         if( pollPlayback )
         {
-            FD_SET( stream->playback->fd, &writeFds );
-            nfds = PA_MAX( nfds, stream->playback->fd + 1 );
+            FD_SET( playbackFd, &writeFds );
+            nfds = PA_MAX( nfds, playbackFd + 1 );
         }
         ENSURE_( select( nfds, &readFds, &writeFds, NULL, &selectTimeval ), paUnanticipatedHostError );
         /*
@@ -1257,9 +1268,9 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
 
         if( pollCapture )
         {
-            if( FD_ISSET( stream->capture->fd, &readFds ) )
+            if( FD_ISSET( captureFd, &readFds ) )
             {
-                FD_ZERO( &readFds );
+                FD_CLR( captureFd, &readFds );
                 pollCapture = 0;
             }
             /*
@@ -1278,9 +1289,9 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
         }
         if( pollPlayback )
         {
-            if( FD_ISSET( stream->playback->fd, &writeFds ) )
+            if( FD_ISSET( playbackFd, &writeFds ) )
             {
-                FD_ZERO( &writeFds );
+                FD_CLR( playbackFd, &writeFds );
                 pollPlayback = 0;
             }
             /*
@@ -1300,7 +1311,7 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
 
     if( stream->capture )
     {
-        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &bufInfo ), paUnanticipatedHostError );
+        ENSURE_( ioctl( captureFd, SNDCTL_DSP_GETISPACE, &bufInfo ), paUnanticipatedHostError );
         captureAvail = bufInfo.fragments * stream->capture->hostFrames;
         if( !captureAvail )
             PA_DEBUG(( "%s: captureAvail: 0\n", __FUNCTION__ ));
@@ -1309,11 +1320,11 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
     }
     if( stream->playback )
     {
-        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_GETOSPACE, &bufInfo ), paUnanticipatedHostError );
+        ENSURE_( ioctl( playbackFd, SNDCTL_DSP_GETOSPACE, &bufInfo ), paUnanticipatedHostError );
         playbackAvail = bufInfo.fragments * stream->playback->hostFrames;
         if( !playbackAvail )
         {
-            /* PA_DEBUG(( "%s: playbackAvail: 0\n", __FUNCTION__ )); */
+            PA_DEBUG(( "%s: playbackAvail: 0\n", __FUNCTION__ ));
         }
 
         playbackAvail = playbackAvail == 0 ? INT_MAX : playbackAvail;      /* Disregard if zero */
@@ -1419,12 +1430,6 @@ static void OnExit( void *data )
 
     PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
 
-    /* Make devices block again */
-    if( stream->capture )
-        ModifyBlocking( stream->capture->fd, 1 );
-    if( stream->playback )
-        ModifyBlocking( stream->playback->fd, 1 );
-
     PaOssStream_Stop( stream, stream->callbackAbort );
     
     PA_DEBUG(( "OnExit: Stoppage\n" ));
@@ -1457,32 +1462,6 @@ static PaError SetUpBuffers( PaOssStream *stream, unsigned long framesAvail )
     return result;
 }
 
-static PaError PaOssStreamComponent_Read( PaOssStreamComponent *component, unsigned long *frames )
-{
-    PaError result = paNoError;
-    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
-    ssize_t bytesRead;
-
-    ENSURE_( bytesRead = read( component->fd, component->buffer, len ), paUnanticipatedHostError );
-    *frames = bytesRead / PaOssStreamComponent_FrameSize( component );
-
-error:
-    return result;
-}
-
-static PaError PaOssStreamComponent_Write( PaOssStreamComponent *component, unsigned long *frames )
-{
-    PaError result = paNoError;
-    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
-    ssize_t bytesWritten;
-
-    ENSURE_( bytesWritten = write( component->fd, component->buffer, len ), paUnanticipatedHostError );
-    *frames = bytesWritten / PaOssStreamComponent_FrameSize( component );
-
-error:
-    return result;
-}
-
 /** Thread procedure for callback processing.
  *
  * Aspect StreamState: StartStream will wait on this to initiate audio processing, useful in case the
@@ -1497,7 +1476,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
     unsigned long framesAvail, framesProcessed;
     int callbackResult = paContinue;
     int triggered = stream->triggered;  /* See if SNDCTL_DSP_TRIGGER has been issued already */
-    int startProcessing = triggered;    /* Already triggered? */
+    int initiateProcessing = triggered;    /* Already triggered? */
     assert( stream );
 
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
@@ -1507,6 +1486,16 @@ static void *PaOSS_AudioThreadProc( void *userData )
      * writing.
      */
     PA_ENSURE( PaOssStream_Prepare( stream ) );
+
+    /* If we are to initiate processing implicitly by reading/writing data, we start off in blocking mode */
+    if( initiateProcessing )
+    {
+        /* Make sure devices are in blocking mode */
+        if( stream->capture )
+            ModifyBlocking( stream->capture->fd, 1 );
+        if( stream->playback )
+            ModifyBlocking( stream->playback->fd, 1 );
+    }
 
     while( 1 )
     {
@@ -1525,7 +1514,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
          * fashion to trigger operation. Therefore we begin with processing one host buffer before we switch
          * to non-blocking mode.
          */
-        if( !startProcessing )
+        if( !initiateProcessing )
         {
             PA_ENSURE( PaOssStream_WaitForFrames( stream, &framesAvail ) );  /* Wait on available frames */
             assert( framesAvail % stream->framesPerHostBuffer == 0 );
@@ -1580,7 +1569,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
             stream->framesProcessed += framesProcessed;
         }
 
-        if( startProcessing || !triggered )
+        if( initiateProcessing || !triggered )
         {
             /* Non-blocking */
             if( stream->capture )
@@ -1588,7 +1577,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
             if( stream->playback && !stream->sharedDevice )
                 PA_ENSURE( ModifyBlocking( stream->playback->fd, 0 ) );
 
-            startProcessing = 0;
+            initiateProcessing = 0;
             sem_post( &stream->semaphore );
         }
     }
@@ -1835,8 +1824,7 @@ static signed long GetStreamReadAvailable( PaStream* s )
 
     if( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &info ) == 0 )
     {
-        int bytesAvailable = info.fragments * info.fragsize;
-        return ( bytesAvailable / 2 / stream->capture->hostChannelCount );
+        return info.fragments * stream->capture->hostFrames;
     }
     else
         return 0; /* TODO: is this right for "don't know"? */
@@ -1851,8 +1839,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     if( ioctl( stream->playback->fd, SNDCTL_DSP_GETOSPACE, &info ) == 0 )
     {
-        int bytesAvailable = info.fragments * info.fragsize;
-        return ( bytesAvailable / 2 / stream->playback->hostChannelCount );
+        return info.fragments * stream->playback->hostFrames;
     }
     else
         return 0; /* TODO: is this right for "don't know"? */
