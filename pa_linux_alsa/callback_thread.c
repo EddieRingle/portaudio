@@ -1,6 +1,7 @@
 
 #include <sys/poll.h>
 #include <limits.h>
+#include <math.h>  /* abs() */
 
 #include <alsa/asoundlib.h>
 
@@ -30,6 +31,9 @@ static int wait( PaAlsaStream *stream )
     {
         int playback_pfd_offset;
         int total_fds = 0;
+
+        /* if the main thread has requested that we stop, do so now */
+        pthread_testcancel();
 
         /*printf("still polling...\n");
         if( need_capture )
@@ -218,20 +222,72 @@ void *CallbackThread( void *userData )
         int frames_got;
 
         PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
-        PaStreamCallbackResult callbackResult;
+        int callbackResult;
         int framesProcessed;
 
+        pthread_testcancel();
+        {
+            /* calculate time info */
+            snd_timestamp_t capture_timestamp;
+            snd_timestamp_t playback_timestamp;
+            snd_pcm_status_t *capture_status;
+            snd_pcm_status_t *playback_status;
+            snd_pcm_status_alloca( &capture_status );
+            snd_pcm_status_alloca( &playback_status );
+
+            if( stream->pcm_capture )
+            {
+                snd_pcm_status( stream->pcm_capture, capture_status );
+                snd_pcm_status_get_tstamp( capture_status, &capture_timestamp );
+            }
+            if( stream->pcm_playback )
+            {
+                snd_pcm_status( stream->pcm_playback, playback_status );
+                snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
+            }
+
+            /* Hmm, we potentially have both a playback and a capture timestamp.
+             * Hopefully they are the same... */
+            if( stream->pcm_capture && stream->pcm_playback )
+            {
+                float capture_time = capture_timestamp.tv_sec +
+                                     ((float)capture_timestamp.tv_usec/1000000);
+                float playback_time= playback_timestamp.tv_sec +
+                                     ((float)playback_timestamp.tv_usec/1000000);
+                if( fabsf(capture_time-playback_time) > 0.01 )
+                    printf("Capture time and playback time differ by %f\n", fabsf(capture_time-playback_time));
+                timeInfo.currentTime = capture_time;
+            }
+            else if( stream->pcm_playback )
+            {
+                timeInfo.currentTime = playback_timestamp.tv_sec +
+                                       ((float)playback_timestamp.tv_usec/1000000);
+            }
+            else
+            {
+                timeInfo.currentTime = capture_timestamp.tv_sec +
+                                       ((float)capture_timestamp.tv_usec/1000000);
+            }
+
+            if( stream->pcm_capture )
+            {
+                snd_pcm_sframes_t capture_delay = snd_pcm_status_get_delay( capture_status );
+                timeInfo.inputBufferAdcTime = timeInfo.currentTime -
+                    (float)capture_delay / stream->streamRepresentation.streamInfo.sampleRate;
+            }
+
+            if( stream->pcm_playback )
+            {
+                snd_pcm_sframes_t playback_delay = snd_pcm_status_get_delay( playback_status );
+                timeInfo.outputBufferDacTime = timeInfo.currentTime +
+                    (float)playback_delay / stream->streamRepresentation.streamInfo.sampleRate;
+            }
+        }
 
 
         /*
             IMPLEMENT ME:
-                - generate timing information
                 - handle buffer slips
-        */
-
-        /*
-            If you need to byte swap inputBuffer, you can do it here using
-            routines in pa_byteswappers.h
         */
 
         /*
@@ -250,12 +306,10 @@ void *CallbackThread( void *userData )
 
         frames_got = setup_buffers( stream, frames_avail );
 
-        /*
         if( frames_avail == frames_got )
-            printf("good, they were both %d\n", frames_avail );
+            ;//printf("good, they were both %d\n", frames_avail );
         else
             printf("damn, they were different: avail: %d, got: %d\n", frames_avail, frames_got );
-            */
 
         /* this calls the callback */
 
@@ -286,17 +340,35 @@ void *CallbackThread( void *userData )
         }
         else if( callbackResult == paAbort )
         {
-            /* IMPLEMENT ME - finish playback immediately  */
+            stream->callback_finished = 1;
+
+            if( stream->pcm_capture )
+            {
+                snd_pcm_drop( stream->pcm_capture );
+            }
+
+            if( stream->pcm_playback )
+            {
+                snd_pcm_drop( stream->pcm_playback );
+            }
+            pthread_exit(NULL);
         }
         else
         {
-            /* User callback has asked us to stop with paComplete or other non-zero value */
+            stream->callback_finished = 1;
 
-            /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
+            if( stream->pcm_capture )
+            {
+                snd_pcm_drain( stream->pcm_capture );
+            }
+
+            if( stream->pcm_playback )
+            {
+                snd_pcm_drain( stream->pcm_playback );
+            }
+            pthread_exit(NULL);
         }
 
-        /* if the main thread has requested that we stop, do so now */
-        pthread_testcancel();
     }
 }
 

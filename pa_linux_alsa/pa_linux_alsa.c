@@ -85,8 +85,6 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTime GetStreamInputLatency( PaStream *stream );
-static PaTime GetStreamOutputLatency( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
@@ -245,6 +243,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         {
             snd_pcm_t *pcm_handle;
             snd_pcm_hw_params_t *hw_params;
+            int dir;
 
             snd_pcm_hw_params_malloc( &hw_params );
 
@@ -258,6 +257,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
                 deviceInfo->maxInputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
+                /* TODO: I'm not really sure what to do here */
+                //deviceInfo->defaultLowInputLatency = snd_pcm_hw_params_get_period_size_min( hw_params, &dir );
+                //deviceInfo->defaultHighInputLatency = snd_pcm_hw_params_get_period_size_max( hw_params, &dir );
+                deviceInfo->defaultLowInputLatency = 128. / 44100;
+                deviceInfo->defaultHighInputLatency = 16384. / 44100;
                 snd_pcm_close( pcm_handle );
             }
 
@@ -270,11 +274,18 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             {
                 snd_pcm_hw_params_any( pcm_handle, hw_params );
                 deviceInfo->maxOutputChannels = snd_pcm_hw_params_get_channels_max( hw_params );
+                /* TODO: I'm not really sure what to do here */
+                //deviceInfo->defaultLowOutputLatency = snd_pcm_hw_params_get_period_size_min( hw_params, &dir );
+                //deviceInfo->defaultHighOutputLatency = snd_pcm_hw_params_get_period_size_max( hw_params, &dir );
+                deviceInfo->defaultLowOutputLatency = 128. / 44100;
+                deviceInfo->defaultHighOutputLatency = 16384. / 44100;
                 snd_pcm_close( pcm_handle );
             }
 
             snd_pcm_hw_params_free( hw_params );
         }
+
+        deviceInfo->defaultSampleRate = 44100.; /* IMPLEMENT ME */
     }
 
     commonApi->info.deviceCount = deviceCount;
@@ -404,6 +415,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
             break;
 
         default:
+            printf("Unknown PortAudio format %d\n", pa_format );
             return 1;
     }
     //printf("PortAudio format: %d\n", pa_format);
@@ -415,6 +427,11 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
 
     /* ... set the number of channels */
     ENSURE( snd_pcm_hw_params_set_channels( stream, hw_params, channels ) );
+
+    /* ... set the number of periods to 2, which is essentially double buffering.
+     * this makes the latency the number of samples per buffer, which is the best
+     * it can be */
+    ENSURE( snd_pcm_hw_params_set_periods ( stream, hw_params, 2, 0 ) );
 
     /* ... set the period size, which is essentially the hardware buffer size */
     if( framesPerBuffer != 0 )
@@ -450,10 +467,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAlsaHostApiRepresentation *skeletonHostApi =
         (PaAlsaHostApiRepresentation*)hostApi;
     PaAlsaStream *stream = 0;
-    unsigned long framesPerHostBuffer = framesPerBuffer;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     int numInputChannels, numOutputChannels;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
+    unsigned long framesPerHostBuffer = framesPerBuffer;
+
+    if( framesPerHostBuffer == paFramesPerBufferUnspecified )
+    {
+        // TODO: have some reason
+        framesPerHostBuffer = 2048;
+    }
 
     if( inputParameters )
     {
@@ -515,6 +538,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) );
     if( !stream )
     {
+        printf("memory point 2\n");
         result = paInsufficientMemory;
         goto error;
     }
@@ -522,6 +546,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->pcm_capture = NULL;
     stream->pcm_playback = NULL;
     stream->callback_mode = (callback != 0);
+    stream->callback_finished = 0;
 
     if( callback )
     {
@@ -536,6 +561,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                                callback, userData );
     }
 
+
+    stream->streamRepresentation.streamInfo.inputLatency = framesPerHostBuffer;
+    stream->streamRepresentation.streamInfo.outputLatency = framesPerHostBuffer;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
@@ -569,6 +598,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_playback),
                                                  outputSampleFormat );
+        stream->playback_hostsampleformat = hostOutputSampleFormat;
     }
 
 
@@ -623,6 +653,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->playback_interleaved = interleaved;
     }
 
+    stream->capture_nfds = 0;
+    stream->playback_nfds = 0;
+
     if( stream->pcm_capture )
         stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
 
@@ -630,8 +663,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
 
     /* TODO: free this properly */
-    stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( stream->capture_nfds +
-                                                          stream->playback_nfds );
+    printf("trying to allocate %d bytes of memory\n", (stream->capture_nfds + stream->playback_nfds + 1) * sizeof(struct pollfd) );
+    stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture_nfds +
+                                                           stream->playback_nfds + 1) *
+                                                           sizeof(struct pollfd) );
+    if( !stream->pfds )
+    {
+        printf("bad memory point 1\n");
+        result = paInsufficientMemory;
+        goto error;
+    }
 
     stream->frames_per_period = framesPerHostBuffer;
     stream->capture_channels = numInputChannels;
@@ -704,21 +745,46 @@ static PaError StartStream( PaStream *s )
 
     if( stream->pcm_playback )
     {
-        /* TODO: fill the initial frame with silence */
-        const snd_pcm_channel_area_t *capture_areas;
-        //snd_pcm_uframes_t offset, frames=stream->frames_per_period;
+        const snd_pcm_channel_area_t *playback_areas, *area;
         snd_pcm_uframes_t offset, frames;
-        int tmp;
-        ENSURE( tmp = snd_pcm_prepare( stream->pcm_playback ) );
+        int sample_size = Pa_GetSampleSize( stream->playback_hostsampleformat );
+        printf("Sample size: %d\n", sample_size );
+        ENSURE( snd_pcm_prepare( stream->pcm_playback ) );
         frames = snd_pcm_avail_update( stream->pcm_playback );
+        printf("frames: %d\n", frames );
+        printf("channels: %d\n", stream->playback_channels );
 
-        snd_pcm_mmap_begin( stream->pcm_playback, &capture_areas, &offset, &frames );
+        snd_pcm_mmap_begin( stream->pcm_playback, &playback_areas, &offset, &frames );
+
+        /* Insert silence */
+        if( stream->playback_interleaved )
+        {
+            void *playback_buffer;
+            area = &playback_areas[0];
+            playback_buffer = area->addr + (area->first + area->step * offset) / 8;
+            memset( playback_buffer, 0,
+                    frames * stream->playback_channels * sample_size );
+        }
+        else
+        {
+            int i;
+            for( i = 0; i < stream->playback_channels; i++ )
+            {
+                void *channel_buffer;
+                area = &playback_areas[i];
+                channel_buffer = area->addr + (area->first + area->step * offset) / 8;
+                memset( channel_buffer, 0, frames * sample_size );
+            }
+        }
+
         snd_pcm_mmap_commit( stream->pcm_playback, offset, frames );
     }
 
     if( stream->callback_mode )
     {
         ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ) );
+
+        /* we'll do the snd_pcm_start() in the callback thread */
     }
     else
     {
@@ -728,6 +794,16 @@ static PaError StartStream( PaStream *s )
             snd_pcm_start( stream->pcm_playback );
     }
 
+    /* On my machine, the pcm stream will not transition to the RUNNING
+     * state for a while after snd_pcm_start is called.  The PortAudio
+     * client needs to be able to depend on Pa_IsStreamActive() returning
+     * true the second after this function returns.  So I sleep briefly here.
+     *
+     * I don't like this one bit.
+     */
+    Pa_Sleep( 100 );
+
+    stream->callback_finished = 0;
 
     return result;
 }
@@ -738,18 +814,48 @@ static PaError StopStream( PaStream *s )
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
-    if( stream->callback_mode )
+    /* First deal with the callback thread, cancelling and/or joining
+     * it if necessary
+     */
+
+    if( stream->callback_mode && stream->callback_finished )
+    {
+        /* We are running in callback mode but the callback thread has
+         * already been cancelled by the return value from the user's
+         * callback function.  Therefore we don't need to cancel the
+         * thread, but we do want to wait for it. */
+        pthread_join( stream->callback_thread, NULL );
+    }
+    else if( stream->callback_mode )
+    {
+        /* We are running in callback mode, and the callback thread
+         * is still running.  Cancel it and wait for it to be done. */
         pthread_cancel( stream->callback_thread );
-
-    if( stream->pcm_capture )
-    {
-        snd_pcm_drain( stream->pcm_capture );
+        pthread_join( stream->callback_thread, NULL );
     }
 
-    if( stream->pcm_playback )
+    /* Stop the ALSA streams if necessary */
+
+    if( stream->callback_mode && stream->callback_finished )
     {
-        snd_pcm_drain( stream->pcm_playback );
+        /* If we are in the callback_finished state the callback thread
+         * already stopped the streams.  So there is nothing to do here.
+         */
     }
+    else
+    {
+        if( stream->pcm_capture )
+        {
+            snd_pcm_drain( stream->pcm_capture );
+        }
+
+        if( stream->pcm_playback )
+        {
+            snd_pcm_drain( stream->pcm_playback );
+        }
+    }
+
+    stream->callback_finished = 0;
 
     return result;
 }
@@ -760,18 +866,48 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
-    if( stream->callback_mode )
+    /* First deal with the callback thread, cancelling and/or joining
+     * it if necessary
+     */
+
+    if( stream->callback_mode && stream->callback_finished )
+    {
+        /* We are running in callback mode but the callback thread has
+         * already been cancelled by the return value from the user's
+         * callback function.  Therefore we don't need to cancel the
+         * thread, but we do want to wait for it. */
+        pthread_join( stream->callback_thread, NULL );
+    }
+    else if( stream->callback_mode )
+    {
+        /* We are running in callback mode, and the callback thread
+         * is still running.  Cancel it and wait for it to be done. */
         pthread_cancel( stream->callback_thread );
-
-    if( stream->pcm_capture )
-    {
-        snd_pcm_drop( stream->pcm_capture );
+        pthread_join( stream->callback_thread, NULL );
     }
 
-    if( stream->pcm_playback )
+    /* Stop the ALSA streams if necessary */
+
+    if( stream->callback_mode && stream->callback_finished )
     {
-        snd_pcm_drop( stream->pcm_playback );
+        /* If we are in the callback_finished state the callback thread
+         * already stopped the streams.  So there is nothing to do here.
+         */
     }
+    else
+    {
+        if( stream->pcm_capture )
+        {
+            snd_pcm_drop( stream->pcm_capture );
+        }
+
+        if( stream->pcm_playback )
+        {
+            snd_pcm_drop( stream->pcm_playback );
+        }
+    }
+
+    stream->callback_finished = 0;
 
     return result;
 }
@@ -781,9 +917,10 @@ static PaError IsStreamStopped( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
-    /* IMPLEMENT ME, see portaudio.h for required behavior */
-
-    return !IsStreamActive(s);
+    if( IsStreamActive(s) || stream->callback_finished )
+        return 0;
+    else
+        return 1;
 }
 
 
@@ -792,11 +929,22 @@ static PaError IsStreamActive( PaStream *s )
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
     if( stream->pcm_capture )
-        if( snd_pcm_state( stream->pcm_capture ) == SND_PCM_STATE_RUNNING )
+    {
+        snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
+
+        if( capture_state == SND_PCM_STATE_RUNNING /*||
+            capture_state == SND_PCM_STATE_PREPARED*/ )
             return 1;
+    }
+
     if( stream->pcm_playback )
-        if( snd_pcm_state( stream->pcm_playback ) == SND_PCM_STATE_RUNNING )
+    {
+        snd_pcm_state_t playback_state = snd_pcm_state( stream->pcm_playback );
+
+        if( playback_state == SND_PCM_STATE_RUNNING /*||
+            playback_state == SND_PCM_STATE_PREPARED*/ )
             return 1;
+    }
 
     return 0;
 }
@@ -806,6 +954,7 @@ static PaTime GetStreamTime( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
+    snd_output_t *output;
     snd_timestamp_t timestamp;
     snd_pcm_status_t *status;
     snd_pcm_status_alloca( &status );
@@ -827,29 +976,7 @@ static PaTime GetStreamTime( PaStream *s )
 
     snd_pcm_status_get_tstamp( status, &timestamp );
 
-    /* TODO: I now have timestamp.tv_sec and timestamp.tv_usec. convert them
-     * to samples. */
-
-    return 0;
-}
-
-static PaTime GetStreamInputLatency( PaStream *s )
-{
-    PaAlsaStream *stream = (PaAlsaStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
-}
-
-
-static PaTime GetStreamOutputLatency( PaStream *s )
-{
-    PaAlsaStream *stream = (PaAlsaStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
+    return timestamp.tv_sec + ((float)timestamp.tv_usec/1000000);
 }
 
 
