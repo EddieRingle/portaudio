@@ -76,6 +76,8 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
 
 /** Retrieve a pointer to a string containing the name of the specified
  input channel. The string is valid until Pa_Terminate is called.
+
+ The string will be no longer than 32 characters including the null terminator.
 */
 PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
         const char** channelName );
@@ -83,6 +85,8 @@ PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
         
 /** Retrieve a pointer to a string containing the name of the specified
  input channel. The string is valid until Pa_Terminate is called.
+
+ The string will be no longer than 32 characters including the null terminator.
 */
 PaError PaAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
         const char** channelName );
