@@ -45,7 +45,7 @@ typedef enum {
     paUtilFixedHostBufferSize,
     paUtilBoundedHostBufferSize,
     paUtilUnknownHostBufferSize,
-    paUtilVariableHostBufferSizePartialFillAllowed,   /* the only mode where process() may not consume the whole buffer */
+    paUtilVariableHostBufferSizePartialUsageAllowed,   /* the only mode where process() may not consume the whole buffer */
 }PaUtilHostBufferSizeMode;
 
 

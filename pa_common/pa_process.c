@@ -303,7 +303,10 @@ void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bp )
 
 void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bp, PaTimestamp outTime )
 {
-    bp->hostOutTime = outTime;
+    /* the first callback will be called to generate samples which will be
+        outputted after the frames currently in the output buffer have been
+        outputted. */
+    bp->hostOutTime = outTime + bp->framesInTempOutputBuffer * bp->samplePeriod;;
 
     bp->hostInputFrameCount[1] = 0;
     bp->hostOutputFrameCount[1] = 0;
@@ -376,7 +379,7 @@ unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, int *callba
         {
             /* full duplex */
             
-            if( bp->hostBufferSizeMode == paUtilVariableHostBufferSizePartialFillAllowed )
+            if( bp->hostBufferSizeMode == paUtilVariableHostBufferSizePartialUsageAllowed  )
             {
                 framesProcessed = PartialFillProcess( bp, callbackResult );
             }
@@ -1033,7 +1036,7 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
             *callbackResult = bp->userCallback( userInput, userOutput,
                     bp->framesPerUserBuffer, bp->hostOutTime, bp->userData );
 
-            bp->hostOutTime += bp->framesPerUserBuffer * bp->samplePeriod;  //FIXME, this at least partially wrong i think
+            bp->hostOutTime += bp->framesPerUserBuffer * bp->samplePeriod;
 
             // FIXME: if callback result is abort, then abort!
 
