@@ -65,6 +65,9 @@
 
 /** @file
 
+    @todo check that CoInitialize()/CoUninitialize() are always correctly
+        paired, even in error cases.
+        
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
 
     @todo implement host api specific extension to set i/o buffer sizes in frames
@@ -96,6 +99,13 @@
 
         if( stream->streamRepresentation.streamFinishedCallback != 0 )
             stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+
+    @todo provide an asio-specific method for setting the systems specific
+        value (aka main window handle) - check that this matches the value
+        passed to PaAsio_ShowControlPanel, or remove it entirely from
+        PaAsio_ShowControlPanel. - this would allow PaAsio_ShowControlPanel
+        to be called for the currently open stream (at present all streams
+        must be closed).
 */
 
 
@@ -104,6 +114,9 @@
 #include <assert.h>
 #include <string.h>
 //#include <values.h>
+
+#include <windows.h>
+#include <mmsystem.h>
 
 #include "portaudio.h"
 #include "pa_asio.h"
@@ -229,8 +242,11 @@ typedef struct
         so we kee track of whether we have the driver open here, and
         use this information to return errors from OpenStream if the
         driver is already open.
+
+        openAsioDeviceIndex will be PaNoDevice if there is no device open
+        and a valid pa_asio (not global) device index otherwise.
     */
-    int driverOpen;
+    PaDeviceIndex openAsioDeviceIndex;
 }
 PaAsioHostApiRepresentation;
 
@@ -850,7 +866,7 @@ PaAsioDriverInfo;
     and must be closed by the called by calling ASIOExit() - if an error
     is returned the driver will already be closed.
 */
-static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
+static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info, void *systemSpecific )
 {
     PaError result = paNoError;
     ASIOError asioError;
@@ -863,6 +879,9 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
         goto error;
     }
 
+    memset( &info->asioDriverInfo, 0, sizeof(ASIODriverInfo) );
+    info->asioDriverInfo.asioVersion = 2;
+    info->asioDriverInfo.sysRef = systemSpecific;
     if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
     {
         result = paUnanticipatedHostError;
@@ -940,7 +959,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         goto error;
     }
 
-    asioHostApi->driverOpen = 0;
+    asioHostApi->openAsioDeviceIndex = paNoDevice;
 
     *hostApi = &asioHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
@@ -1005,7 +1024,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         for( i=0; i < driverCount; ++i )
         {
             /* Attempt to load the asio driver... */
-            if( LoadAsioDriver( names[i], &paAsioDriverInfo ) == paNoError )
+            if( LoadAsioDriver( names[i], &paAsioDriverInfo, 0 ) == paNoError )
             {
                 PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
                 PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
@@ -1288,6 +1307,11 @@ static unsigned long SelectHostBufferSize( unsigned long suggestedLatencyFrames,
             }
             else if( driverInfo->bufferGranularity == 0 )
             {
+                /* the documentation states that bufferGranularity should be
+                    zero when bufferMinSize, bufferMaxSize and
+                    bufferPreferredSize are the same. We assume that is the case.
+                */
+
                 result = driverInfo->bufferPreferredSize;
             }
             else
@@ -1338,7 +1362,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     unsigned long suggestedInputLatencyFrames;
     unsigned long suggestedOutputLatencyFrames;
-    const char *driverName;
+    PaDeviceIndex asioDeviceIndex;
     ASIOError asioError;
     int asioIsInitialized = 0;
     int asioBuffersCreated = 0;
@@ -1347,7 +1371,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
-    if( asioHostApi->driverOpen )
+    if( asioHostApi->openAsioDeviceIndex != paNoDevice )
         return paDeviceUnavailable;
 
 
@@ -1358,7 +1382,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         inputSampleFormat = inputParameters->sampleFormat;
         suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
 
-        driverName = asioHostApi->inheritedHostApiRep.deviceInfos[ inputParameters->device ]->name;
+        asioDeviceIndex = inputParameters->device;
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -1381,7 +1405,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         outputSampleFormat = outputParameters->sampleFormat;
         suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
 
-        driverName = asioHostApi->inheritedHostApiRep.deviceInfos[ outputParameters->device ]->name;
+        asioDeviceIndex = outputParameters->device;
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -1412,7 +1436,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( driverName, &driverInfo );
+    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name, &driverInfo, 0 );
     if( result == paNoError )
         asioIsInitialized = 1;
     else
@@ -1668,7 +1692,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->numOutputChannels = numOutputChannels;
     stream->postOutput = driverInfo.postOutput;
 
-    asioHostApi->driverOpen = 1;
+    asioHostApi->openAsioDeviceIndex = asioDeviceIndex;
 
     *s = (PaStream*)stream;
 
@@ -1716,7 +1740,7 @@ static PaError CloseStream( PaStream* s )
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
 
-    stream->asioHostApi->driverOpen = 0;
+    stream->asioHostApi->openAsioDeviceIndex = paNoDevice;
 
     PaUtil_FreeMemory( stream->asioBufferInfos );
     PaUtil_FreeMemory( stream->asioChannelInfos );
@@ -2139,53 +2163,97 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
 PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
 {
-	PaError result;
+	PaError result = paNoError;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
     ASIODriverInfo driverInfo;
-	ASIOError aerr;
+	ASIOError asioError;
+    int asioIsInitialized = 0;
+    PaAsioHostApiRepresentation *asioHostApi;
+    PaAsioDeviceInfo *asioDeviceInfo;
+
 
     result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
-    if( result == paNoError )
-    {
-        result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice, device, hostApi );
+    if( result != paNoError )
+        goto error;
 
-        if( result == paNoError )
+    result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice, device, hostApi );
+    if( result != paNoError )
+        goto error;
+
+    /*
+        In theory we could proceed if the currently open device was the same
+        one for which the control panel was requested, however  because the
+        window pointer is not available until this function is called we
+        currently need to call ASIOInit() again here, which of course can't be
+        done safely while a stream is open.
+    */
+
+    asioHostApi = (PaAsioHostApiRepresentation*)hostApi;
+    if( asioHostApi->openAsioDeviceIndex != paNoDevice )
         {
-            PaAsioDeviceInfo *asioDeviceInfo =
-                    (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+        result = paDeviceUnavailable;
+        goto error;
+    }
+
+    asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
 			if( !loadAsioDriver(
                     const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
 			{
 				result = paUnanticipatedHostError;
+        goto error;
 			}
 
 			/* CRUCIAL!!! */
 			memset(&driverInfo,0,sizeof(ASIODriverInfo));
+    driverInfo.asioVersion = 2;
 			driverInfo.sysRef = systemSpecific;
-			aerr = ASIOInit(&driverInfo);
+    asioError = ASIOInit( &driverInfo );
+    if( asioError != ASE_OK )
+    {
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        goto error;
+    }
+    else
+    {
+        asioIsInitialized = 1;
+    }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOInit(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOInit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
 PA_DEBUG(("asioVersion: ASIOInit(): %ld\n", driverInfo.asioVersion ));
 PA_DEBUG(("driverVersion: ASIOInit(): %ld\n", driverInfo.driverVersion ));
 PA_DEBUG(("Name: ASIOInit(): %s\n", driverInfo.name ));
 PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n", driverInfo.errorMessage ));
 
-			aerr = ASIOControlPanel();
-
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
-
-			aerr = ASIOExit();
-
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
-
-      }
-    }
-	else
+    asioError = ASIOControlPanel();
+    if( asioError != ASE_OK )
     {
-PA_DEBUG(("PaAsio_ShowControlPanel: A\n" ));
+        PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(aerr) ));
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        goto error;
     }
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+
+    asioError = ASIOExit();
+    if( asioError != ASE_OK )
+    {
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        asioIsInitialized = 0;
+        goto error;
+    }
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+    
+	return result;
+
+error:
+    if( asioIsInitialized )
+        ASIOExit();
 
 	return result;
 }
