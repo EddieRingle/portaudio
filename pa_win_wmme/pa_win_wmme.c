@@ -1173,7 +1173,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         stream->numInputDevices = numInputDevices;
         stream->hWaveIns = (HWAVEIN*)PaUtil_AllocateMemory( sizeof(HWAVEIN) * stream->numInputDevices );
-        if( !stream )
+        if( !stream->hWaveIns )
         {
             result = paInsufficientMemory;
             goto error;
@@ -1211,7 +1211,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             wfx.wBitsPerSample = (WORD)((bytesPerInputFrame/wfx.nChannels) * 8);
 
             /* REVIEW: consider not firing an event for input when a full duplex stream is being used */
-             
+
             mmresult = waveInOpen( &stream->hWaveIns[i], inputWinMmeId, &wfx,
                                    (DWORD)stream->bufferEvent, (DWORD) stream, CALLBACK_EVENT );
             if( mmresult != MMSYSERR_NOERROR )
@@ -1250,7 +1250,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         stream->numOutputDevices = numOutputDevices;
         stream->hWaveOuts = (HWAVEOUT*)PaUtil_AllocateMemory( sizeof(HWAVEOUT) * stream->numInputDevices );
-        if( !stream )
+        if( !stream->hWaveOuts )
         {
             result = paInsufficientMemory;
             goto error;
@@ -1466,7 +1466,7 @@ error:
                 waveOutClose( stream->hWaveOuts[i] );
         }
 
-        PaUtil_FreeMemory( stream->hWaveIns );
+        PaUtil_FreeMemory( stream->hWaveOuts );
     }
 
     if( bufferEventInited )
