@@ -92,7 +92,9 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTimestamp GetStreamTime( PaStream *stream );
+static PaTime GetStreamInputLatency( PaStream *stream );
+static PaTime GetStreamOutputLatency( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -123,7 +125,7 @@ typedef struct PaWinDsDeviceInfo
 
 typedef struct
 {
-    PaUtilHostApiRepresentation commonHostApiRep;
+    PaUtilHostApiRepresentation inheritedHostApiRep;
     PaUtilStreamInterface    callbackStreamInterface;
     PaUtilStreamInterface    blockingStreamInterface;
 
@@ -150,6 +152,8 @@ typedef struct PaWinDsStream
     int              framesPerDSBuffer;
     double           framesWritten;
     double           secondsPerHostByte; /* Used to optimize latency calculation for outTime */
+
+    double           outputLatency;
 
 /* FIXME - move all below to PaUtilStreamRepresentation */
     double           sampleRate; 
@@ -185,7 +189,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
     DSCAPS                        caps;
     LPDIRECTSOUND                 lpDirectSound;
     PaWinDsHostApiRepresentation *winDsHostApi  = (PaWinDsHostApiRepresentation *) lpContext;
-    PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->commonHostApiRep;
+    PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
     int                           index = hostApi->deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
@@ -312,7 +316,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
     DSCCAPS                        caps;
     LPDIRECTSOUNDCAPTURE          lpDirectSoundCapture;
     PaWinDsHostApiRepresentation *winDsHostApi  = (PaWinDsHostApiRepresentation *) lpContext;
-    PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->commonHostApiRep;
+    PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
     int                           index = hostApi->deviceCount;
     PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[index];
     PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[index];
@@ -424,7 +428,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         goto error;
     }
 
-    *hostApi = &winDsHostApi->commonHostApiRep;
+    *hostApi = &winDsHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paDirectSound;
     (*hostApi)->info.name = "Windows DirectSound";
@@ -490,11 +494,13 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     (*hostApi)->OpenStream = OpenStream;
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -751,6 +757,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         {
         /* App support variable framesPerBuffer */
             stream->framesPerDSBuffer = minLatencyFrames;
+
+            stream->outputLatency = (double)(minLatencyFrames - 1) / sampleRate;
         }
         else
         {
@@ -759,9 +767,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( numUserBuffers < 1 ) numUserBuffers = 1;
             numUserBuffers += 1; /* So we have latency worth of buffers ahead of current buffer. */
             stream->framesPerDSBuffer = framesPerBuffer * numUserBuffers;
+
+            stream->outputLatency = (double)(framesPerBuffer * (numUserBuffers-1)) / sampleRate;
         }
 
         {
+            // REVIEW: this calculation seems incorrect to me - rossb.
             int msecLatency = (int) ((stream->framesPerDSBuffer * MSEC_PER_SECOND) / sampleRate);
             PRINT(("PortAudio on DirectSound - Latency = %d frames, %d msec\n", stream->framesPerDSBuffer, msecLatency ));
         }
@@ -1199,12 +1210,38 @@ static PaError IsStreamActive( PaStream *s )
 
 
 /***********************************************************************************/
-static PaTimestamp GetStreamTime( PaStream *s )
+static PaTime GetStreamInputLatency( PaStream *s )
 {
+    PaWinDsStream *stream = (PaWinDsStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
+
+    return 0;
+}
+
+/***********************************************************************************/
+static PaTime GetStreamOutputLatency( PaStream *s )
+{
+    PaWinDsStream *stream = (PaWinDsStream*)s;
+
+    return stream->outputLatency;
+}
+
+/***********************************************************************************/
+static PaTime GetStreamTime( PaStream *s )
+{
+/*
+    new behavior for GetStreamTime is to return a stream based seconds clock
+    used for the outTime parameter to the callback.
+    FIXME: delete this comment when the other unnecessary related code has
+    been cleaned from this file.
+
     PaWinDsStream *stream = (PaWinDsStream*)s;
     DSoundWrapper   *dsw;
     dsw = &stream->directSoundWrapper;
     return dsw->dsw_FramesPlayed;
+*/
+    return PaUtil_GetTime();
 }
 
 

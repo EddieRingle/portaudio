@@ -163,7 +163,9 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTimestamp GetStreamTime( PaStream *stream );
+static PaTime GetStreamInputLatency( PaStream *stream );
+static PaTime GetStreamOutputLatency( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -177,7 +179,7 @@ static PaError UpdateStreamTime( PaWinMmeStream *stream );
 
 typedef struct
 {
-    PaUtilHostApiRepresentation commonHostApiRep;
+    PaUtilHostApiRepresentation inheritedHostApiRep;
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
@@ -194,25 +196,25 @@ static void InitializeDeviceCountsAndDefaultDevices( PaWinMmeHostApiRepresentati
     if( hostApi->numInputDevices > 0 )
     {
         hostApi->numInputDevices += 1; /* add one extra for the WAVE_MAPPER */
-        hostApi->commonHostApiRep.defaultInputDeviceIndex = 0;
+        hostApi->inheritedHostApiRep.defaultInputDeviceIndex = 0;
     }
     else
     {
-        hostApi->commonHostApiRep.defaultInputDeviceIndex = paNoDevice;
+        hostApi->inheritedHostApiRep.defaultInputDeviceIndex = paNoDevice;
     }
 
     hostApi->numOutputDevices = waveOutGetNumDevs();
     if( hostApi->numOutputDevices > 0 )
     {
         hostApi->numOutputDevices += 1; /* add one extra for the WAVE_MAPPER */
-        hostApi->commonHostApiRep.defaultOutputDeviceIndex = hostApi->numInputDevices;
+        hostApi->inheritedHostApiRep.defaultOutputDeviceIndex = hostApi->numInputDevices;
     }
     else
     {
-        hostApi->commonHostApiRep.defaultOutputDeviceIndex = paNoDevice;
+        hostApi->inheritedHostApiRep.defaultOutputDeviceIndex = paNoDevice;
     }
 
-    hostApi->commonHostApiRep.deviceCount =
+    hostApi->inheritedHostApiRep.deviceCount =
         hostApi->numInputDevices + hostApi->numOutputDevices;
 }
 
@@ -251,19 +253,19 @@ static void InitializeDefaultDeviceIdsFromEnv( PaWinMmeHostApiRepresentation *ho
     /* input */
     device = GetEnvDefaultDeviceID( PA_REC_IN_DEV_ENV_NAME_ );
     if( device != paNoDevice &&
-            ( device >= 0 && device < hostApi->commonHostApiRep.deviceCount ) &&
-            hostApi->commonHostApiRep.deviceInfos[ device ]->maxInputChannels > 0 )
+            ( device >= 0 && device < hostApi->inheritedHostApiRep.deviceCount ) &&
+            hostApi->inheritedHostApiRep.deviceInfos[ device ]->maxInputChannels > 0 )
     {
-        hostApi->commonHostApiRep.defaultInputDeviceIndex = device;
+        hostApi->inheritedHostApiRep.defaultInputDeviceIndex = device;
     }
 
     /* output */
     device = GetEnvDefaultDeviceID( PA_REC_OUT_DEV_ENV_NAME_ );
     if( device != paNoDevice &&
-            ( device >= 0 && device < hostApi->commonHostApiRep.deviceCount ) &&
-            hostApi->commonHostApiRep.deviceInfos[ device ]->maxOutputChannels > 0 )
+            ( device >= 0 && device < hostApi->inheritedHostApiRep.deviceCount ) &&
+            hostApi->inheritedHostApiRep.deviceInfos[ device ]->maxOutputChannels > 0 )
     {
-        hostApi->commonHostApiRep.defaultOutputDeviceIndex = device;
+        hostApi->inheritedHostApiRep.defaultOutputDeviceIndex = device;
     }
 }
 
@@ -516,7 +518,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         goto error;
     }
 
-    *hostApi = &winMmeHostApi->commonHostApiRep;
+    *hostApi = &winMmeHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paMME;
     (*hostApi)->info.name = "MME";
@@ -589,11 +591,13 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -837,6 +841,7 @@ typedef struct PaWinMmeStream
     unsigned int currentInputBufferIndex;
     unsigned int framesPerInputBuffer;
     unsigned int framesUsedInCurrentInputBuffer;
+    PaTime inputLatency;
     
     /* Output -------------- */
     HWAVEOUT *hWaveOuts;
@@ -847,6 +852,7 @@ typedef struct PaWinMmeStream
     unsigned int currentOutputBufferIndex;
     unsigned int framesPerOutputBuffer;
     unsigned int framesUsedInCurrentOutputBuffer;
+    PaTime outputLatency;
 
     /* Processing thread management -------------- */
     HANDLE abortEvent;
@@ -867,9 +873,10 @@ typedef struct PaWinMmeStream
 
     DWORD allBuffersDurationMs; /* used to calculate timeouts */
 
+    // FIXME: we no longer need the following for GetStreamTime support
     /* GetStreamTime() support ------------- */
 
-    PaTimestamp streamPosition;
+    PaTime streamPosition;
     long previousStreamPosition;                /* used to track frames played. */
 }
 PaWinMmeStream;
@@ -1090,8 +1097,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     stream->hWaveIns = 0;
     stream->inputBuffers = 0;
+    stream->inputLatency = (double)(framesPerHostInputBuffer * (numHostInputBuffers-1)) / sampleRate;
     stream->hWaveOuts = 0;
     stream->outputBuffers = 0;
+    stream->outputLatency = (double)(framesPerHostOutputBuffer * (numHostOutputBuffers-1)) / sampleRate;
     stream->processingThread = 0;
 
     stream->noHighPriorityProcessClass = noHighPriorityProcessClass;
@@ -1724,7 +1733,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 if( (PA_IS_FULL_DUPLEX_STREAM_(stream) && hostInputBufferIndex != -1 && hostOutputBufferIndex != -1) ||
                         (!PA_IS_FULL_DUPLEX_STREAM_(stream) && ( hostInputBufferIndex != -1 || hostOutputBufferIndex != -1 ) ) )
                 {
-                    PaTimestamp outTime = 0;
+                    PaTime outTime = 0;
 
                     if( hostOutputBufferIndex != -1 ){
                         MMTIME time;
@@ -2342,8 +2351,30 @@ static PaError UpdateStreamTime( PaWinMmeStream *stream )
 }
 
 
-static PaTimestamp GetStreamTime( PaStream *s )
+static PaTime GetStreamInputLatency( PaStream *s )
 {
+    PaWinMmeStream *stream = (PaWinMmeStream*)s;
+
+    return stream->inputLatency;
+}
+
+
+static PaTime GetStreamOutputLatency( PaStream *s )
+{
+    PaWinMmeStream *stream = (PaWinMmeStream*)s;
+
+    return stream->outputLatency;
+}
+
+
+static PaTime GetStreamTime( PaStream *s )
+{
+/*
+    new behavior for GetStreamTime is to return a stream based seconds clock
+    used for the outTime parameter to the callback.
+    FIXME: delete this comment when the other unnecessary related code has
+    been cleaned from this file.
+
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
     PaError error = UpdateStreamTime( stream );
 
@@ -2351,6 +2382,8 @@ static PaTimestamp GetStreamTime( PaStream *s )
         return stream->streamPosition;
     else
         return 0;
+*/
+    return PaUtil_GetTime();
 }
 
 
