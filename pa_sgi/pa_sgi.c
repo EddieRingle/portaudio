@@ -39,17 +39,18 @@
  now and pthreads instead of sproc. A fresh start. 
   
  Tested: + pa_devs                ok.
-         - pa_fuzz                ok
-         - patest_sine            test has to be adapted: (usleep > 1000000)?
-         + patest_leftright       ok
-         - patest_sine_formats    FLOAT32=ok, INT16=ok, INT18=ok,
-                                  but UINT8 IS NOT OK!
-         - patest_start_stop GOES WRONG
-         - patest_write_sine sounds ok but messages error at closing.
+         + pa_fuzz                ok.
+         + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
+                                      for usleeps above 999999 microseconds).
+         + patest_leftright       ok.
+         + patest_record          ok.
+         - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
+         - patest_start_stop      seems ok.
+         - patest_stop            seems ok.
+         - patest_write_sine      sounds ok but messages error at closing.
          - patest_callbackstop COREDUMPS !!!!!
  
- Todo:  - Find out why Pa_sleep doesn't work (probably us > 1000000).
-        - Set queue sizes and latencies.
+ Todo:  - Set queue sizes and latencies.
         - Implement blocking i/o properly.
 */
 
@@ -791,9 +792,8 @@ cleanup:
 static void* PaSGIpthread(void *userData)
 {
     PaSGIStream* stream = (PaSGIStream*)userData;
-   
-    stream->active = 1;
-    while (!stream->stop)
+    stream->active = 1;     /* Parent thread also sets active, but we make no assumption */
+    while (!stream->stop)   /* about who does it first (probably the parent thread).     */
         {
         PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
         int callbackResult;
@@ -901,6 +901,8 @@ static PaError StartStream(PaStream *s)
             DBUG(("pthread_create() failed!\n"));
             result = paUnanticipatedHostError;
             }
+        else
+            stream->active = 1; /* Set active before returning from this function. */
         }
     return result;
 }
@@ -914,14 +916,13 @@ static PaError StopStream( PaStream *s )
     stream->stop = 1;
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
-        if (pthread_join(stream->thread, NULL))
-            {
+        if (pthread_join(stream->thread, NULL)) /* When succesful, guarentees */
+            {                                   /* that stream->active = 0;   */
             DBUG(("pthread_join() failed!\n"));
             result = paUnanticipatedHostError;
             }
-        }
-    stream->stop = 0;
-    DBUG(("PaSGI StopStream().\n"));
+        }        
+    stream->stop = 0;    
     return result;
 }
 
@@ -1039,4 +1040,6 @@ static signed long GetStreamWriteAvailable( PaStream* s )
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs logout
    To see if someone else worked on something:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -r v19-devel
+   To see logs:
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs log pa_tests/patest_read_record.c
 */
