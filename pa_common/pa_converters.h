@@ -1,7 +1,7 @@
 #ifndef PA_CONVERTERS_H
 #define PA_CONVERTERS_H
 /*
- *
+ * $Id$
  * Portable Audio I/O Library sample conversion mechanism
  *
  * Based on the Open Source API proposed by Ross Bencina

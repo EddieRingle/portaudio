@@ -1,7 +1,7 @@
 #ifndef PA_STREAM_H
 #define PA_STREAM_H
 /*
- *
+ * $Id$
  * Portable Audio I/O Library
  * stream interface
  *

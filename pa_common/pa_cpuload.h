@@ -1,7 +1,7 @@
 #ifndef PA_CPULOAD_H
 #define PA_CPULOAD_H
 /*
- * 
+ * $Id$
  * Portable Audio I/O Library CPU Load measurement functions
  * Portable CPU load measurement facility.
  *

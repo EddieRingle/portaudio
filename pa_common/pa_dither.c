@@ -1,7 +1,7 @@
-#include "pa_dither.h"
+
 
 /*
- *
+ * $Id$
  * Portable Audio I/O Library triangular dither generator
  *
  * Based on the Open Source API proposed by Ross Bencina
@@ -30,6 +30,8 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
+#include "pa_dither.h"
 
 #define PA_DITHER_BITS_   (15)
 

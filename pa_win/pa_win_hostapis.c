@@ -1,5 +1,5 @@
 /*
- *
+ * $Id$
  * Portable Audio I/O Library Windows initialization table
  *
  * Based on the Open Source API proposed by Ross Bencina

@@ -101,7 +101,7 @@ naming conventions:
     #defines begin with PA_
     #defines local to a file end with _
     global utility variables begin with paUtil
-    global utility types begin with PaUtil  (uncluding function types)
+    global utility types begin with PaUtil  (including function types)
     global utility functions begin with PaUtil_
     static variables end with _
     static constants begin with const and end with _
@@ -137,9 +137,9 @@ will be logged to stderr along with parameter and return values.
 
 
 TODO:
-    finish coding converter functions in pa_converters.c
+    finish coding converter functions in pa_converters.c (anyone?)
 
-    implement block adaption in pa_process.c
+    implement block adaption in pa_process.c (phil?)
 
     fix all current tests to work with new code. this should mostly involve
     changing PortAudioStream to PaStream, and GetDefaultDeviceID to GetDefaultDevice etc.
@@ -161,6 +161,8 @@ TODO:
 
     see top of pa_win_wmme.c for MME todo items (ross)
 
+    write style guide document (ross)
+    
     
 DESIGN ISSUES:
 

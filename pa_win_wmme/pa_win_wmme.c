@@ -169,8 +169,8 @@ static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames
 static unsigned long GetStreamReadAvailable( PaStream* stream );
 static unsigned long GetStreamWriteAvailable( PaStream* stream );
 
-
 static PaError UpdateStreamTime( PaWinMmeStream *stream );
+
 
 /* PaWinMmeHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -181,7 +181,6 @@ typedef struct
     PaUtilStreamInterface blockingStreamInterface;
 
     int numInputDevices, numOutputDevices;
-
 }
 PaWinMmeHostApiRepresentation;
 
@@ -1320,7 +1319,7 @@ static PaError StartStream( PaStream *s )
             goto error;
         }
 
-        for( i=0; i<stream->numOutputBuffers; i++ )
+        for( i=0; i<stream->numOutputBuffers; ++i )
         {
             ZeroMemory( stream->outputBuffers[i].lpData, stream->outputBuffers[i].dwBufferLength );
             mmresult = waveOutWrite( stream->hWaveOut, &stream->outputBuffers[i], sizeof(WAVEHDR) );

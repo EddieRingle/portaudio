@@ -1,7 +1,8 @@
 /*
- *
+ * $Id$
  * Portable Audio I/O Library skeleton implementation
- * demonstrates how to use the common functions to implement support for a host API
+ * demonstrates how to use the common functions to implement support
+ * for a host API
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk

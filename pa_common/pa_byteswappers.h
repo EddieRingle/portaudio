@@ -1,7 +1,7 @@
 #ifndef PA_BYTESWAPPERS_H
 #define PA_BYTESWAPPERS_H
 /*
- *
+ * $Id$ 
  * Portable Audio I/O Library sample byte swapping mechanism
  *
  * Based on the Open Source API proposed by Ross Bencina
