@@ -1694,3 +1694,133 @@ PaUtilConverterTable paConverters = {
 /* -------------------------------------------------------------------------- */
 
 #endif /* PA_NO_STANDARD_CONVERTERS */
+
+/* -------------------------------------------------------------------------- */
+
+PaUtilZeroer* PaUtil_SelectZeroer( PaSampleFormat destinationFormat )
+{
+    switch( destinationFormat & ~paNonInterleaved ){
+    case paFloat32:
+        return paZeroers.Zero32;
+    case paInt32:
+        return paZeroers.Zero32;
+    case paInt24:
+        return paZeroers.Zero24;
+    case paInt16:
+        return paZeroers.Zero16;
+    case paInt8:
+        return paZeroers.Zero8;
+    case paUInt8:
+        return paZeroers.ZeroU8;
+    default: return 0;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+#ifdef PA_NO_STANDARD_ZEROERS
+
+/* -------------------------------------------------------------------------- */
+
+PaUtilZeroerTable paZeroers = {
+    0,  /* PaUtilZeroer *ZeroU8; */
+    0,  /* PaUtilZeroer *Zero8; */
+    0,  /* PaUtilZeroer *Zero16; */
+    0,  /* PaUtilZeroer *Zero24; */
+    0,  /* PaUtilZeroer *Zero32; */
+};
+
+/* -------------------------------------------------------------------------- */
+
+#else /* PA_NO_STANDARD_ZEROERS is not defined */
+
+/* -------------------------------------------------------------------------- */
+
+static void ZeroU8( void *destinationBuffer, signed int destinationStride,
+        unsigned int count )
+{
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+
+    while( count-- )
+    {
+        *dest = 128;
+
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Zero8( void *destinationBuffer, signed int destinationStride,
+        unsigned int count )
+{
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+
+    while( count-- )
+    {
+        *dest = 0;
+
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Zero16( void *destinationBuffer, signed int destinationStride,
+        unsigned int count )
+{
+    unsigned short *dest = (unsigned short*)destinationBuffer;
+
+    while( count-- )
+    {
+        *dest = 0;
+
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Zero24( void *destinationBuffer, signed int destinationStride,
+        unsigned int count )
+{
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+
+    while( count-- )
+    {
+        dest[0] = 0;
+        dest[1] = 0;
+        dest[2] = 0;
+
+        dest += destinationStride * 3;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Zero32( void *destinationBuffer, signed int destinationStride,
+        unsigned int count )
+{
+    unsigned long *dest = (unsigned long*)destinationBuffer;
+
+    while( count-- )
+    {
+        *dest = 0;
+
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+PaUtilZeroerTable paZeroers = {
+    ZeroU8,  /* PaUtilZeroer *ZeroU8; */
+    Zero8,  /* PaUtilZeroer *Zero8; */
+    Zero16,  /* PaUtilZeroer *Zero16; */
+    Zero24,  /* PaUtilZeroer *Zero24; */
+    Zero32,  /* PaUtilZeroer *Zero32; */
+};
+
+/* -------------------------------------------------------------------------- */
+
+#endif /* PA_NO_STANDARD_ZEROERS */
