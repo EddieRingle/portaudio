@@ -1,5 +1,11 @@
+#ifndef PA_LINUX_ALSA_H
+#define PA_LINUX_ALSA_H
 
+#define ALSA_PCM_NEW_HW_PARAMS_API
+#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
+#undef ALSA_PCM_NEW_HW_PARAMS_API
+#undef ALSA_PCM_NEW_SW_PARAMS_API
 
 #include <pthread.h>
 
@@ -7,6 +13,32 @@
 #include "pa_process.h"
 #include "pa_cpuload.h"
 #include "pa_stream.h"
+
+#define MIN(x,y) ( (x) < (y) ? (x) : (y) )
+
+#define STRINGIZE_HELPER(exp) #exp
+#define STRINGIZE(exp) STRINGIZE_HELPER(exp)
+
+/* TODO: Isolate call to SetLastHostErrorInfo with mutex? */
+#define ENSURE(exp, code) \
+    if( (exp) < 0 ) \
+    { \
+        if( (code) == paUnanticipatedHostError ) \
+        { \
+            PaUtil_SetLastHostErrorInfo( paALSA, (exp), snd_strerror( (exp) ) ); \
+        } \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        result = (code); \
+        goto error; \
+    }
+
+#define UNLESS(exp, code) \
+    if( (exp) == 0 ) \
+    { \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        result = (code); \
+        goto error; \
+    }
 
 typedef struct PaAlsaStream
 {
@@ -17,7 +49,7 @@ typedef struct PaAlsaStream
     snd_pcm_t *pcm_capture;
     snd_pcm_t *pcm_playback;
 
-    int callback_finished;      /* bool: are we in the "callback finished" state? */
+    int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
 
     int frames_per_period;
     int playback_hostsampleformat;
@@ -41,8 +73,10 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t capture_offset;
     snd_pcm_uframes_t playback_offset;
 
-    int pcmsSynced;             // Have we successfully synced pcms
-    int callbackAbort;          // Drop frames?
+    int pcmsSynced;		/* Have we successfully synced pcms */
+    int callbackAbort;		/* Drop frames? */
+    snd_pcm_uframes_t startThreshold;
 }
 PaAlsaStream;
 
+#endif

@@ -1,227 +1,200 @@
-
 #include <sys/poll.h>
 #include <limits.h>
 #include <math.h>  /* abs() */
 
-#include <alsa/asoundlib.h>
-
 #include "pa_linux_alsa.h"
 
-#define MIN(x,y) ( (x) < (y) ? (x) : (y) )
-
 void Stop( void *data );
-void *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
+char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
 
-static int wait( PaAlsaStream *stream )
+/*!
+  \brief Poll on I/O filedescriptors
+
+  We keep polling untill both all filedescriptors are ready (possibly both in and out), if either the capture
+  or playback fd gets ready before the other we take it out of the equation
+  */
+static snd_pcm_sframes_t Wait( PaAlsaStream *stream )
 {
-    int need_capture;
-    int need_playback;
-    int capture_avail = INT_MAX;
-    int playback_avail = INT_MAX;
-    int common_avail;
+    PaError result = paNoError;
+    int needCapture = 0, needPlayback = 0;
+    snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
+    struct pollfd *pfds = stream->pfds;
+    int totalFds = stream->capture_nfds + stream->playback_nfds;
+
+    assert( stream );
 
     if( stream->pcm_capture )
-        need_capture = 1;
-    else
-        need_capture = 0;
+        needCapture = 1;
 
     if( stream->pcm_playback )
-        need_playback = 1;
-    else
-        need_playback = 0;
+        needPlayback = 1;
 
-    while( need_capture || need_playback )
+    while( needCapture || needPlayback )
     {
-        int playback_pfd_offset;
-        int total_fds = 0;
+	unsigned short revents;
 
         /* if the main thread has requested that we stop, do so now */
         pthread_testcancel();
 
-        /*PA_DEBUG(("still polling...\n"));
-        if( need_capture )
-            PA_DEBUG(("need capture.\n"));
-        if( need_playback )
-            PA_DEBUG(("need playback.\n")); */
+        /*PA_DEBUG(( "still polling...\n" ));
+        if( needCapture )
+            PA_DEBUG(( "need capture.\n" ));
+        if( needPlayback )
+            PA_DEBUG(( "need playback.\n" )); */
 
-        /* get the fds, packing all applicable fds into a single array,
-         * so we can check them all with a single poll() call */
-
-        if( need_capture )
-        {
-            snd_pcm_poll_descriptors( stream->pcm_capture, stream->pfds,
-                                      stream->capture_nfds );
-            total_fds += stream->capture_nfds;
-        }
-
-        if( need_playback )
-        {
-            playback_pfd_offset = total_fds;
-            snd_pcm_poll_descriptors( stream->pcm_playback,
-                                      stream->pfds + playback_pfd_offset,
-                                      stream->playback_nfds );
-            total_fds += stream->playback_nfds;
-        }
-
-        /* now poll on the combination of playback and capture fds.
-         * TODO: handle interrupt and/or failure */
-        poll( stream->pfds, total_fds, 1000 );
+        /* now poll on the combination of playback and capture fds. */
+        ENSURE( poll( pfds, totalFds, 1000 ), paInternalError );
 
         /* check the return status of our pfds */
-        if( need_capture )
+        if( needCapture )
         {
-            short revents;
-            snd_pcm_poll_descriptors_revents( stream->pcm_capture, stream->pfds,
-                                              stream->capture_nfds, &revents );
+            ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_capture, stream->pfds,
+                        stream->capture_nfds, &revents ), paUnanticipatedHostError );
             if( revents == POLLIN )
-                need_capture = 0;
+            {
+                needCapture = 0;
+                /* No need to keep polling on capture fd(s) */
+                pfds += stream->capture_nfds;
+                totalFds -= stream->capture_nfds;
+            }
         }
 
-        if( need_playback )
+        if( needPlayback )
         {
-            short revents;
-            snd_pcm_poll_descriptors_revents( stream->pcm_playback,
-                                              stream->pfds + playback_pfd_offset,
-                                              stream->playback_nfds, &revents );
-            //if( revents & POLLOUT )
-            //if( revents & POLLERR )
-            //    PA_DEBUG(("polling error!"));
+            unsigned short revents;
+            ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_playback, stream->pfds +
+                        stream->capture_nfds, stream->playback_nfds, &revents ), paUnanticipatedHostError );
             if( revents == POLLOUT )
-                need_playback = 0;
+            {
+                needPlayback = 0;
+                /* No need to keep polling on playback fd(s) */
+                totalFds -= stream->playback_nfds;
+            }
         }
     }
 
     /* we have now established that there are buffers ready to be
      * operated on.  Now determine how many frames are available. */
     if( stream->pcm_capture )
-        capture_avail = snd_pcm_avail_update( stream->pcm_capture );
-
-    if( stream->pcm_playback )
-        playback_avail = snd_pcm_avail_update( stream->pcm_playback );
-
-    common_avail = MIN(capture_avail, playback_avail);
-    common_avail -= common_avail % stream->frames_per_period;
-
-    return common_avail;
-}
-
-static int setup_buffers( PaAlsaStream *stream, int frames_avail )
-{
-    int i;
-    int capture_frames_avail = INT_MAX;
-    int playback_frames_avail = INT_MAX;
-    int common_frames_avail;
-
-    if( stream->pcm_capture )
     {
-        const snd_pcm_channel_area_t *capture_areas;
-        const snd_pcm_channel_area_t *area;
-        snd_pcm_uframes_t frames = frames_avail;
-
-        /* I do not understand this code fragment yet, it is copied out of the
-         * alsa-devel archives... */
-        snd_pcm_mmap_begin( stream->pcm_capture, &capture_areas,
-                            &stream->capture_offset, &frames);
-
-        if( stream->capture_interleaved )
-        {
-            void *interleaved_capture_buffer;
-            area = &capture_areas[0];
-            interleaved_capture_buffer = ExtractAddress( area, stream->capture_offset );
-            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
-                                                0, /* starting at channel 0 */
-                                                interleaved_capture_buffer,
-                                                0  /* default numInputChannels */
-                                              );
-        }
-        else
-        {
-            /* noninterleaved */
-            for( i = 0; i < stream->capture_channels; i++ )
-            {
-                void *noninterleaved_capture_buffer;
-                area = &capture_areas[i];
-                noninterleaved_capture_buffer = ExtractAddress( area, stream->capture_offset );
-                PaUtil_SetNonInterleavedInputChannel( &stream->bufferProcessor,
-                                                      i,
-                                                      noninterleaved_capture_buffer);
-            }
-        }
-
-        capture_frames_avail = frames;
+        captureAvail = snd_pcm_avail_update( stream->pcm_capture );
+        ENSURE( captureAvail, paUnanticipatedHostError );
     }
 
     if( stream->pcm_playback )
     {
-        const snd_pcm_channel_area_t *playback_areas;
-        const snd_pcm_channel_area_t *area;
-        snd_pcm_uframes_t frames = frames_avail;
+        playbackAvail = snd_pcm_avail_update( stream->pcm_playback );
+        ENSURE( playbackAvail, paUnanticipatedHostError );
+    }
 
-        snd_pcm_mmap_begin( stream->pcm_playback, &playback_areas, 
-                            &stream->playback_offset, &frames);
+    commonAvail = MIN(captureAvail, playbackAvail);
+    commonAvail -= commonAvail % stream->frames_per_period;
 
-        if( stream->playback_interleaved )
+    return commonAvail;
+
+error:
+    return result;
+}
+
+snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t framesAvail )
+{
+    PaError result = paNoError;
+    int i;
+    snd_pcm_uframes_t captureFrames = INT_MAX, playbackFrames = INT_MAX, commonFrames;
+    const snd_pcm_channel_area_t *areas, *area;
+    char *buffer;
+
+    assert( stream );
+
+    if( stream->pcm_capture )
+    {
+        captureFrames = framesAvail;
+        ENSURE( snd_pcm_mmap_begin( stream->pcm_capture, &areas, &stream->capture_offset, &captureFrames ),
+                paUnanticipatedHostError );
+
+        if( stream->capture_interleaved )
         {
-            void *interleaved_playback_buffer;
-            area = &playback_areas[0];
-            interleaved_playback_buffer = ExtractAddress( area, stream->playback_offset );
-            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
+            buffer = ExtractAddress( areas, stream->capture_offset );
+            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
                                                  0, /* starting at channel 0 */
-                                                 interleaved_playback_buffer,
+                                                 buffer,
                                                  0  /* default numInputChannels */
                                                );
         }
         else
-        {
             /* noninterleaved */
-            for( i = 0; i < stream->playback_channels; i++ )
+            for( i = 0; i < stream->capture_channels; ++i )
             {
-                void *noninterleaved_playback_buffer;
-                area = &playback_areas[i];
-                noninterleaved_playback_buffer = ExtractAddress( area, stream->playback_offset );
-                PaUtil_SetNonInterleavedOutputChannel( &stream->bufferProcessor,
+                area = &areas[i];
+                buffer = ExtractAddress( area, stream->capture_offset );
+                PaUtil_SetNonInterleavedInputChannel( &stream->bufferProcessor,
                                                       i,
-                                                      noninterleaved_playback_buffer);
+                                                      buffer );
             }
-        }
-
-        playback_frames_avail = frames;
     }
 
+    if( stream->pcm_playback )
+    {
+        ENSURE( snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &playbackFrames ),
+                paUnanticipatedHostError );
 
-    common_frames_avail = MIN(capture_frames_avail, playback_frames_avail);
-    common_frames_avail -= common_frames_avail % stream->frames_per_period;
-    //PA_DEBUG(( "%d capture frames available\n", capture_frames_avail ));
-    //PA_DEBUG(( "%d frames playback available\n", playback_frames_avail ));
-    //PA_DEBUG(( "%d frames available\n", common_frames_avail ));
+        if( stream->playback_interleaved )
+        {
+            buffer = ExtractAddress( areas, stream->playback_offset );
+            PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
+                                                 0, /* starting at channel 0 */
+                                                 buffer,
+                                                 0  /* default numInputChannels */
+                                               );
+        }
+        else
+            for( i = 0; i < stream->playback_channels; ++i )
+            {
+                area = &areas[i];
+                buffer = ExtractAddress( area, stream->playback_offset );
+                PaUtil_SetNonInterleavedOutputChannel( &stream->bufferProcessor,
+                                                      i,
+                                                      buffer );
+            }
+    }
+
+    commonFrames = MIN(captureFrames, playbackFrames);
+    commonFrames -= commonFrames % stream->frames_per_period;
+    /*
+    printf( "%d capture frames available\n", capture_framesAvail );
+    printf( "%d frames playback available\n", playback_framesAvail );
+    printf( "%d frames available\n", common_framesAvail );
+    */
 
     if( stream->pcm_capture )
-        PaUtil_SetInputFrameCount( &stream->bufferProcessor, common_frames_avail );
+        PaUtil_SetInputFrameCount( &stream->bufferProcessor, commonFrames );
 
     if( stream->pcm_playback )
-        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, common_frames_avail );
+        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, commonFrames );
 
-    return common_frames_avail;
+    return (snd_pcm_sframes_t) commonFrames;
+
+error:
+    return result;
 }
 
 void *CallbackThread( void *userData )
 {
-    PaAlsaStream *stream = (PaAlsaStream*)userData;
-    pthread_cleanup_push( &Stop, stream );   // Execute Stop on exit
+    PaError result = paNoError;
+    PaAlsaStream *stream = (PaAlsaStream*) userData;
+    snd_pcm_sframes_t framesAvail, framesGot, framesProcessed;
+    int *pres;
 
-    if( stream->pcm_playback )
-        snd_pcm_start( stream->pcm_playback );
-    else if( stream->pcm_capture )
-        snd_pcm_start( stream->pcm_capture );
+    assert( userData );
+
+    pthread_cleanup_push( &Stop, stream );	/* Execute Stop on exit */
+
+    PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
 
     while(1)
     {
-        int frames_avail;
-        int frames_got;
-
-        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
-        int callbackResult;
-        int framesProcessed;
+        PaError callbackResult;
+	PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
 
         pthread_testcancel();
         {
@@ -294,44 +267,54 @@ void *CallbackThread( void *userData )
             PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
         */
 
-        framesProcessed = frames_avail = wait( stream );
-
-        while( frames_avail > 0 )
+        framesAvail = Wait( stream );
+        ENSURE( framesAvail, framesAvail );     /* framesAvail might contain an error (negative value) */
+        while( framesAvail > 0 )
         {
-            //PA_DEBUG(( "%d frames available\n", frames_avail ));
+            PaStreamCallbackFlags cbFlags = 0;
+
+            pthread_testcancel();
+
+            /* Priming output */
+            if( stream->startThreshold > 0 )
+            {
+                if( stream->pcm_capture )
+                    PaUtil_SetNoInput( &stream->bufferProcessor );
+                framesAvail = MIN( framesAvail, stream->startThreshold );
+            }
 
             /* Now we know the soundcard is ready to produce/receive at least
              * one period.  We just need to get the buffers for the client
              * to read/write. */
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
-                    0 /* @todo pass underflow/overflow flags when necessary */ );
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
-            frames_got = setup_buffers( stream, frames_avail );
-
+            framesGot = SetUpBuffers( stream, framesAvail );
+            ENSURE( framesGot, framesGot );             /* framesGot might contain an error (negative) */
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             callbackResult = paContinue;
 
             /* this calls the callback */
-
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
 
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
             /* inform ALSA how many frames we wrote */
-
             if( stream->pcm_capture )
-                snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, frames_got );
-
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, framesGot ), paUnanticipatedHostError );
             if( stream->pcm_playback )
-                snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames_got );
+                ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, framesGot ), paUnanticipatedHostError );
 
             if( callbackResult != paContinue )
                 break;
 
-            frames_avail -= frames_got;
+            framesAvail -= framesGot;
+            if( stream->startThreshold > 0 )
+                stream->startThreshold -= framesGot;
+
+	    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
         }
 
 
@@ -345,7 +328,8 @@ void *CallbackThread( void *userData )
             stream->callback_finished = 1;
             stream->callbackAbort = (callbackResult == paAbort);
 
-            pthread_exit( NULL );
+            goto end;
+            
         }
     }
 
@@ -353,13 +337,24 @@ void *CallbackThread( void *userData )
      * is possibly a macro with a closing brace to match the opening brace in
      * pthread_cleanup_push() above.  The documentation states that they must
      * always occur in pairs. */
+    pthread_cleanup_pop( 1 );	/* Execute Stop on exit */
 
-    pthread_cleanup_pop( 1 );
+end:
+    pthread_exit( NULL );
+
+error:
+    /* Pass on error code */
+    pres = malloc( sizeof (int) );
+    *pres = (result);
+    
+    pthread_exit( pres );
 }
 
 void Stop( void *data )
 {
     PaAlsaStream *stream = (PaAlsaStream *) data;
+
+    assert( data );
 
     if( stream->callbackAbort )
     {
@@ -380,9 +375,13 @@ void Stop( void *data )
     }
 
     PA_DEBUG(( "Stoppage\n" ));
+
+    /* Eventually notify user all buffers have played */
+    if( stream->streamRepresentation.streamFinishedCallback )
+        stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
 }
 
-void *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
+char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
 {
-    return area->addr + (area->first + offset * area->step) / 8;
+    return (char *) area->addr + (area->first + offset * area->step) / 8;
 }
