@@ -3247,8 +3247,8 @@ static PaError GetWinMMEStreamPointer( PaWinMmeStream **stream, PaStream *s )
     /* note, the following would be easier if there was a generic way of testing
         that a stream belongs to a specific host API */
     
-    if( PA_STREAM_REP( *stream )->streamInterface == &winMmeHostApi->callbackStreamInterface
-            || PA_STREAM_REP( *stream )->streamInterface == &winMmeHostApi->blockingStreamInterface )
+    if( PA_STREAM_REP( s )->streamInterface == &winMmeHostApi->callbackStreamInterface
+            || PA_STREAM_REP( s )->streamInterface == &winMmeHostApi->blockingStreamInterface )
     {
         /* s is a WinMME stream */
         *stream = (PaWinMmeStream *)s;
