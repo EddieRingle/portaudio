@@ -59,7 +59,5 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
     };
 
 
-PaHostApiIndex Pa_GetDefaultHostApi( void )
-{
-    return 0;
-}
+int paDefaultHostApiIndex = 0;
+
