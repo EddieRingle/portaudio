@@ -76,16 +76,8 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -621,16 +613,8 @@ static int PaWinDs_GetMinLatencyFrames( double sampleRate )
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
                            unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
@@ -640,24 +624,65 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaWinDsHostApiRepresentation *winDsHostApi = (PaWinDsHostApiRepresentation*)hostApi;
     PaWinDsStream *stream = 0;
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    unsigned long suggestedInputLatencyFrames, suggestedOutputLatencyFrames;
 
-    /* unless alternate device specification is supported, reject the use of
-    paUseHostApiSpecificDeviceSpecification */
-    if( (inputDevice == paUseHostApiSpecificDeviceSpecification)
-            || (outputDevice == paUseHostApiSpecificDeviceSpecification) )
-        return paInvalidDevice; 
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->numChannels;
+        inputSampleFormat = inputParameters->sampleFormat;
+        suggestedInputLatencyFrames = inputParameters->suggestedLatency * sampleRate;
 
-    /* check that input device can support numInputChannels */
-    if( (inputDevice != paNoDevice) &&
-            (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )
-        return paInvalidChannelCount;
+        /* IDEA: the following 3 checks could be performed by default by pa_front
+            unless some flag indicated otherwise */
+            
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+            
+        /* validate hostApiSpecificStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numInputChannels = 0;
+        suggestedInputLatencyFrames = 0;
+    }
 
 
-    /* check that output device can support numInputChannels */
-    if( (outputDevice != paNoDevice) &&
-            (numOutputChannels > hostApi->deviceInfos[ outputDevice ]->maxOutputChannels) )
-        return paInvalidChannelCount;
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->numChannels;
+        outputSampleFormat = outputParameters->sampleFormat;
+        suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification */
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate hostApiSpecificStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */            
+    }
+    else
+    {
+        numOutputChannels = 0;
+        suggestedOutputLatencyFrames = 0;
+    }
+
 
     /*
         IMPLEMENT ME:
@@ -683,14 +708,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 use default values where necessary
     */
 
-
-    /* validate inputStreamInfo */
-    if( inputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
-
-    /* validate outputStreamInfo */
-    if( outputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -718,23 +735,29 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
-    
-    /* IMPLEMENT ME - establish which  host formats are available */
-    hostInputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
 
-    /* IMPLEMENT ME - establish which  host formats are available */
-    hostOutputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-        
+    if( inputParameters )
+    {
+        /* IMPLEMENT ME - establish which  host formats are available */
+        hostInputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputParameters->sampleFormat );
+    }
+
+    if( outputParameters )
+    {
+        /* IMPLEMENT ME - establish which  host formats are available */
+        hostOutputSampleFormat =
+            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputParameters->sampleFormat );
+    }
+    
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              numInputChannels, inputSampleFormat, hostInputSampleFormat,
-              numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer,
-              framesPerBuffer, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
-        /* This next mode is required because DS can split the host buffer when it wraps around. */
-              paUtilVariableHostBufferSizePartialUsageAllowed,
-              streamCallback, userData );
+                    numInputChannels, inputSampleFormat, hostInputSampleFormat,
+                    numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+                    sampleRate, streamFlags, framesPerBuffer,
+                    framesPerBuffer, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
+                /* This next mode is required because DS can split the host buffer when it wraps around. */
+                    paUtilVariableHostBufferSizePartialUsageAllowed,
+                    streamCallback, userData );
     if( result != paNoError )
         goto error;
 
@@ -754,11 +777,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         minLatencyFrames = PaWinDs_GetMinLatencyFrames( sampleRate );
 
     /* Let user override latency by passing latency parameter. */
-        userLatencyFrames = (inputLatency > outputLatency) ? inputLatency : outputLatency;
+        userLatencyFrames = (suggestedInputLatencyFrames > suggestedOutputLatencyFrames)
+                    ? suggestedInputLatencyFrames
+                    : suggestedOutputLatencyFrames;
         if( userLatencyFrames > 0 ) minLatencyFrames = userLatencyFrames;
 
     /* Calculate stream->framesPerDSBuffer depending on framesPerBuffer */
-        if( framesPerBuffer == 0 )
+        if( framesPerBuffer == paFramesPerBufferUnspecified )
         {
         /* App support variable framesPerBuffer */
             stream->framesPerDSBuffer = minLatencyFrames;
@@ -784,12 +809,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 
         /* ------------------ OUTPUT */
-        if( (outputDevice >= 0) && (numOutputChannels > 0) )
+        if( outputParameters )
         {
-            PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputDevice ];
+            PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputParameters->device ];
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputDevice));
 
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * numOutputChannels * sizeof(short);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->numChannels * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -802,7 +827,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
 
 
-            hr = dswDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputDevice].lpGUID,
+            hr = dswDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputParameters->device].lpGUID,
                 &dsw->dsw_pDirectSound,   NULL );
             if( hr != DS_OK )
             {
@@ -812,7 +837,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitOutputBuffer( dsw,
                                        (unsigned long) (sampleRate + 0.5),
-                                       numOutputChannels, bytesPerDirectSoundBuffer );
+                                       outputParameters->numChannels, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -826,11 +851,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         /* ------------------ INPUT */
-        if( (inputDevice >= 0) && (numInputChannels > 0) )
+        if( inputParameters )
         {
-            PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputDevice ];
+            PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputParameters->device ];
             
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * numInputChannels * sizeof(short);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->numChannels * sizeof(short);
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -842,7 +867,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
 
-            hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputDevice].lpGUID,
+            hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputParameters->device].lpGUID,
                 &dsw->dsw_pDirectSoundCapture,   NULL );
             if( hr != DS_OK )
             {
@@ -852,7 +877,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             hr = DSW_InitInputBuffer( dsw,
                                       (unsigned long) (sampleRate + 0.5),
-                                      numInputChannels, bytesPerDirectSoundBuffer );
+                                      inputParameters->numChannels, bytesPerDirectSoundBuffer );
             DBUG(("DSW_InitInputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
