@@ -141,7 +141,12 @@ PaError PaUtil_CancelThreading( PaUtilThreading *threading, int wait, PaError *e
         pthread_cancel( threading->callbackThread );   /* XXX: Safe to call this if the thread has exited on its own? */
     pthread_join( threading->callbackThread, &pret );
 
-    if( pret && pret != PTHREAD_CANCELED )
+#ifdef PTHREAD_CANCELED
+    if( pret && PTHREAD_CANCELED != pret )
+#else
+    /* !wait means the thread may have been canceled */
+    if( pret && wait )
+#endif
     {
         if( exitResult )
             *exitResult = *(PaError *) pret;
