@@ -125,11 +125,7 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
     PaUtil_SetLastHostErrorInfo( paDirectSound, hr, "DirectSound error" )
 
 /************************************************* DX Prototypes **********/
-static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
-                                 LPCTSTR lpszDesc,
-                                 LPCTSTR lpszDrvName,
-                                 LPVOID lpContext );
-static BOOL CALLBACK Pa_CountDevProc(LPGUID lpGUID,
+static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
                                      LPCTSTR lpszDesc,
                                      LPCTSTR lpszDrvName,
                                      LPVOID lpContext );
