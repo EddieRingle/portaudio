@@ -133,7 +133,7 @@ int main(void);
 int main(void)
 {
 	int i;
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     paTestData data = {0};
     double load;
@@ -153,14 +153,15 @@ int main(void)
               paNoDevice,
               0,              /* no input */
               paFloat32,
+              0, /* default latency */
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,              /* stereo output */
               paFloat32,      /* 32 bit floating point output */
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER, 
-              0,              /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
@@ -174,7 +175,7 @@ int main(void)
         data.numSines++;
         Pa_Sleep( 200 );
 
-        load = Pa_GetCPULoad( stream );
+        load = Pa_GetStreamCpuLoad( stream );
         printf("numSines = %d, CPU load = %f\n", data.numSines, load );
         fflush( stdout );
     }
