@@ -17,7 +17,7 @@ x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)
 o- patest_dither.c
 o- patest_hang.c
 o- patest_latency.c
-o- patest_leftright.c
+x- patest_leftright.c
 o- patest_longsine.c
 o- patest_many.c
 o- patest_maxsines.c
@@ -30,7 +30,7 @@ x- patest_ringmix.c
 o- patest_saw.c
 x- patest_sine.c
 o- patest_sine8.c
-o- patest_sine_formats.c
+x- patest_sine_formats.c
 o- patest_sine_time.c
 x- patest_start_stop.c
 x- patest_stop.c
