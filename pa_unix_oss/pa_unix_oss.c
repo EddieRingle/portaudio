@@ -304,6 +304,7 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
     int numChannels, maxNumChannels;
     int busy = 0;
     int devHandle = -1;
+    int sr;
     *maxChannelCount = 0.;  /* Default value in case this fails */
 
     if ( (devHandle = open( deviceName, (mode == StreamMode_In ? O_RDONLY : O_WRONLY) | O_NONBLOCK ))  < 0 )
@@ -349,7 +350,7 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
     }
     /* A: We're able to open a device for capture if it's busy playing back and vice versa,
      * but we can't configure anything */
-    if( maxNumChannels == 0 && busy )
+    if( 0 == maxNumChannels && busy )
     {
         result = paDeviceUnavailable;
         goto error;
@@ -382,8 +383,14 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
     /* Get supported sample rate closest to 44100 Hz */
     if( *defaultSampleRate < 0 )
     {
-        *defaultSampleRate = 44100;
-        ENSURE_( ioctl( devHandle, SNDCTL_DSP_SPEED, defaultSampleRate ), paUnanticipatedHostError );
+        sr = 44100;
+        if( ioctl( devHandle, SNDCTL_DSP_SPEED, &sr ) < 0 )
+        {
+            result = paUnanticipatedHostError;
+            goto error;
+        }
+
+        *defaultSampleRate = sr;
     }
 
     *maxChannelCount = maxNumChannels;
@@ -426,7 +433,6 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
      * opened in, it may have more channels available for capture than playback and vice versa. Therefore
      * we will open the device in both read- and write-only mode to determine the supported number.
      */
-    PA_DEBUG(( "Querying device in capture mode\n" ));
     if( (tmpRes = QueryDirection( deviceName, StreamMode_In, &sampleRate, &maxInputChannels, &defaultLowInputLatency,
                 &defaultHighInputLatency )) != paNoError )
     {
@@ -435,9 +441,8 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
             PA_DEBUG(( "%s: Querying device %s for capture failed!\n", __FUNCTION__, deviceName ));
             /* PA_ENSURE( tmpRes ); */
         }
-        busy = 1;
+        ++busy;
     }
-    PA_DEBUG(( "Querying device in playback mode\n" ));
     if( (tmpRes = QueryDirection( deviceName, StreamMode_Out, &sampleRate, &maxOutputChannels, &defaultLowOutputLatency,
                 &defaultHighOutputLatency )) != paNoError )
     {
@@ -446,6 +451,11 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
             PA_DEBUG(( "%s: Querying device %s for playback failed!\n", __FUNCTION__, deviceName ));
             /* PA_ENSURE( tmpRes ); */
         }
+        ++busy;
+    }
+    assert( 0 <= busy && busy <= 2 );
+    if( 2 == busy )     /* Both directions are unavailable to us */
+    {
         result = paDeviceUnavailable;
         goto error;
     }
@@ -498,9 +508,9 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
        /* PA_DEBUG(("PaOSS BuildDeviceList: trying device %s\n", deviceName )); */
        if( stat( deviceName, &stbuf ) < 0 )
        {
-           if( ENOENT == errno )
-               continue;
-           ENSURE_( -1, paUnanticipatedHostError );
+           if( ENOENT != errno )
+               PA_DEBUG(( "%s: Error stat'ing %s: %s\n", __FUNCTION__, deviceName, strerror( errno ) ));
+           continue;
        }
        if( (testResult = QueryDevice( deviceName, ossApi, &deviceInfo )) != paNoError )
        {
@@ -907,7 +917,7 @@ static PaError Pa2OssFormat( PaSampleFormat paFormat, int *ossFormat )
 static PaError GetAvailableFormats( PaOssStreamComponent *component, PaSampleFormat *availableFormats )
 {
     PaError result = paNoError;
-    int mask;
+    int mask = 0;
     PaSampleFormat frmts = 0;
 
     ENSURE_( ioctl( component->fd, SNDCTL_DSP_GETFMTS, &mask ), paUnanticipatedHostError );
@@ -937,6 +947,13 @@ static unsigned int PaOssStreamComponent_FrameSize( PaOssStreamComponent *compon
 static unsigned long PaOssStreamComponent_BufferSize( PaOssStreamComponent *component )
 {
     return PaOssStreamComponent_FrameSize( component ) * component->hostFrames * component->numBufs;
+}
+
+static int CalcHigherLogTwo( int n )
+{
+    int log2 = 0;
+    while( (1<<log2) < n ) log2++;
+    return log2;
 }
 
 static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, double sampleRate, unsigned long framesPerBuffer,
@@ -983,7 +1000,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
          * Most significant byte: number of fragments
          * Least significant byte: exponent of fragment size (i.e., for 256, 8)
          */
-        frgmt = (numBufs << 16) + ((int)(log10( bytesPerBuf ) / log10( 2 )) & 0xffff);
+        frgmt = (numBufs << 16) + (CalcHigherLogTwo( bytesPerBuf ) & 0xffff);
         ENSURE_( ioctl( component->fd, SNDCTL_DSP_SETFRAGMENT, &frgmt ), paUnanticipatedHostError );
 
         /* A: according to the OSS programmer's guide parameters should be set in this order:
@@ -1110,6 +1127,8 @@ static PaError PaOssStream_Configure( PaOssStream *stream, double sampleRate, un
     stream->framesPerHostBuffer = framesPerHostBuffer;
     stream->pollTimeout = (int) ceil( 1e6 * framesPerHostBuffer / sampleRate );    /* Period in usecs, rounded up */
 
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+
 error:
     return result;
 }
@@ -1188,8 +1207,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaOssStream_Initialize( stream, inputParameters, outputParameters, streamCallback, userData, streamFlags, ossHostApi );
 
     PA_ENSURE( PaOssStream_Configure( stream, sampleRate, framesPerBuffer, &inLatency, &outLatency ) );
-
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
         
@@ -1383,7 +1400,7 @@ error:
 static PaError PaOssStream_Prepare( PaOssStream *stream )
 {
     PaError result = paNoError;
-    int enableBits;
+    int enableBits = 0;
 
     if( stream->triggered )
         return result;
@@ -1441,11 +1458,11 @@ static PaError PaOssStream_Stop( PaOssStream *stream, int abort )
      * Also disable capture/playback till the stream is started again */
     if( stream->capture )
     {
-        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_POST ), paUnanticipatedHostError );
+        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_POST, 0 ), paUnanticipatedHostError );
     }
     if( stream->playback && !stream->sharedDevice )
     {
-        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_POST ), paUnanticipatedHostError );
+        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_POST, 0 ), paUnanticipatedHostError );
     }
 
 error:
@@ -1893,7 +1910,7 @@ static signed long GetStreamReadAvailable( PaStream* s )
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaOssStream *stream = (PaOssStream*)s;
-    int delay;
+    int delay = 0;
 
     if( ioctl( stream->playback->fd, SNDCTL_DSP_GETODELAY, &delay ) < 0 )
         return paUnanticipatedHostError;
