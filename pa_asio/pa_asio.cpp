@@ -85,6 +85,12 @@
 /** @file
 
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+
+    @todo implement host api specific extension to set i/o buffer sizes in frames
+
+    @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
+
+    @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
 */
 
 
@@ -160,8 +166,8 @@ static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
-static unsigned long GetStreamReadAvailable( PaStream* stream );
-static unsigned long GetStreamWriteAvailable( PaStream* stream );
+static signed long GetStreamReadAvailable( PaStream* stream );
+static signed long GetStreamWriteAvailable( PaStream* stream );
 
 /* our ASIO callback functions */
 
@@ -173,6 +179,34 @@ static long asioMessages(long selector, long value, void* message, double* opt);
 static ASIOCallbacks asioCallbacks_ =
     { bufferSwitch, sampleRateChanged, asioMessages, bufferSwitchTimeInfo };
 
+
+#define PA_ASIO_SET_LAST_HOST_ERROR( errorCode, errorText ) \
+    PaUtil_SetLastHostError( paASIO, errorCode, errorText )
+
+static const char* PaAsio_GetAsioErrorText( ASIOError asioError )
+{
+    const char *result;
+    
+    switch( asioError ){
+        case ASE_OK:
+        case ASE_SUCCESS:           result = "Success"; break;
+        case ASE_NotPresent:        result = "Hardware input or output is not present or available"; break;
+        case ASE_HWMalfunction:     result = "Hardware is malfunctioning"; break;
+        case ASE_InvalidParameter:  result = "Input parameter invalid"; break;
+        case ASE_InvalidMode:       result = "Hardware is in a bad mode or used in a bad mode"; break;
+        case ASE_SPNotAdvancing:    result = "Hardware is not running when sample position is inquired"; break;
+        case ASE_NoClock:           result = "Sample clock or rate cannot be determined or is not present"; break;
+        case ASE_NoMemory:          result = "Not enough memory for completing the request"; break;
+        default:                    result = "Unknown ASIO error"; break;
+    }
+
+    return result;
+}
+
+
+#define PA_ASIO_SET_LAST_ASIO_ERROR( asioError ) \
+    PaUtil_SetLastHostError( paASIO, asioError, PaAsio_GetAsioErrorText( asioError ) )
+    
 
 /* PaAsioHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -817,15 +851,15 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
     
     if( !loadAsioDriver( const_cast<char*>(driverName) ) )
     {
-        result = paHostError;
-        PaUtil_SetHostError( 0 );
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
         goto error;
     }
 
     if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
     {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
     else
@@ -836,8 +870,8 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
     if( (asioError = ASIOGetChannels(&info->numInputChannels,
             &info->numOutputChannels)) != ASE_OK )
     {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
@@ -845,8 +879,8 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info )
             &info->bufferMaxSize, &info->bufferPreferredSize,
             &info->bufferGranularity)) != ASE_OK )
     {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
@@ -978,6 +1012,12 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
                 PA_DEBUG(("PaAsio_Initialize: inputChannels = %d\n", inputChannels ));
                 PA_DEBUG(("PaAsio_Initialize: outputChannels = %d\n", outputChannels ));
+
+                
+                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */  
 
 
                 asioDeviceInfo->minBufferSize = paAsioDriverInfo.bufferMinSize;
@@ -1401,8 +1441,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                   framesPerHostBuffer, &asioCallbacks_ );
     if( asioError != ASE_OK )
     {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     } 
 
@@ -1423,8 +1463,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         asioError = ASIOGetChannelInfo( &stream->asioChannelInfos[i] );
         if( asioError != ASE_OK )
         {
-            result = paHostError;
-            PaUtil_SetHostError( asioError );
+            result = paUnanticipatedHostError;
+             PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
             goto error;
         }
     }
@@ -1873,8 +1913,8 @@ static PaError StartStream( PaStream *s )
     if( asioError != ASE_OK )
     {
         theAsioStream = 0;
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
     }
 
     return result;
@@ -1893,8 +1933,8 @@ static PaError StopStream( PaStream *s )
     asioError = ASIOStop();
     if( asioError != ASE_OK )
     {
-        result = paHostError;
-        PaUtil_SetHostError( asioError );
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
     }
 
     theAsioStream = 0;
@@ -1995,7 +2035,7 @@ static PaError WriteStream( PaStream* s,
 }
 
 
-static unsigned long GetStreamReadAvailable( PaStream* s )
+static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaAsioStream *stream = (PaAsioStream*)s;
 
@@ -2006,7 +2046,7 @@ static unsigned long GetStreamReadAvailable( PaStream* s )
 }
 
 
-static unsigned long GetStreamWriteAvailable( PaStream* s )
+static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaAsioStream *stream = (PaAsioStream*)s;
 
