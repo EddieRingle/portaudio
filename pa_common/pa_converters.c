@@ -30,6 +30,8 @@
  */
 
 /** @file
+ 
+ If the C9x function lrintf() is avaiable, define PA_USE_C99_LRINTF to use it
 
  @todo implement the converters marked IMPLEMENT ME: Float32_To_UInt8_Dither,
  Float32_To_UInt8_Clip, Float32_To_UInt8_DitherClip, Int32_To_Int24,
@@ -327,8 +329,13 @@ static void Float32_To_Int32(
     while( count-- )
     {
         /* REVIEW */
+#ifdef PA_USE_C99_LRINTF
+        float scaled = *src * 0x7FFFFFFF;
+        *dest = lrintf(scaled-0.5f);
+#else
         double scaled = *src * 0x7FFFFFFF;
-        *dest = (signed long) scaled;
+        *dest = (signed long) scaled;        
+#endif
         
         src += sourceStride;
         dest += destinationStride;
@@ -348,11 +355,17 @@ static void Float32_To_Int32_Dither(
     while( count-- )
     {
         /* REVIEW */
+#ifdef PA_USE_C99_LRINTF
+        float dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        float dithered = ((float)*src * (2147483646.0f)) + dither;
+        *dest = lrintf(dithered - 0.5f);
+#else
         double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
         /* use smaller scaler to prevent overflow when we add the dither */
         double dithered = ((double)*src * (2147483646.0)) + dither;
         *dest = (signed long) dithered;
-
+#endif
         src += sourceStride;
         dest += destinationStride;
     }
@@ -372,9 +385,15 @@ static void Float32_To_Int32_Clip(
     while( count-- )
     {
         /* REVIEW */
+#ifdef PA_USE_C99_LRINTF
+        float scaled = *src * 0x7FFFFFFF;
+        PA_CLIP_( scaled, -2147483648.f, 2147483647.f  );
+        *dest = lrintf(scaled-0.5f);
+#else
         double scaled = *src * 0x7FFFFFFF;
         PA_CLIP_( scaled, -2147483648., 2147483647.  );
         *dest = (signed long) scaled;
+#endif
 
         src += sourceStride;
         dest += destinationStride;
@@ -394,12 +413,19 @@ static void Float32_To_Int32_DitherClip(
     while( count-- )
     {
         /* REVIEW */
+#ifdef PA_USE_C99_LRINTF
+        float dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
+        /* use smaller scaler to prevent overflow when we add the dither */
+        float dithered = ((float)*src * (2147483646.0f)) + dither;
+        PA_CLIP_( dithered, -2147483648.f, 2147483647.f  );
+        *dest = lrintf(dithered-0.5f);
+#else
         double dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
         /* use smaller scaler to prevent overflow when we add the dither */
         double dithered = ((double)*src * (2147483646.0)) + dither;
         PA_CLIP_( dithered, -2147483648., 2147483647.  );
         *dest = (signed long) dithered;
-
+#endif
 
         src += sourceStride;
         dest += destinationStride;
@@ -561,9 +587,13 @@ static void Float32_To_Int16(
 
     while( count-- )
     {
-
+#ifdef PA_USE_C99_LRINTF
+        float tempf = (*src * (32767.0f)) ;
+        *dest = lrintf(tempf-0.5f);
+#else
         short samp = (short) (*src * (32767.0f));
         *dest = samp;
+#endif
 
         src += sourceStride;
         dest += destinationStride;
@@ -586,7 +616,12 @@ static void Float32_To_Int16_Dither(
         float dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
         /* use smaller scaler to prevent overflow when we add the dither */
         float dithered = (*src * (32766.0f)) + dither;
+
+#ifdef PA_USE_C99_LRINTF
+        *dest = lrintf(dithered-0.5f);
+#else
         *dest = (signed short) dithered;
+#endif
 
         src += sourceStride;
         dest += destinationStride;
@@ -606,8 +641,11 @@ static void Float32_To_Int16_Clip(
 
     while( count-- )
     {
-
+#ifdef PA_USE_C99_LRINTF
+        long samp = lrintf((*src * (32767.0f)) -0.5f);
+#else
         long samp = (signed long) (*src * (32767.0f));
+#endif
         PA_CLIP_( samp, -0x8000, 0x7FFF );
         *dest = (signed short) samp;
 
@@ -635,7 +673,11 @@ static void Float32_To_Int16_DitherClip(
         float dithered = (*src * (32766.0f)) + dither;
         signed long samp = (signed long) dithered;
         PA_CLIP_( samp, -0x8000, 0x7FFF );
+#ifdef PA_USE_C99_LRINTF
+        *dest = lrintf(samp-0.5f);
+#else
         *dest = (signed short) samp;
+#endif
 
         src += sourceStride;
         dest += destinationStride;
