@@ -35,13 +35,17 @@
  @brief SGI IRIX AL implementation (according to V19 API version 2.0).
 
  @note This file started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
- Nothing to do with the old V18 pa_sgi version: using the newer IRIX AL calls 
- now and pthreads instead of sproc. A fresh start. 
+ It has nothing to do with the old V18 pa_sgi version: using the newer IRIX AL calls 
+ now and pthreads instead of sproc.
+ On IRIX, one may type './configure' followed by 'gmake' from the portaudio root 
+ directory to build the static and the shared library and all tests. 
   
  Tested:
         + patest_buffer          ok.
         + pa_devs                ok.
         + pa_fuzz                ok.
+        - paqa_devs              ok, but at a certain point digital i/o fails.
+        + patest_many            ok.
         + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
                                      for usleeps above 999999 microseconds).
         + patest_prime           seems ok.
@@ -50,11 +54,13 @@
         - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
         - patest_start_stop      seems ok.
         - patest_stop            seems ok (stops a bit too early?).
+        - patest_underflow       ok? (stopping succeeds at SleepTime = 91)
+        - patest_wire            ok (but AL opens stereo always).
         - patest_write_sine      ok.
         - patest_callbackstop    COREDUMPS !!!!!
         - patest_read_record     COREDUMPS !!!!!  
 
- Todo: Set queue sizes and latencies.
+ Todo: Set queue sizes and latencies. Debug blocking reads. CPU-measurements.
 */
 
 #include <string.h>         /* strlen() */
@@ -375,6 +381,7 @@ static PaError sr_supported(int al_device, double sr)
         else
             result = paInvalidSampleRate;
         }
+    /* DBUG(("sr_supported()=%d.\n", result)); */
     return result;
 }
 
@@ -452,43 +459,50 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     return paFormatIsSupported;
 }
 
-
-typedef struct PaSGIhostPortBuffer  /* Auxilary struct, used for inputs as well as outputs. */
+/** Auxilary struct, used for inputs as well as outputs. */
+typedef struct PaSGIhostPortBuffer
 {
-    ALport  port;                   /* NULL means AL port closed. */
-    void*   buffer;                 /* NULL means not allocated.  */
+            /** NULL means IRIX AL port closed. */
+    ALport  port;
+            /** NULL means memory not allocated. */
+    void*   buffer;
 }
     PaSGIhostPortBuffer;
 
-typedef struct PaSGIStream      /* Stream data structure specifically for this implementation. */
+/** Stream data structure specifically for this IRIX AL implementation. */
+typedef struct PaSGIStream
 {
     PaUtilStreamRepresentation  streamRepresentation;
     PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
     PaUtilBufferProcessor       bufferProcessor;
     unsigned long               framesPerHostCallback;
-    PaSGIhostPortBuffer         hostPortBuffIn,         /* Host buffers and AL ports. */
+                                /** Host buffers and AL ports. */
+    PaSGIhostPortBuffer         hostPortBuffIn,
                                 hostPortBuffOut;
-                                
-    unsigned char               state,  /* State may be 0, 1 or 2, but never 3! */
-                                stop;   /* Request to stop. */
+                                /** Stream state may be 0, 1 or 2, but never 3! */
+    unsigned char               state;
+                                /** Request to stop (by parent or child itself). */
+    unsigned char               stop;
     pthread_t                   thread;
 }
     PaSGIStream;
 
 /*
-    Stream can be in one of the following three states: stopped (1), active (2), or
-    callback finshed (0). State 3 should never occur! Read and write the state field atomically.
+    Stream can be in only one of the following three states: stopped (1), active (2), or
+    callback finshed (0). To prevent 'state 3' from occurring, Setting and testing of the
+    state bits is done atomically.
 */
 #define PA_SGI_STREAM_FLAG_FINISHED_ (0) /* After callback finished or cancelled queued buffers. */
 #define PA_SGI_STREAM_FLAG_STOPPED_  (1) /* Set by OpenStream(), StopStream() and AbortStream(). */
 #define PA_SGI_STREAM_FLAG_ACTIVE_   (2) /* Set by StartStream. Reset by OpenStream(),           */
                                          /* StopStream() and AbortStream().                      */
 
-/*
-    Called by OpenStream() once or twice. Argument alc should point to an already allocated 
-    AL configuration structure. First, the number of channels and the sampleformat is configured.
-    The configuration is then bound to the specified AL device. Then an AL port is opened.
-    Finally, the samplerate of the device is altered (or at least set again).
+/** Called by OpenStream() once or twice. First, the number of channels and the sampleformat 
+    is configured. The configuration is then bound to the specified AL device. Then an AL port 
+    is opened. Finally, the samplerate of the device is altered (or at least set again).
+
+    @param alc should point to an already allocated AL configuration structure.
+    @return paNoError if configuration was skipped or if it succeeded.
 */
 static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
                               const PaStreamParameters* pa_params,      /* read device and channels. */                             
@@ -606,7 +620,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
     return paNoError;
 }
 
-/*
+/**
     Called by OpenStream() if it fails and by CloseStream. Only used here, in this file.
     Fields MUST be set to NULL or to a valid value, prior to call.
 */
@@ -620,7 +634,6 @@ static void streamCleanupAndClose(PaSGIStream* stream)
 
 
 /* See pa_hostapi.h for a list of validity guarantees made about OpenStream parameters. */
-
 static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                           PaStream**                          s,
                           const PaStreamParameters*           inputParameters,
@@ -797,7 +810,7 @@ cleanup:
     return result;
 }
 
-/*
+/**
     POSIX thread that performs the actual i/o and calls the client's callback, spawned by StartStream().
 */
 static void* PaSGIpthread(void *userData)
