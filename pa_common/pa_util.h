@@ -39,6 +39,8 @@ extern "C"
 {
 #endif /* __cplusplus */
 
+struct PaUtilHostApiRepresentation;
+
 
 /** Retrieve a specific host API representation. This function can be used
  by implementations to retrieve a pointer to their representation in
