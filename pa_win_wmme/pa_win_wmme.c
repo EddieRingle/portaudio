@@ -263,7 +263,7 @@ static PaError CreateEventWithPaError( HANDLE *handle,
         BOOL bInitialState,
         LPCTSTR lpName )
 {
-    PaErrorCode result = paNoError;
+    PaError result = paNoError;
     
     *handle = CreateEvent( lpEventAttributes, bManualReset, bInitialState, lpName );
     if( *handle == NULL )
@@ -1237,7 +1237,7 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
         double sampleRate, PaWinMmeDeviceAndChannelCount *devices,
         unsigned int deviceCount, int isInput )
 {
-    PaErrorCode result = paNoError;
+    PaError result = paNoError;
     MMRESULT mmresult;
     unsigned long bytesPerFrame;
     WAVEFORMATEX wfx;
@@ -1548,7 +1548,7 @@ struct PaWinMmeStream
 
 /* updates deviceCount if PaWinMmeUseMultipleDevices is used */
 
-static PaErrorCode ValidateWinMmeSpecificStreamInfo(
+static PaError ValidateWinMmeSpecificStreamInfo(
         const PaStreamParameters *streamParameters,
         const PaWinMmeStreamInfo *streamInfo, 
         char *noHighPriorityProcessClass,
@@ -1583,7 +1583,7 @@ static PaErrorCode ValidateWinMmeSpecificStreamInfo(
 	return paNoError;
 }
 
-static PaErrorCode RetrieveDevicesFromStreamParameters(
+static PaError RetrieveDevicesFromStreamParameters(
         struct PaUtilHostApiRepresentation *hostApi,
         const PaStreamParameters *streamParameters,
         const PaWinMmeStreamInfo *streamInfo,
@@ -1630,7 +1630,7 @@ static PaErrorCode RetrieveDevicesFromStreamParameters(
     return result;
 }
 
-static PaErrorCode ValidateInputChannelCounts(
+static PaError ValidateInputChannelCounts(
         struct PaUtilHostApiRepresentation *hostApi,
         PaWinMmeDeviceAndChannelCount *devices,
         unsigned long deviceCount )
@@ -1647,7 +1647,7 @@ static PaErrorCode ValidateInputChannelCounts(
     return paNoError;
 }
 
-static PaErrorCode ValidateOutputChannelCounts(
+static PaError ValidateOutputChannelCounts(
         struct PaUtilHostApiRepresentation *hostApi,
         PaWinMmeDeviceAndChannelCount *devices,
         unsigned long deviceCount )
