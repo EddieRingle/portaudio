@@ -59,9 +59,8 @@
 
 /*
 TODO:
-    - fix all FIXMEs
-    - review all REVIEWs
     - implement timecode param to callback
+    - implement buffer size and number of buffers code
     - add default buffer size/number code from old implementation
     - add bufferslip management
     - add multidevice multichannel support
@@ -840,24 +839,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         return paInvalidChannelCount;
 
 
-    framesPerHostInputBuffer = 16384;
-    framesPerHostOutputBuffer = 16384;
-    numHostInputBuffers =  4; /* FIXME */
-    numHostOutputBuffers = 4; /* FIXME */
-
-    framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
-            ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
-
-    /*
-        either input and output buffers must be the same size, or the
-        larger one must be an integer multiple of the smaller one.
-    */
-    assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
-    assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
-
-
-
-
     /*
         IMPLEMENT ME:
             - alter sampleRate to a close allowable rate if possible / necessary
@@ -897,13 +878,35 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 
 
-    /* IMPLEMENT ME - select closest supported format to user requested format */
+    /* FIXME: establish which host formats are available */
     hostInputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
 
-    /* IMPLEMENT ME - select closest supported format to user requested format */
+    /* FIXME: establish which host formats are available */
     hostOutputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+
+
+        
+    /* FIXME: the following is hard wired, but should either be calculated from
+        the generic latency parameters, or the host-specific latency parameters
+        if they are available */
+    framesPerHostInputBuffer = 16384;
+    framesPerHostOutputBuffer = 16384;
+    numHostInputBuffers = 4;
+    numHostOutputBuffers = 4;
+
+    framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
+            ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
+
+    /*
+        either input and output buffers must be the same size, or the
+        larger one must be an integer multiple of the smaller one.
+    */
+    assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
+    assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
+
+
 
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,

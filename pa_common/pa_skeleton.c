@@ -329,12 +329,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
-
-    /* IMPLEMENT ME - select closest supported format to user requested format */
+    
+    /* IMPLEMENT ME - establish which  host formats are available */
     hostInputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
 
-    /* IMPLEMENT ME - select closest supported format to user requested format */
+    /* IMPLEMENT ME - establish which  host formats are available */
     hostOutputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
         
