@@ -53,7 +53,7 @@
         - paqa_devs              ok, but at a certain point digital i/o fails:
                                      TestAdvance: INPUT, device = 2, rate = 32000, numChannels = 1, format = 1
                                      Possibly, this is an illegal sr or number of channels for digital i/o.
-        - paqa_errs              13 of the tests run ok, but 5 of the tests give weird results.
+        - paqa_errs              13 of the tests run ok, but 5 of them give weird results.
         + patest1                ok.
         + patest_buffer          ok.
         + patest_callbackstop    ok now (no coredumps any longer).
@@ -65,7 +65,7 @@
         + patest_many            ok.
         + patest_multi_sine      ok.
         + patest_pink            ok.
-        - patest_prime           ok, but we should work on 'playback with priming'!
+        + patest_prime           ok.
         - patest_read_record     ok, but playback stops a little earlier than 5 seconds it seems(?).
         + patest_record          ok.
         + patest_ringmix         ok.
@@ -85,10 +85,18 @@
         + pa_fuzz                ok.
         + pa_minlat              ok.
 
- Worked on proposal 009: Host error reporting should now be OK.
+ Worked on (or checked) proposals:
+ 
+  003: Improve Latency Specification OK, but not 100% sure: plus or minus 1 host buffer?
+  005: Blocking Read/Write Interface OK.
+  006: Non-interleaved buffers seems OK.
+  009: Host error reporting should now be OK.
+  010: State Machine and State Querying Functions OK.
+  011: Renaming done, OK.
+  020: Allow Callback to prime output stream (StartStream() should do the priming)
+       Should be tested for full duplex streams. Seems ok (patest_prime).
 
- Todo: - Prefilling with silence, only when requested (it now always prefills).
-       - Underrun and overflow flags.
+ Todo: - Underrun or overflow flags at some places.
        - Make a complete new version to support 'sproc'-applications.
     
  Note: Even when mono-output is requested, with ALv7, the audio library opens
@@ -161,17 +169,17 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 
 
 /* 
-    Apparently, we must use a macro for reporting unanticipated host errors.    
+    Apparently, we must use macros for reporting unanticipated host errors.    
     Only in case we return paUnanticipatedHostError from an Portaudio call, 
-    we have to call one of the following two macro's.
+    we have to call one of the following three macro's.
     (Constant paAL is defined in pa_common/portaudio.h. See also proposal 009.)
 
     After an AL error, use this to translate the AL error code to human text:
 */
 #define PA_SGI_SET_LAST_AL_ERROR() \
     {\
-    int e = oserror();\
-    PaUtil_SetLastHostErrorInfo(paAL, e, alGetErrorString(e));\
+    int ee = oserror();\
+    PaUtil_SetLastHostErrorInfo(paAL, ee, alGetErrorString(ee));\
     }
 /*
     But after a generic IRIX error, let strerror() translate the error code from
@@ -179,13 +187,13 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 */
 #define PA_SGI_SET_LAST_IRIX_ERROR() \
     {\
-    int e = oserror();\
-    PaUtil_SetLastHostErrorInfo(paAL, e, strerror(e));\
+    int ee = oserror();\
+    PaUtil_SetLastHostErrorInfo(paAL, ee, strerror(ee));\
     }
 /*
     When we detect some strange condition ourselves, we may want to pass our 
     own text (because there may be no way to let the system do this). Then use this:
-    Instead of inventing some own error number here, we choose 0.
+    Instead of inventing some error number here, we choose 0.
 */
 #define PA_SGI_SET_LAST_HOST_ERROR(errorText) \
     PaUtil_SetLastHostErrorInfo(paAL, 0, errorText)
@@ -414,7 +422,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
     PaSGIHostApiRepresentation *SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
 
-    /* DBUG(("Terminate() started.\n")); */
     /* Clean up any resources not handled by the allocation group. */
     if( SGIHostApi->allocations )
     {
@@ -552,12 +559,15 @@ typedef struct PaSGIStream
     PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
     PaUtilBufferProcessor       bufferProcessor;
     unsigned long               framesPerHostCallback;
-                                /** Host buffers and AL ports. */
+                                /** Allocated host buffers and AL ports. */
     PaSGIhostPortBuffer         hostPortBuffIn,
                                 hostPortBuffOut;
+                                /** Copy of stream flags given to OpenStream(). */
+    PaStreamFlags               streamFlags;
                                 /** Stream state may be 0 or 1 or 2, but never 3. */
     unsigned char               state;
-                                /** Request to stop or abort (by parent or by child itself (user callback result)). */
+                                /** Requests to stop or abort may come from the parent,
+                                    or from the child itself (user callback result). */
     unsigned char               stopAbort;
     pthread_t                   thread;
 }
@@ -579,12 +589,14 @@ typedef struct PaSGIStream
 #define PA_SGI_REQ_STOP_    (1)         /* Set by StopStream(). */
 #define PA_SGI_REQ_ABORT_   (2)         /* Set by AbortStream(). */
 
-/** Called by OpenStream() once or twice. First, the number of channels and the sampleformat 
-    is configured. The configuration is then bound to the specified AL device. Then an AL port 
-    is opened. Finally, the samplerate of the device is altered (or at least set again).
-    Writes actual latency in *pa_params, and samplerate *samplerate.
+/** Called by OpenStream() once or twice. First, the number of channels, sampleformat, and
+    queue size are configured. The configuration is then bound to the specified AL device. 
+    Then an AL port is opened. Finally, the samplerate of the device is altered (or at least
+    set again).
+    
+    After successful return, actual queue size is written in *iq_size, and actual samplerate 
+    in *samplerate.
 
-    @param alc should point to an already allocated AL configuration structure.
     @param pa_params may be NULL and pa_params->channelCount may also be null, in both 
            cases the function immediately returns.
     @return paNoError if configuration was skipped or if it succeeded.
@@ -596,7 +608,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
                               char*                     name,
                               long                      framesPerHostBuffer,
                               double*                   samplerate,     /* Also writes back here. */
-                              int*                      iq_size,        /* Receive actual internal queue size in frames. */
+                              int*                      iq_size,        /* Recv int.queue size in frames. */
                               PaSGIhostPortBuffer*      hostPortBuff)   /* Receive pointers here. */
 {
     int       bytesPerFrame, sgiDevice, alErr, d, dd, default_iq_size;
@@ -696,52 +708,61 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
                     }
                 goto cleanup;
                 }
-            bytesPerFrame *= 3;         /* OR 4 ??????????????????????????????????! */
+            bytesPerFrame *= 3;   /* OR 4 ???????! */
             }
         else return paSampleFormatNotSupported;
         }
-    /*----------------------- SET INTERNAL AL QUEUE SIZE: ------------------------------*/
-    /* AL API doesn't provide a means for querying minimum and maximum buffer sizes.    */
-    /* If the requested size fails, try a value closer to IRIX AL's default queue size. */
+    /*----------------------- SET INTERNAL AL QUEUE SIZE: -------------------------------*/
+    /*  The AL API doesn't provide a means for querying minimum and maximum buffer sizes.
+        So, if the requested size fails, try again with a value that is closer to the AL's 
+        default queue size. In this implementation, 'Portaudio latency' corresponds to
+        the AL queue size minus one buffersize:
+                                                 AL queue size - framesPerHostBuffer
+                                    PA latency = -----------------------------------
+                                                            sample rate                  */
     default_iq_size = alGetQueueSize(alc);
-    if (default_iq_size < 0)
-        {                          /* Default internal queue size cannot be determined. */
+    if (default_iq_size < 0)     /* So let's first get that 'default size'. */
+        {                        /* Default internal queue size could not be determined. */
         PA_SGI_SET_LAST_AL_ERROR()
         result = paUnanticipatedHostError;
         goto cleanup;
         }
-    /* DBUG(("%s: suggested latency %.3f seconds\n", direction, pa_params->suggestedLatency)); */
-    *iq_size = (int)(0.5 + (pa_params->suggestedLatency * (*samplerate)));  /* Based on REQUESTED sr! */
-    if (*iq_size < (framesPerHostBuffer << 1))
-        {
+    /* AL buffer becomes somewhat bigger than the suggested latency, notice this is   */
+    /* based on requsted samplerate, not in the actual rate, which is measured later. */
+    *iq_size = (int)(0.5 + (pa_params->suggestedLatency * (*samplerate))) +
+               (int)framesPerHostBuffer;        /* The AL buffer becomes somewhat     */
+                                                /* bigger than the suggested latency. */
+    if (*iq_size < (framesPerHostBuffer << 1))  /* Make sure the minimum is twice     */
+        {                                       /* framesPerHostBuffer.               */
         DBUG(("Setting minimum queue size.\n"));
-        *iq_size = (framesPerHostBuffer << 1); /* Make sure minimum is twice framesPerHostBuffer. */
+        *iq_size = (framesPerHostBuffer << 1);
         }
-    d = *iq_size - default_iq_size; /* Determine whether we'll decrease or increase after failure. */
-    while (alSetQueueSize(alc, *iq_size))                                     /* In sample frames. */
-        {
-        if (oserror() != AL_BAD_QSIZE)                              /* Stop at AL_BAD_CONFIG. */
+    d = *iq_size - default_iq_size;                /* Determine whether we'll decrease */
+    while (alSetQueueSize(alc, *iq_size))          /* or increase after failing.       */
+        {                                          /* Size in sample frames.           */
+        if (oserror() != AL_BAD_QSIZE)                       /* Stop at AL_BAD_CONFIG. */
             {
             PA_SGI_SET_LAST_AL_ERROR()
             result = paUnanticipatedHostError;
             goto cleanup;
             }
-        dd = *iq_size - default_iq_size;        /* Stop when even the default size failed   */
-        if (((d >= 0) && (dd <= 0)) ||          /* (dd=0), or when difference flipped sign. */
-            ((d <= 0) && (dd >= 0)))       
-            {
-            PA_SGI_SET_LAST_HOST_ERROR("Could not set AL queue size.");
+        dd = *iq_size - default_iq_size;      /* Stop when even the default size failed   */
+        if (((d >= 0) && (dd <= 0)) ||        /* (dd=0), or when difference flipped sign. */
+            ((d <= 0) && (dd >= 0)) ||
+            (*iq_size <= framesPerHostBuffer)) /* Also guarentee that framesPerHostBuffer */
+            {                                  /* can be subtracted (res>0) after return. */
+            PA_SGI_SET_LAST_HOST_ERROR("Sorry, could not set AL queue size.");
             result = paUnanticipatedHostError;
             goto cleanup;
             }
         DBUG(("Failed to set internal queue size to %d frames, ", *iq_size));
         if (d > 0)
-            *iq_size -= framesPerHostBuffer;    /* Try lesser multiple framesPerHostBuffer. */
+            *iq_size -= framesPerHostBuffer;    /* Try lesser multiple. */
         else
-            *iq_size += framesPerHostBuffer;    /* Try larger multiple framesPerHostBuffer. */
-        DBUG(("trying %d frames...\n", *iq_size));
+            *iq_size += framesPerHostBuffer;    /* Try larger multiple. */
+        DBUG(("trying %d frames now...\n", *iq_size));
         }
-    /* DBUG(("%s: alSetQueueSize(%d)\n", direction, *iq_size)); */
+    /* Now *iq_size contains the actual queue size. */
 
     /*----------------------- ALLOCATE HOST BUFFER: ------------------------------------*/
     hostPortBuff->buffer = PaUtil_AllocateMemory((long)bytesPerFrame * framesPerHostBuffer);
@@ -767,10 +788,7 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
         PA_SGI_SET_LAST_AL_ERROR()
         result = paUnanticipatedHostError;
         goto cleanup;
-        }
-    if (direction[0] == 'w')                /* Pre-fill with requested latency amount. */
-        alZeroFrames(hostPortBuff->port, *iq_size - framesPerHostBuffer);
-                                                              /* Maybe set SR earlier? */
+        }                                                     /* Maybe set SR earlier? */
     /*----------------------- SET SAMPLERATE: -----------------------------------------*/
     pvs[0].param    = AL_MASTER_CLOCK;       /* Attempt to set a crystal-based sample- */
     pvs[0].value.i  = AL_CRYSTAL_MCLK_TYPE;  /* rate on input or output device.        */
@@ -823,7 +841,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                           PaStream**                          s,
                           const PaStreamParameters*           inputParameters,
                           const PaStreamParameters*           outputParameters,
-                          double                              sampleRate,       /* Common to both i and o. */
+                          double                              sampleRate, /* Common to both i and o. */
                           unsigned long                       framesPerBuffer,
                           PaStreamFlags                       streamFlags,
                           PaStreamCallback*                   streamCallback,
@@ -928,52 +946,44 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
 
     sr_in  = sr_out = sampleRate;
     qf_in  = qf_out = framesPerHostBuffer;
-    /*----------------------------------------------------------------------------*/
-    result = set_sgi_device(SGIHostApi->sgiDeviceIDs,   /* Array for alSetDevice and others. */
-                            inputParameters,            /* Reads channelCount and device. */    
-                            hostInputSampleFormat,      /* For alSetSampFmt and alSetWidth. */                            
-                            "r",                        /* Direction "r" for reading. */
-                            "portaudio in",             /* Name string. */
-                            framesPerHostBuffer,
-                            &sr_in,                     /* Receive actual rate after setting it. */
-                            &qf_in,                     /* Actual queue size is received here!   */
-                            &stream->hostPortBuffIn);   /* Receive ALport and input host buffer. */
-    if (result != paNoError)
-        goto cleanup;
-    /*----------------------------------------------------------------------------*/
+    /*-------------------------------------------------------------------------------------------*/
+    result = set_sgi_device(SGIHostApi->sgiDeviceIDs, /* Needed by alSetDevice and other functs. */
+                            inputParameters,          /* Reads channelCount, device and latency. */    
+                            hostInputSampleFormat,    /* For alSetSampFmt and alSetWidth. */                            
+                            "r",                      /* "r" for reading from input port. */
+                            "portaudio in",           /* Name string. */
+                            framesPerHostBuffer,      /* As requested by the client. */
+                            &sr_in,                   /* Receive actual s.rate after setting it. */
+                            &qf_in,                   /* Actual AL queue size is received here!  */
+                            &stream->hostPortBuffIn); /* Receives ALport and input host buffer.  */
+    if (result != paNoError) goto cleanup;
+    /*-------------------------------------------------------------------------------------------*/
     result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
                             outputParameters,
                             hostOutputSampleFormat,
-                            "w",                        /* "w" for writing. */
+                            "w",                      /* "w" for writing. */
                             "portaudio out",
                             framesPerHostBuffer,
                             &sr_out,
                             &qf_out,
-                            &stream->hostPortBuffOut);  /* ALWAYS PREFILLS. */
-    if (result != paNoError)
-        goto cleanup;
-
-    /* Pre-fill with silence (not necessarily 0) to realise the requested output latency.
-    if (stream->hostPortBuffOut.port)            // Should never block. Always returns 0.
-        alZeroFrames(stream->hostPortBuffOut.port, qf_out - framesPerHostBuffer);
-     */
-    /* Wait for the input buffer to fill to realise the requested input latency.
-    if (stream->hostPortBuffIn.port)
-        while (alGetFilled(stream->hostPortBuffIn.port) < (qf_in - framesPerHostBuffer))
-            ;
-     */
-    /*----------------------------------------------------------------------------*/
+                            &stream->hostPortBuffOut);
+    if (result != paNoError) goto cleanup;
+    /*-------------------------------------------------------------------------------------------*/
     if (fabs(sr_in - sr_out) > 0.001)           /* Make sure both are the 'same'. */
         {
-        PA_SGI_SET_LAST_HOST_ERROR("Weird samplerate difference between input and output!");
+        PA_SGI_SET_LAST_HOST_ERROR("Samplerate difference between input and output!");
         result = paUnanticipatedHostError;
         goto cleanup;
-        }
-    sampleRate = sr_in;     /* == sr_out. */
-                            /* Following fields set to estimated or actual values: */
-    stream->streamRepresentation.streamInfo.inputLatency  = ((double)(qf_in  - framesPerHostBuffer)) * sr_in;  /* 0.0 if output only. */
-    stream->streamRepresentation.streamInfo.outputLatency = ((double)(qf_out - framesPerHostBuffer)) * sr_out; /* 0.0 if input only.  */
-    stream->streamRepresentation.streamInfo.sampleRate    = sampleRate;
+        }                           /* sr_in '==' sr_out. */
+    sampleRate = sr_in;             /* Following fields set to estimated or actual values: */
+    stream->streamRepresentation.streamInfo.inputLatency =          /* 0.0 if output only. */
+                                ((double)(qf_in  - framesPerHostBuffer)) / sr_in;
+    stream->streamRepresentation.streamInfo.outputLatency =         /* 0.0 if input only.  */
+                                ((double)(qf_out - framesPerHostBuffer)) / sr_out;
+                                
+    DBUG(("streamInfo.outputLatency = %.6f seconds.\n", stream->streamRepresentation.streamInfo.outputLatency));
+                                
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     PaUtil_InitializeCpuLoadMeasurer(&stream->cpuLoadMeasurer, sampleRate);
     /*
@@ -992,11 +1002,12 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         goto cleanup;
 
     stream->framesPerHostCallback = framesPerHostBuffer;
-    stream->state                 = PA_SGI_STREAM_FLAG_STOPPED_; /* After opening the stream is in the stopped state. */
-    stream->stopAbort             = PA_SGI_REQ_CONT_;            /* 0. */
-    *s = (PaStream*)stream;     /* Pass object to caller. */
+    stream->streamFlags           = streamFlags;                  /* Remember priming request. */
+    stream->state                 = PA_SGI_STREAM_FLAG_STOPPED_;  /* After opening, the stream */
+    stream->stopAbort             = PA_SGI_REQ_CONT_;             /* is in the stopped state.  */
+    *s = (PaStream*)stream;         /* Pass object to caller. */
 cleanup:
-    if (result != paNoError)    /* Always set result when jumping to cleanup after failure. */
+    if (result != paNoError)        /* Always set result when jumping to cleanup after failure. */
         {
         if (stream)
             {
@@ -1007,23 +1018,61 @@ cleanup:
     return result;
 }
 
-/**
-    POSIX thread that performs the actual i/o and calls the client's callback, spawned by StartStream().
+/** POSIX thread that performs the actual i/o and calls the client's callback,
+    spawned by StartStream().
 */
 static void* PaSGIpthread(void *userData)
 {
-    PaSGIStream*  stream = (PaSGIStream*)userData;
-    int           callbackResult = paContinue;
-    double        nanosec_per_frame;
+    PaSGIStream*              stream = (PaSGIStream*)userData;
+    int                       callbackResult = paContinue;
+    double                    nanosec_per_frame;
+    PaStreamCallbackTimeInfo  timeInfo = { 0, 0, 0 };
 
-    stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Parent thread also sets active, but we make no assumption */
-                                                /* about who does this first (the parent thread, probably).  */
+    stream->state = PA_SGI_STREAM_FLAG_ACTIVE_;   /* Parent thread also sets active flag, but we 
+                                                     make no assumption about who does this first. */
     nanosec_per_frame = 1000000000.0 / stream->streamRepresentation.streamInfo.sampleRate;
-    while (!stream->stopAbort)                  /* Exit loop immediately when 'stop' or 'abort' are raised.  */
+    /*----------------------------------------------- OUTPUT PRIMIMING: ---------------------------*/
+    if (stream->hostPortBuffOut.port)              /* Somewhat less than AL queue size so the next */
+        {                                          /* output buffer will (probably) not block.     */
+        unsigned long frames_to_prime = (long)(0.5 + 
+                                        (stream->streamRepresentation.streamInfo.outputLatency
+                                       * stream->streamRepresentation.streamInfo.sampleRate));
+        if (stream->streamFlags & paPrimeOutputBuffersUsingStreamCallback)
+          {
+          DBUG(("Prime by client's callback: < %ld frames.\n", frames_to_prime));
+          while (frames_to_prime >= stream->framesPerHostCallback)   /* We will not do less (yet). */
+            {
+/* TODO: */ PaUtil_BeginBufferProcessing(&stream->bufferProcessor,
+/* Timestamps during priming?!: */       &timeInfo,            /* Pass underflow + priming flags.  */
+/* Also no CPU load measurement yet. */  paPrimeOutputBuffersUsingStreamCallback | paInputUnderflow);
+            if (stream->hostPortBuffIn.port)                   /* Does that provide client's call- */
+                PaUtil_SetNoInput(&stream->bufferProcessor);   /* back with silent inputbuffers?   */
+            PaUtil_SetOutputFrameCount(&stream->bufferProcessor, 0);   /* 0=take host buffer size. */
+            PaUtil_SetInterleavedOutputChannels(&stream->bufferProcessor, 0,
+                                                 stream->hostPortBuffOut.buffer, 0);
+            callbackResult = paContinue;                            /* Call the client's callback. */
+            frames_to_prime -= PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
+            if (callbackResult == paAbort)
+                {                                           /* What should we do in other cases    */
+                stream->stopAbort = PA_SGI_REQ_ABORT_;      /* where (callbackResult!=paContinue). */
+                break; /* Don't even output the samples just returned (also skip following while). */
+                }
+            else                                       /* Write interleaved samples to SGI device. */
+                alWriteFrames(stream->hostPortBuffOut.port, stream->hostPortBuffOut.buffer, 
+                              stream->framesPerHostCallback);
+            }
+          }
+        else /* Prime with silence.  */
+            {
+            DBUG(("Prime with silence: %ld frames.\n", frames_to_prime));
+            alZeroFrames(stream->hostPortBuffOut.port, frames_to_prime);
+            }
+        }
+    /*------------------------------------------------------ I/O: ---------------------------------*/
+    while (!stream->stopAbort)         /* Exit loop immediately when 'stop' or 'abort' are raised. */
         {
-        PaStreamCallbackTimeInfo  timeInfo;
-        unsigned long             framesProcessed;
-        stamp_t                   fn, t, fnd, td;   /* Unsigned 64 bit. */
+        unsigned long   framesProcessed;
+        stamp_t         fn, t, fnd, td;   /* Unsigned 64 bit. */
         
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
         /* IMPLEMENT ME: - handle buffer slips. */
@@ -1043,9 +1092,9 @@ static void* PaSGIpthread(void *userData)
                 alWriteFrames() here and know that t is the time associated with the first 
                 sample frame of the buffer we read or write. */
             timeInfo.inputBufferAdcTime = ((PaTime)t) / 1000000000.0;
-            
-            /* Read interleaved samples from ALport (I think it will block only the first time). */
-            alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback);
+            /* Read interleaved samples from AL port (I think it will block only the first time). */
+            alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, 
+                         stream->framesPerHostCallback);
             }
         if (stream->hostPortBuffOut.port)
             {
@@ -1056,9 +1105,10 @@ static void* PaSGIpthread(void *userData)
             }
         dmGetUST((unsigned long long*)(&t));                /* Receive time in nanoseconds in t. */
         timeInfo.currentTime = ((PaTime)t) / 1000000000.0;
-
+        
         /* If you need to byte swap or shift inputBuffer to convert it into a pa format, do it here. */
-        PaUtil_BeginBufferProcessing(&stream->bufferProcessor, &timeInfo,
+        PaUtil_BeginBufferProcessing(&stream->bufferProcessor,
+                                     &timeInfo,
                                      0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */);
                                      
         if (stream->hostPortBuffIn.port)                    /* Equivalent to (inputChannelCount > 0) */
@@ -1084,10 +1134,9 @@ static void* PaSGIpthread(void *userData)
             You can check whether the buffer processor's output buffer is empty
             using PaUtil_IsBufferProcessorOuputEmpty( bufferProcessor )
         */
+        callbackResult = paContinue;      /* Whoops, lost this somewhere, back again in v 1.2.2.16! */
         framesProcessed = PaUtil_EndBufferProcessing(&stream->bufferProcessor, &callbackResult);
-        /*
-            If you need to byte swap or shift outputBuffer to convert it to host format, do it here.
-        */
+        /* If you need to byte swap or shift outputBuffer to convert it to host format, do it here. */
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
         if (callbackResult != paContinue)
             {                                              /* Once finished, call the finished callback. */
@@ -1095,24 +1144,20 @@ static void* PaSGIpthread(void *userData)
                 stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
             if (callbackResult == paAbort)
                 {
-                /* DBUG(("CallbackResult == paAbort (finish playback immediately).\n")); */
                 stream->stopAbort = PA_SGI_REQ_ABORT_;
-                break; /* Don't play the last buffer returned. */
+                break;  /* Don't play the last buffer returned. */
                 }
-            else /* paComplete or some other non-zero value. */
-                {
-                /* DBUG(("CallbackResult != 0 (finish playback after last buffer).\n")); */
+            else        /* paComplete or some other non-zero value. */
                 stream->stopAbort = PA_SGI_REQ_STOP_;
-                }
             }
-        /* Write interleaved samples to SGI device (like unix_oss, AFTER checking callback result). */
-        if (stream->hostPortBuffOut.port)
-            alWriteFrames(stream->hostPortBuffOut.port, stream->hostPortBuffOut.buffer, stream->framesPerHostCallback);
+        if (stream->hostPortBuffOut.port)                /* Write interleaved samples to SGI device */
+            alWriteFrames(stream->hostPortBuffOut.port,  /* (like unix_oss, AFTER checking callback result). */
+                          stream->hostPortBuffOut.buffer, stream->framesPerHostCallback);
         }
     if (stream->hostPortBuffOut.port) /* Drain output buffer(s), as long as we don't see an 'abort' request. */
         {
         while ((!(stream->stopAbort & PA_SGI_REQ_ABORT_)) &&    /* Assume _STOP_ is set (or meant). */
-               (alGetFilled(stream->hostPortBuffOut.port) > 1)) /* In case of _ABORT_ we quickly leave (again). */
+               (alGetFilled(stream->hostPortBuffOut.port) > 1)) /* In case of ABORT we quickly leave (again). */
             ; /* Don't provide any new (not even silent) samples, but let an underrun [almost] occur. */
         }
     if (callbackResult != paContinue)
@@ -1156,10 +1201,8 @@ static PaError StartStream(PaStream *s)
             result = paUnanticipatedHostError;
             }
         else
-            {
-            stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Set active before returning from this function. */
-            }
-        }
+            stream->state = PA_SGI_STREAM_FLAG_ACTIVE_;
+        }                   /* Set active before returning from this function. */
     else
         stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Apparently, setting active for blocking i/o is */
     return result;                                  /* necessary (for patest_write_sine for example). */
@@ -1173,7 +1216,7 @@ static PaError StopStream( PaStream *s )
     
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
-        stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain output buffers. */
+        stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain outputs. */
         if (pthread_join(stream->thread, NULL)) /* When succesful, stream->state */
             {                                   /* is still ACTIVE, or FINISHED. */
             PA_SGI_SET_LAST_IRIX_ERROR()
