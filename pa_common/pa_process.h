@@ -44,7 +44,8 @@ extern "C"
 typedef enum {
     paUtilFixedHostBufferSize,
     paUtilBoundedHostBufferSize,
-    paUtilUnknownHostBufferSize
+    paUtilUnknownHostBufferSize,
+    paUtilVariableHostBufferSizePartialFillAllowed,   /* the only mode where process() may not consume the whole buffer */
 }PaUtilHostBufferSizeMode;
 
 
@@ -76,19 +77,18 @@ typedef struct {
 
     void *tempInputBuffer;          /* used for slips, block adaption, and conversion. */
     void **tempInputBufferPtrs;     /* storage for non-interleaved buffer pointers, NULL for interleaved user input */
+    unsigned long framesInTempInputBuffer; /* frames remaining in input buffer from previous adaption iteration */
+
     void *tempOutputBuffer;         /* used for slips, block adaption, and conversion. */
     void **tempOutputBufferPtrs;    /* storage for non-interleaved buffer pointers, NULL for interleaved user output */
+    unsigned long framesInTempOutputBuffer; /* frames remaining in input buffer from previous adaption iteration */
 
     PaTimestamp hostOutTime;
     
-    unsigned long hostInputFrameCount;
-    PaUtilChannelDescriptor hostInputChannels[20];  // FIXME: should be dynamically allocated
-    unsigned long hostInputFrameCount2;
-    PaUtilChannelDescriptor hostInputChannels2[20];  // FIXME: should be dynamically allocated
-    unsigned long hostOutputFrameCount;
-    PaUtilChannelDescriptor hostOutputChannels[20];  // FIXME: should be dynamically allocated
-    unsigned long hostOutputFrameCount2;
-    PaUtilChannelDescriptor hostOutputChannels2[20];  // FIXME: should be dynamically allocated
+    unsigned long hostInputFrameCount[2];
+    PaUtilChannelDescriptor hostInputChannels[2][24];  // FIXME: should be dynamically allocated
+    unsigned long hostOutputFrameCount[2];
+    PaUtilChannelDescriptor hostOutputChannels[2][24];  // FIXME: should be dynamically allocated
     
     PaUtilTriangularDitherGenerator ditherGenerator;
 
