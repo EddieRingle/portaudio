@@ -38,12 +38,12 @@
 #include <stdlib.h>
 #include "portaudio.h"
 
-/* #define SAMPLE_RATE  (17932) /* Test failure to open with this value. */
+/* #define SAMPLE_RATE  (17932) // Test failure to open with this value. */
 #define SAMPLE_RATE  (44100)
 #define FRAMES_PER_BUFFER (1024)
 #define NUM_SECONDS     (5)
 #define NUM_CHANNELS    (2)
-/* #define DITHER_FLAG     (paDitherOff)  /**/
+/* #define DITHER_FLAG     (paDitherOff) */
 #define DITHER_FLAG     (0) /**/
 
 /* Select sample format. */
@@ -51,19 +51,22 @@
 #define PA_SAMPLE_TYPE  paFloat32
 typedef float SAMPLE;
 #define SAMPLE_SILENCE  (0.0f)
+#define PRINTF_S_FORMAT "%.8f"
 #elif 1
 #define PA_SAMPLE_TYPE  paInt16
 typedef short SAMPLE;
 #define SAMPLE_SILENCE  (0)
+#define PRINTF_S_FORMAT "%d"
 #elif 0
 #define PA_SAMPLE_TYPE  paInt8
 typedef char SAMPLE;
 #define SAMPLE_SILENCE  (0)
+#define PRINTF_S_FORMAT "%d"
 #else
 #define PA_SAMPLE_TYPE  paUInt8
 typedef unsigned char SAMPLE;
 #define SAMPLE_SILENCE  (128)
-
+#define PRINTF_S_FORMAT "%d"
 #endif
 
 typedef struct
@@ -257,16 +260,8 @@ int main(void)
 
     average = average / numSamples;
 
-    if( PA_SAMPLE_TYPE == paFloat32 )
-    {
-        printf("sample max amplitude = %f\n", max );
-        printf("sample average = %f\n", average );
-    }
-    else
-    {
-        printf("sample max amplitude = %d\n", max );
-        printf("sample average = %d\n", average );
-    }
+    printf("sample max amplitude = "PRINTF_S_FORMAT"\n", max );
+    printf("sample average = "PRINTF_S_FORMAT"\n", average );
 
     /* Write recorded data to a file. */
 #if 0
