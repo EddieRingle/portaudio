@@ -265,6 +265,14 @@ typedef struct
 PaWinMmeHostApiRepresentation;
 
 
+typedef struct
+{
+    PaDeviceInfo inheritedDeviceInfo;
+    DWORD dwFormats; /**<< standard formats bitmask from the WAVEINCAPS and WAVEOUTCAPS structures */
+}
+PaWinMmeDeviceInfo;
+
+
 /*************************************************************************
  * Returns recommended device ID.
  * On the PC, the recommended device can be specified by the user by
@@ -331,14 +339,114 @@ static int LocalDeviceIndexToWinMmeDeviceId( PaWinMmeHostApiRepresentation *host
 }
 
 
+static int QueryInputSampleRate( int deviceId, WAVEFORMATEX *waveFormatEx )
+{
+    return ( waveInOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY )
+                == MMSYSERR_NOERROR ) ? 1 : 0;
+}
+
+static int QueryOutputSampleRate( int deviceId, WAVEFORMATEX *waveFormatEx )
+{
+    return ( waveOutOpen( NULL, deviceId, waveFormatEx, 0, 0, WAVE_FORMAT_QUERY )
+                == MMSYSERR_NOERROR ) ? 1 : 0;
+}
+
+static int QuerySampleRate( PaDeviceInfo *deviceInfo,
+        int (*sampleRateQueryFunction)(int, WAVEFORMATEX*),
+        int winMmeDeviceId, int channels, double sampleRate )
+{
+    int result;
+    WAVEFORMATEX waveFormatEx;
+    waveFormatEx.wFormatTag = WAVE_FORMAT_PCM;
+    waveFormatEx.nChannels = (WORD)channels;
+    waveFormatEx.nSamplesPerSec = sampleRate;
+    waveFormatEx.nAvgBytesPerSec = waveFormatEx.nSamplesPerSec * channels * sizeof(short);
+    waveFormatEx.nBlockAlign = (WORD)(channels * sizeof(short));
+    waveFormatEx.wBitsPerSample = 16;
+    waveFormatEx.cbSize = 0;
+
+    result = sampleRateQueryFunction( winMmeDeviceId, &waveFormatEx );
+    if( result )
+        deviceInfo->defaultSampleRate = sampleRate;
+
+    return result;
+}
+
+static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeDeviceId,
+        int (*sampleRateQueryFunction)(int, WAVEFORMATEX*), int maxChannels )
+{
+    PaError result = paNoError;
+    PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
+
+    deviceInfo->defaultSampleRate = 0.;
+
+    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4M16))
+        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_4S16))
+        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 44100.0 )) )
+    {
+        deviceInfo->defaultSampleRate = 44100.;
+        return result;
+    }
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 48000.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 32000.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 24000.0 ) )
+        return result;
+
+    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2M16))
+        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_2S16))
+        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 22050.0 )) )
+    {
+        deviceInfo->defaultSampleRate = 22050.;
+        return result;
+    }
+    
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 88200.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 96000.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 192000.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 16000.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 12000.0 ) )
+        return result;
+
+    if( (maxChannels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1M16))
+        || (maxChannels == 2 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1S16))
+        || ( maxChannels > 2 && QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 11025.0 )) )
+    {
+        deviceInfo->defaultSampleRate = 11025.;
+        return result;
+    }
+    
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 9600.0 ) )
+        return result;
+
+    if( QuerySampleRate( deviceInfo, sampleRateQueryFunction, winMmeDeviceId, maxChannels, 8000.0 ) )
+        return result;
+
+    return result;
+}
+
+
 static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
-        PaDeviceInfo *deviceInfo, int winMmeInputDeviceId, int *success )
+        PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeInputDeviceId, int *success )
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
     MMRESULT mmresult;
     WAVEINCAPS wic;
-
+    PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
+    
     *success = 0;
 
     mmresult = waveInGetDevCaps( winMmeInputDeviceId, &wic, sizeof( WAVEINCAPS ) );
@@ -394,7 +502,10 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
         deviceInfo->maxInputChannels = 2;
     }
 
-    deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
+    winMmeDeviceInfo->dwFormats = wic.dwFormats;
+
+    result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeInputDeviceId,
+            QueryInputSampleRate, deviceInfo->maxInputChannels );
 
     *success = 1;
     
@@ -404,13 +515,14 @@ error:
 
 
 static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
-        PaDeviceInfo *deviceInfo, int winMmeOutputDeviceId, int *success )
+        PaWinMmeDeviceInfo *winMmeDeviceInfo, int winMmeOutputDeviceId, int *success )
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
     MMRESULT mmresult;
     WAVEOUTCAPS woc;
-
+    PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
+    
     *success = 0;
 
     mmresult = waveOutGetDevCaps( winMmeOutputDeviceId, &woc, sizeof( WAVEOUTCAPS ) );
@@ -466,7 +578,10 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
         deviceInfo->maxOutputChannels = 2;
     }
 
-    deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
+    winMmeDeviceInfo->dwFormats = woc.dwFormats;
+
+    result = DetectDefaultSampleRate( winMmeDeviceInfo, winMmeOutputDeviceId,
+            QueryOutputSampleRate, deviceInfo->maxOutputChannels );
 
     *success = 1;
     
@@ -481,7 +596,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     int i;
     PaWinMmeHostApiRepresentation *winMmeHostApi;
     int numInputDevices, numOutputDevices, maximumPossibleNumDevices;
-    PaDeviceInfo *deviceInfoArray;
+    PaWinMmeDeviceInfo *deviceInfoArray;
     int deviceInfoInitializationSucceeded;
 
     winMmeHostApi = (PaWinMmeHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinMmeHostApiRepresentation) );
@@ -537,8 +652,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         }
 
         /* allocate all device info structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
-                winMmeHostApi->allocations, sizeof(PaDeviceInfo) * maximumPossibleNumDevices );
+        deviceInfoArray = (PaWinMmeDeviceInfo*)PaUtil_GroupAllocateMemory(
+                winMmeHostApi->allocations, sizeof(PaWinMmeDeviceInfo) * maximumPossibleNumDevices );
         if( !deviceInfoArray )
         {
             result = paInsufficientMemory;
@@ -556,7 +671,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         if( numInputDevices > 0 ){
             // -1 is the WAVE_MAPPER
             for( i = -1; i < numInputDevices; ++i ){
-                PaDeviceInfo *deviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                PaWinMmeDeviceInfo *wmmeDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                PaDeviceInfo *deviceInfo = &wmmeDeviceInfo->inheritedDeviceInfo;
                 deviceInfo->structVersion = 2;
                 deviceInfo->hostApi = hostApiIndex;
 
@@ -569,7 +685,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->defaultHighInputLatency = 0.4;
                 deviceInfo->defaultHighOutputLatency = 0.4;                    
 
-                result = InitializeInputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
+                result = InitializeInputDeviceInfo( winMmeHostApi, wmmeDeviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
                     goto error;
 
@@ -589,7 +705,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         if( numOutputDevices > 0 ){
             // -1 is the WAVE_MAPPER
             for( i = -1; i < numOutputDevices; ++i ){
-                PaDeviceInfo *deviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                PaWinMmeDeviceInfo *wmmeDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                PaDeviceInfo *deviceInfo = &wmmeDeviceInfo->inheritedDeviceInfo;
                 deviceInfo->structVersion = 2;
                 deviceInfo->hostApi = hostApiIndex;
 
@@ -602,7 +719,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->defaultHighInputLatency = 0.4;
                 deviceInfo->defaultHighOutputLatency = 0.4; 
 
-                result = InitializeOutputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
+                result = InitializeOutputDeviceInfo( winMmeHostApi, wmmeDeviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
                     goto error;
 
@@ -891,6 +1008,10 @@ static PaError CalculateBufferSettings(
         double sampleRate, unsigned long framesPerBuffer )
 {
     PaError result = paNoError;
+
+    /* currently unused parameters */
+    (void)hostInputSampleFormat;
+    (void)hostOutputSampleFormat;    
 
     if( inputChannelCount > 0 )
     {
