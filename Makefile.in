@@ -37,6 +37,7 @@ COMMON_OBJS = \
 
 TESTS = \
 	bin/paqa_devs \
+	bin/paqa_errs \
 	bin/patest1 \
 	bin/patest_buffer \
 	bin/patest_callbackstop \
