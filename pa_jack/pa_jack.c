@@ -904,6 +904,7 @@ static PaError StartStream( PaStream *s )
     }
 
     stream->is_running = TRUE;
+    stream->is_active = TRUE;
 
     return result;
 }
