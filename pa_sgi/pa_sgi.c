@@ -84,7 +84,9 @@
         + pa_devs                ok.
         + pa_fuzz                ok.
         + pa_minlat              ok.
-        
+
+ Worked on proposal 009: Host error reporting should now be OK.
+
  Todo: - Prefilling with silence, only when requested (it now always prefills).
        - Underrun and overflow flags.
        - Make a complete new version to support 'sproc'-applications.
@@ -94,7 +96,7 @@
 
 */
 
-#include <string.h>         /* strlen() */
+#include <string.h>         /* For strlen() but also for strerror()! */
 #include <stdio.h>          /* printf() */
 #include <math.h>           /* fabs()   */
 
@@ -158,10 +160,37 @@ static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 
 
-/* IMPLEMENT ME: a macro like the following one should be used for reporting
- host errors */
-#define PA_SGI_SET_LAST_HOST_ERROR( errorCode, errorText ) \
-    PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
+/* 
+    Apparently, we must use a macro for reporting unanticipated host errors.    
+    Only in case we return paUnanticipatedHostError from an Portaudio call, 
+    we have to call one of the following two macro's.
+    (Constant paAL is defined in pa_common/portaudio.h. See also proposal 009.)
+
+    After an AL error, use this to translate the AL error code to human text:
+*/
+#define PA_SGI_SET_LAST_AL_ERROR() \
+    {\
+    int e = oserror();\
+    PaUtil_SetLastHostErrorInfo(paAL, e, alGetErrorString(e));\
+    }
+/*
+    But after a generic IRIX error, let strerror() translate the error code from
+    the operating system and use this (strerror() gives the same as perror()):
+*/
+#define PA_SGI_SET_LAST_IRIX_ERROR() \
+    {\
+    int e = oserror();\
+    PaUtil_SetLastHostErrorInfo(paAL, e, strerror(e));\
+    }
+/*
+    When we detect some strange condition ourselves, we may want to pass our 
+    own text (because there may be no way to let the system do this). Then use this:
+    Instead of inventing some own error number here, we choose 0.
+*/
+#define PA_SGI_SET_LAST_HOST_ERROR(errorText) \
+    PaUtil_SetLastHostErrorInfo(paAL, 0, errorText)
+
+
 
 /* PaSGIHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -183,7 +212,7 @@ PaSGIHostApiRepresentation;
 PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError                     result = paNoError;
-    int                         i, deviceCount, def_in, def_out;
+    int                         e, i, deviceCount, def_in, def_out;
     PaSGIHostApiRepresentation* SGIHostApi;
     PaDeviceInfo*               deviceInfoArray;    
     static const short          numParams = 4;            /* Array with name, samplerate, channels */
@@ -206,7 +235,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
         }
     *hostApi = &SGIHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
-    (*hostApi)->info.type = paInDevelopment;            /* Change to correct type id? */
+    (*hostApi)->info.type = paAL;                       /* IRIX AL type id, was paInDevelopment. */
     (*hostApi)->info.name = "SGI IRIX AL";
     (*hostApi)->info.defaultInputDevice  = paNoDevice;  /* Set later. */
     (*hostApi)->info.defaultOutputDevice = paNoDevice;  /* Set later.  */
@@ -244,18 +273,26 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
             result = paInsufficientMemory;
             goto cleanup;
             }
-        /* Same query again, but now store all IDs in array sgiDeviceIDs (still no qualifiers). */
-        if (deviceCount != alQueryValues(AL_SYSTEM, AL_DEVICES, SGIHostApi->sgiDeviceIDs, deviceCount, 0, 0))
+        /* Same query again, but now store all IDs in array sgiDeviceIDs (still using no qualifiers). */
+        e = alQueryValues(AL_SYSTEM, AL_DEVICES, SGIHostApi->sgiDeviceIDs, deviceCount, 0, 0);
+        if (e != deviceCount)
             {
-            DBUG(("Hu!? the number of devices suddenly changed!\n"));
-            result = paUnanticipatedHostError;  /* Hu?, the number of devices suddenly changed! */
+            if (e < 0)
+                PA_SGI_SET_LAST_AL_ERROR()
+            else
+                PA_SGI_SET_LAST_HOST_ERROR("The number of devices suddenly changed!");
+            result = paUnanticipatedHostError;  /* Not sure whether an AL error really occurred. */
             goto cleanup;
             }
         y[0].param = AL_DEFAULT_INPUT;
         y[1].param = AL_DEFAULT_OUTPUT;
-        if (2 != alGetParams(AL_SYSTEM, y, 2)) /* Get params global to the AL system. */
+        e = alGetParams(AL_SYSTEM, y, 2);       /* Get params global to the AL system. */
+        if (e != 2)
             {
-            DBUG(("AL error: could not get default i/o!\n"));
+            if (e < 0)
+                PA_SGI_SET_LAST_AL_ERROR()      /* Calls oserror() and alGetErrorString(). */
+            else
+                PA_SGI_SET_LAST_HOST_ERROR("Default input and/or output could not be found!");
             result = paUnanticipatedHostError;
             goto cleanup;
             }
@@ -271,10 +308,14 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
             {
             PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
             deviceInfo->structVersion = 2;
-            deviceInfo->hostApi = hostApiIndex;
-                                                /* Retrieve name, samplerate, channels and type. */
-            if (numParams != alGetParams(SGIHostApi->sgiDeviceIDs[i].i, y, numParams))
+            deviceInfo->hostApi = hostApiIndex; /* Retrieve name, samplerate, channels and type. */
+            e = alGetParams(SGIHostApi->sgiDeviceIDs[i].i, y, numParams);
+            if (e != numParams)
                 {
+                if (e < 0)
+                    PA_SGI_SET_LAST_AL_ERROR()      /* Calls oserror() and alGetErrorString(). */
+                else
+                    PA_SGI_SET_LAST_HOST_ERROR("alGetParams() could not get all requested params!");
                 result = paUnanticipatedHostError;
                 goto cleanup;
                 }
@@ -299,7 +340,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
                 }
             else /* Should never occur. */
                 {
-                DBUG(("AL device '%s' is neither input nor output!\n", deviceInfo->name));
+                PA_SGI_SET_LAST_HOST_ERROR("AL device is neither input nor output!");
                 result = paUnanticipatedHostError;
                 goto cleanup;
                 }
@@ -309,7 +350,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
                 {
                 if ((*hostApi)->info.defaultInputDevice != paNoDevice)
                     {
-                    DBUG(("Default input already assigned!\n"));
+                    PA_SGI_SET_LAST_HOST_ERROR("Default input already assigned!");
                     result = paUnanticipatedHostError;
                     goto cleanup;
                     }
@@ -320,7 +361,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
                 {
                 if ((*hostApi)->info.defaultOutputDevice != paNoDevice)
                     {
-                    DBUG(("Default output already assigned!\n"));
+                    PA_SGI_SET_LAST_HOST_ERROR("Default output already assigned!");
                     result = paUnanticipatedHostError;
                     goto cleanup;
                     }
@@ -386,6 +427,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 /*
     Check if samplerate is supported for this output device. Called once
     or twice by function IsFormatSupported() and one time by OpenStream().
+    When paUnanticipatedHostError is returned, the caller does NOT have 
+    to call PA_SGI_SET_LAST_AL_ERROR() or such.
 */
 static PaError sr_supported(int al_device, double sr)
 {
@@ -401,7 +444,10 @@ static PaError sr_supported(int al_device, double sr)
         if (e == AL_BAD_RESOURCE)
             result = paInvalidDevice;
         else
+            {
+            PA_SGI_SET_LAST_AL_ERROR()        /* Sure an AL error occured. */
             result = paUnanticipatedHostError;
+            }
         }
     else
         {
@@ -444,7 +490,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
         /* Check if samplerate is supported for this input device. */
         result = sr_supported(SGIHostApi->sgiDeviceIDs[inputParameters->device].i, sampleRate);
-        if (result != paFormatIsSupported)
+        if (result != paFormatIsSupported) /* PA_SGI_SET_LAST_AL_ERROR() may already be called. */
             return result;
     }
     else
@@ -569,8 +615,13 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
     if (alSetChannels(alc, pa_params->channelCount))          /* Returns 0 on success. */
         {
         if (oserror() == AL_BAD_CHANNELS)
-            { result = paInvalidChannelCount;  goto cleanup; }
-        result = paUnanticipatedHostError; goto cleanup;
+            result = paInvalidChannelCount;
+        else
+            {
+            PA_SGI_SET_LAST_AL_ERROR()
+            result = paUnanticipatedHostError;
+            }
+        goto cleanup;
         }
     bytesPerFrame = pa_params->channelCount;          /* Is multiplied by width below. */
     /*----------------------- CONFIGURE SAMPLE FORMAT: --------------------------------*/
@@ -579,8 +630,13 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
         if (alSetSampFmt(alc, AL_SAMPFMT_FLOAT))
             {
             if (oserror() == AL_BAD_SAMPFMT)
-                { result = paSampleFormatNotSupported; goto cleanup; }
-            result = paUnanticipatedHostError; goto cleanup;
+                result = paSampleFormatNotSupported;
+            else
+                {
+                PA_SGI_SET_LAST_AL_ERROR()
+                result = paUnanticipatedHostError; 
+                }
+            goto cleanup;
             }
         bytesPerFrame *= 4;             /* No need to set width for floats. */
         }
@@ -589,16 +645,26 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
         if (alSetSampFmt(alc, AL_SAMPFMT_TWOSCOMP))
             {
             if (oserror() == AL_BAD_SAMPFMT)
-                { result = paSampleFormatNotSupported; goto cleanup; }
-            result = paUnanticipatedHostError; goto cleanup;
+                result = paSampleFormatNotSupported;
+            else
+                {
+                PA_SGI_SET_LAST_AL_ERROR()
+                result = paUnanticipatedHostError;
+                }
+            goto cleanup;
             }
         if (pasfmt == paInt8)
             {
             if (alSetWidth(alc, AL_SAMPLE_8))
                 {
                 if (oserror() == AL_BAD_WIDTH)
-                    { result = paSampleFormatNotSupported; goto cleanup; }
-                result = paUnanticipatedHostError; goto cleanup;
+                    result = paSampleFormatNotSupported;
+                else
+                    {
+                    PA_SGI_SET_LAST_AL_ERROR()
+                    result = paUnanticipatedHostError;
+                    }
+                goto cleanup;
                 }
             /* bytesPerFrame *= 1; */
             }
@@ -607,8 +673,13 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
             if (alSetWidth(alc, AL_SAMPLE_16))
                 {
                 if (oserror() == AL_BAD_WIDTH)
-                    { result = paSampleFormatNotSupported; goto cleanup; }
-                result = paUnanticipatedHostError; goto cleanup;
+                    result = paSampleFormatNotSupported;
+                else
+                    {
+                    PA_SGI_SET_LAST_AL_ERROR()
+                    result = paUnanticipatedHostError;
+                    }
+                goto cleanup;
                 }
             bytesPerFrame *= 2;
             }
@@ -617,8 +688,13 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
             if (alSetWidth(alc, AL_SAMPLE_24))
                 {
                 if (oserror() == AL_BAD_WIDTH)
-                    { result = paSampleFormatNotSupported; goto cleanup; }
-                result = paUnanticipatedHostError; goto cleanup;
+                    result = paSampleFormatNotSupported;
+                else
+                    {
+                    PA_SGI_SET_LAST_AL_ERROR()
+                    result = paUnanticipatedHostError;
+                    }
+                goto cleanup;
                 }
             bytesPerFrame *= 3;         /* OR 4 ??????????????????????????????????! */
             }
@@ -629,12 +705,12 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
     /* If the requested size fails, try a value closer to IRIX AL's default queue size. */
     default_iq_size = alGetQueueSize(alc);
     if (default_iq_size < 0)
-        {
-        DBUG(("Could not determine default internal queue size: %s.\n", alGetErrorString(oserror())));
-        result = paUnanticipatedHostError; goto cleanup;
+        {                          /* Default internal queue size cannot be determined. */
+        PA_SGI_SET_LAST_AL_ERROR()
+        result = paUnanticipatedHostError;
+        goto cleanup;
         }
     /* DBUG(("%s: suggested latency %.3f seconds\n", direction, pa_params->suggestedLatency)); */
-
     *iq_size = (int)(0.5 + (pa_params->suggestedLatency * (*samplerate)));  /* Based on REQUESTED sr! */
     if (*iq_size < (framesPerHostBuffer << 1))
         {
@@ -645,11 +721,19 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
     while (alSetQueueSize(alc, *iq_size))                                     /* In sample frames. */
         {
         if (oserror() != AL_BAD_QSIZE)                              /* Stop at AL_BAD_CONFIG. */
-            { result = paUnanticipatedHostError; goto cleanup; }
-        dd = *iq_size - default_iq_size;                            /* Stop when even the default size failed   */
-        if (((d >= 0) && (dd <= 0)) ||                              /* (dd=0), or when difference flipped sign. */
+            {
+            PA_SGI_SET_LAST_AL_ERROR()
+            result = paUnanticipatedHostError;
+            goto cleanup;
+            }
+        dd = *iq_size - default_iq_size;        /* Stop when even the default size failed   */
+        if (((d >= 0) && (dd <= 0)) ||          /* (dd=0), or when difference flipped sign. */
             ((d <= 0) && (dd >= 0)))       
-            { result = paUnanticipatedHostError; goto cleanup; }
+            {
+            PA_SGI_SET_LAST_HOST_ERROR("Could not set AL queue size.");
+            result = paUnanticipatedHostError;
+            goto cleanup;
+            }
         DBUG(("Failed to set internal queue size to %d frames, ", *iq_size));
         if (d > 0)
             *iq_size -= framesPerHostBuffer;    /* Try lesser multiple framesPerHostBuffer. */
@@ -667,23 +751,25 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
     sgiDevice = sgiDeviceIDs[pa_params->device].i;
     if (alSetDevice(alc, sgiDevice)) /* Try to switch the hardware. */
         {
-        alErr = oserror();
-        DBUG(("Failed to configure device: %s.\n", alGetErrorString(alErr)));
-        if (alErr == AL_BAD_DEVICE)
-            { result = paInvalidDevice; goto cleanup; }
-        result = paUnanticipatedHostError; goto cleanup;
+        if (oserror() == AL_BAD_DEVICE)
+            result = paInvalidDevice;
+        else
+            {
+            PA_SGI_SET_LAST_AL_ERROR()
+            result = paUnanticipatedHostError;
+            }
+        goto cleanup;
         }
     /*----------------------- OPEN PORT: ----------------------------------------------*/
-    hostPortBuff->port = alOpenPort(name, direction, alc);
-    if (!hostPortBuff->port)
+    hostPortBuff->port = alOpenPort(name, direction, alc);  /* Caller is responsible   */
+    if (!hostPortBuff->port)                                /* for closing after fail. */
         {
-        DBUG(("alOpenPort(r) failed: %s.\n", alGetErrorString(oserror())));
-        result = paUnanticipatedHostError; goto cleanup;
+        PA_SGI_SET_LAST_AL_ERROR()
+        result = paUnanticipatedHostError;
+        goto cleanup;
         }
-
-    if (direction[0] == 'w')             /* Pre-fill with requested latency amount. */
+    if (direction[0] == 'w')                /* Pre-fill with requested latency amount. */
         alZeroFrames(hostPortBuff->port, *iq_size - framesPerHostBuffer);
-    
                                                               /* Maybe set SR earlier? */
     /*----------------------- SET SAMPLERATE: -----------------------------------------*/
     pvs[0].param    = AL_MASTER_CLOCK;       /* Attempt to set a crystal-based sample- */
@@ -692,25 +778,30 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,   /* Array
     pvs[1].value.ll = alDoubleToFixed(*samplerate);
     if (2 != alSetParams(sgiDevice, pvs, 2))
         {
-        DBUG(("alSetParams() failed: %s.\n", alGetErrorString(oserror())));
-        result = paInvalidSampleRate; goto cleanup;
+        result = paInvalidSampleRate;
+        goto cleanup;
         }
     /*----------------------- GET ACTUAL SAMPLERATE: ---------------------------*/
-    if (1 != alGetParams(sgiDevice, &pvs[1], 1))      /* SEE WHAT WE REALY SET IT TO. */
+    alErr = alGetParams(sgiDevice, &pvs[1], 1); /* SEE WHAT WE REALY SET IT TO. */
+    if (alErr != 1)
         {
-        DBUG(("alGetParams('AL_RATE') failed: %s.\n", alGetErrorString(oserror())));
-        result = paUnanticipatedHostError; goto cleanup;
+        if (alErr < 0)
+            PA_SGI_SET_LAST_AL_ERROR()
+        else
+            PA_SGI_SET_LAST_HOST_ERROR("Could not determine samplerate.");
+        result = paUnanticipatedHostError;
+        goto cleanup;
         }
     *samplerate = alFixedToDouble(pvs[1].value.ll);   /* And return that to caller. */
     if (*samplerate < 0)
         {
-        DBUG(("Samplerate could not be determined (name='%s').\n", name));
-        result = paUnanticipatedHostError; goto cleanup;
+        PA_SGI_SET_LAST_HOST_ERROR("Weird samplerate measured.");
+        result = paUnanticipatedHostError;
+        goto cleanup;
         }
-    /* DBUG(("set_sgi_device() succeeded.\n")); */
 cleanup:
-    if (alc)    /* We no longer need configuration. */
-        alFreeConfig(alc);
+    if (alc)
+        alFreeConfig(alc); /* We no longer need configuration. */
     return result;
 }
 
@@ -771,7 +862,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         hostInputSampleFormat = PaUtil_SelectClosestAvailableFormat(irixFormats, inputSampleFormat);
         /* Check if samplerate is supported for this input device. */
         result = sr_supported(SGIHostApi->sgiDeviceIDs[inputParameters->device].i, sampleRate);
-        if (result != paFormatIsSupported)
+        if (result != paFormatIsSupported) /* PA_SGI_SET_LAST_AL_ERROR() may already be called. */
             return result;
         }
     else
@@ -849,7 +940,6 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffIn);   /* Receive ALport and input host buffer. */
     if (result != paNoError)
         goto cleanup;
-    /* DBUG(("INPUT CONFIGURED.\n")); */
     /*----------------------------------------------------------------------------*/
     result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
                             outputParameters,
@@ -862,7 +952,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffOut);  /* ALWAYS PREFILLS. */
     if (result != paNoError)
         goto cleanup;
-    /* DBUG(("OUTPUT CONFIGURED.\n")); */
+
     /* Pre-fill with silence (not necessarily 0) to realise the requested output latency.
     if (stream->hostPortBuffOut.port)            // Should never block. Always returns 0.
         alZeroFrames(stream->hostPortBuffOut.port, qf_out - framesPerHostBuffer);
@@ -875,7 +965,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     /*----------------------------------------------------------------------------*/
     if (fabs(sr_in - sr_out) > 0.001)           /* Make sure both are the 'same'. */
         {
-        DBUG(("Strange samplerate difference between input and output devices!\n"));
+        PA_SGI_SET_LAST_HOST_ERROR("Weird samplerate difference between input and output!");
         result = paUnanticipatedHostError;
         goto cleanup;
         }
@@ -899,12 +989,11 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                     framesPerHostBuffer, paUtilFixedHostBufferSize,
                     streamCallback,      userData);
     if (result != paNoError)
-        { DBUG(("PaUtil_InitializeBufferProcessor()=%d!\n", result)); goto cleanup; }
+        goto cleanup;
 
     stream->framesPerHostCallback = framesPerHostBuffer;
     stream->state                 = PA_SGI_STREAM_FLAG_STOPPED_; /* After opening the stream is in the stopped state. */
     stream->stopAbort             = PA_SGI_REQ_CONT_;            /* 0. */
-    
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
     if (result != paNoError)    /* Always set result when jumping to cleanup after failure. */
@@ -1063,7 +1152,7 @@ static PaError StartStream(PaStream *s)
                            PaSGIpthread,        /* Function to spawn.    */
                            (void*)stream))      /* Pass stream as arg.   */
             {
-            DBUG(("pthread_create() failed!\n"));
+            PA_SGI_SET_LAST_IRIX_ERROR()        /* Let's hope oserror() tells something useful. */
             result = paUnanticipatedHostError;
             }
         else
@@ -1082,13 +1171,12 @@ static PaError StopStream( PaStream *s )
     PaError         result = paNoError;
     PaSGIStream*    stream = (PaSGIStream*)s;
     
-    /* DBUG(("SGI StopStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain output buffers. */
         if (pthread_join(stream->thread, NULL)) /* When succesful, stream->state */
             {                                   /* is still ACTIVE, or FINISHED. */
-            DBUG(("pthread_join() failed!\n"));
+            PA_SGI_SET_LAST_IRIX_ERROR()
             result = paUnanticipatedHostError;
             }
         else  /* Transition from ACTIVE or FINISHED to STOPPED. */
@@ -1106,13 +1194,12 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    /* DBUG(("SGI AbortStream() started.\n")); */
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_ABORT_;
         if (pthread_join(stream->thread, NULL))
             {
-            DBUG(("pthread_join() failed!\n"));
+            PA_SGI_SET_LAST_IRIX_ERROR()
             result = paUnanticipatedHostError;
             }
         else  /* Transition from ACTIVE or FINISHED to STOPPED. */
