@@ -75,6 +75,10 @@
     @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
 
 	@todo Fix fixmes
+
+    @todo implement initialisation of PaDeviceInfo default*Latency fields (currently set to 0.)
+
+    @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
 */
 
 #include <stdio.h>
@@ -163,10 +167,44 @@ static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 static PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
-static unsigned long GetStreamReadAvailable( PaStream* stream );
-static unsigned long GetStreamWriteAvailable( PaStream* stream );
+static signed long GetStreamReadAvailable( PaStream* stream );
+static signed long GetStreamWriteAvailable( PaStream* stream );
 
 static PaError UpdateStreamTime( PaWinMmeStream *stream );
+
+/* macros for setting last host error information */
+#define PA_MME_SET_LAST_WAVEIN_ERROR( mmresult ) \
+    {                                                                   \
+        char mmeErrorText[ MAXERRORLENGTH ];                            \
+        waveInGetErrorText( mmresult, mmeErrorText, MAXERRORLENGTH );   \
+        PaUtil_SetLastHostError( paMME, mmresult, mmeErrorText );       \
+    }
+
+#define PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult ) \
+    {                                                                   \
+        char mmeErrorText[ MAXERRORLENGTH ];                            \
+        waveOutGetErrorText( mmresult, mmeErrorText, MAXERRORLENGTH );  \
+        PaUtil_SetLastHostError( paMME, mmresult, mmeErrorText );       \
+    }
+
+static void PaMme_SetLastSystemError( DWORD errorCode )
+{
+    LPVOID lpMsgBuf;
+    FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+        NULL,
+        errorCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &lpMsgBuf,
+        0,
+        NULL
+    );
+    PaUtil_SetLastHostError( paMME, errorCode, lpMsgBuf );
+    LocalFree( lpMsgBuf );
+}
+
+#define PA_MME_SET_LAST_SYSTEM_ERROR( errorCode ) \
+    PaMme_SetLastSystemError( errorCode )
 
 
 /* PaWinMmeHostApiRepresentation - host api datastructure specific to this implementation */
@@ -298,8 +336,8 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     mmresult = waveInGetDevCaps( inputWinMmeId, &wic, sizeof( WAVEINCAPS ) );
     if( mmresult != MMSYSERR_NOERROR )
     {
-        result = paHostError;
-        PaUtil_SetHostError( mmresult );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
         goto error;
     }
 
@@ -388,8 +426,8 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     mmresult = waveOutGetDevCaps( outputWinMmeId, &woc, sizeof( WAVEOUTCAPS ) );
     if( mmresult != MMSYSERR_NOERROR )
     {
-        result = paHostError;
-        PaUtil_SetHostError( mmresult );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
         goto error;
     }
 
@@ -546,6 +584,13 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
             deviceInfo->maxInputChannels = 0;
             deviceInfo->maxOutputChannels = 0;
+
+            deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
+            deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */  
+
+
             deviceInfo->numSampleRates = 0;
 
             /* allocate space for all possible sample rates */
@@ -712,24 +757,11 @@ error:
 }
 
 
-/*
-    NOTE: this is a hack to allow InitializeBufferSet et al to be used on both
-    input and output buffer sets. we assume that it is safe to kludge some
-    types and store waveIn and waveOut preparation functions and handles
-    in storage typed for wave in only.
-*/
-typedef WINMMAPI MMRESULT WINAPI MmePrepareHeader(
-    HWAVEIN hwi,
-    LPWAVEHDR pwh,
-    UINT cbwh
-);
-
 
 typedef HWAVEIN MmeHandle;
 
 static PaError InitializeBufferSet( WAVEHDR **bufferSet, int numBuffers, int bufferBytes,
-                                    MmePrepareHeader *prepareHeader,
-                                    MmePrepareHeader *unprepareHeader,
+                                    int isInput, /* if 0, then output */
                                     MmeHandle mmeWaveHandle, int numDeviceChannels )
 {
     PaError result = paNoError;
@@ -763,13 +795,27 @@ static PaError InitializeBufferSet( WAVEHDR **bufferSet, int numBuffers, int buf
         (*bufferSet)[i].dwBufferLength = bufferBytes;
         (*bufferSet)[i].dwUser = 0xFFFFFFFF; /* indicates unprepared to error clean up code */
 
-        mmresult = prepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
-        if( mmresult != MMSYSERR_NOERROR )
+        if( isInput )
         {
-            result = paHostError;
-            PaUtil_SetHostError( mmresult );
-            goto error;
+            mmresult = waveInPrepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+            if( mmresult != MMSYSERR_NOERROR )
+            {
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+                goto error;
+            }
         }
+        else /* output */
+        {
+            mmresult = waveOutPrepareHeader( (HWAVEOUT)mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+            if( mmresult != MMSYSERR_NOERROR )
+            {
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+                goto error;
+            }
+        }
+
         (*bufferSet)[i].dwUser = numDeviceChannels;
     }
 
@@ -784,8 +830,12 @@ error:
             {
 
                 if( (*bufferSet)[i].dwUser != 0xFFFFFFFF )
-                    unprepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
-
+                {
+                    if( isInput )
+                        waveInUnprepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+                    else
+                        waveOutUnprepareHeader( (HWAVEOUT)mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+                }
                 PaUtil_FreeMemory( (*bufferSet)[i].lpData );
             }
         }
@@ -797,7 +847,7 @@ error:
 }
 
 
-static void TerminateBufferSet( WAVEHDR * *bufferSet, unsigned int numBuffers, MmePrepareHeader *unprepareHeader, MmeHandle mmeWaveHandle )
+static void TerminateBufferSet( WAVEHDR * *bufferSet, unsigned int numBuffers, int isInput, MmeHandle mmeWaveHandle )
 {
     unsigned int i;
 
@@ -805,8 +855,11 @@ static void TerminateBufferSet( WAVEHDR * *bufferSet, unsigned int numBuffers, M
     {
         if( (*bufferSet)[i].lpData )
         {
-            unprepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
-
+            if( isInput )
+                waveInUnprepareHeader( mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+            else
+                waveOutUnprepareHeader( (HWAVEOUT)mmeWaveHandle, &(*bufferSet)[i], sizeof(WAVEHDR) );
+                
             PaUtil_FreeMemory( (*bufferSet)[i].lpData );
         }
     }
@@ -1183,8 +1236,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->bufferEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
     if( stream->bufferEvent == NULL )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
     bufferEventInited = 1;
@@ -1258,8 +1311,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         result = paInternalError; /* REVIEW: port audio shouldn't get this far without using compatible format info */ 
                         break;
                     default:
-                        result = paHostError;
-                        PaUtil_SetHostError( mmresult );
+                        result = paUnanticipatedHostError;
+                        PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
                 }
                 goto error;
             }
@@ -1333,8 +1386,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         result = paInternalError; /* REVIEW: port audio shouldn't get this far without using compatible format info */ 
                         break;
                     default:
-                        result = paHostError;
-                        PaUtil_SetHostError( mmresult );
+                        result = paUnanticipatedHostError;
+                        PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
                 }
                 goto error;
             }
@@ -1367,8 +1420,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
 
             result = InitializeBufferSet( &stream->inputBuffers[i], numHostInputBuffers, hostInputBufferBytes,
-                             (MmePrepareHeader*)waveInPrepareHeader,
-                             (MmePrepareHeader*)waveInUnprepareHeader,
+                             1 /* isInput */,
                              (MmeHandle)stream->hWaveIns[i],
                              ((inputDevices) ? inputDevices[i].numChannels : numInputChannels) );
 
@@ -1403,8 +1455,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
 
             result = InitializeBufferSet( &stream->outputBuffers[i], numHostOutputBuffers, hostOutputBufferBytes,
-                                 (MmePrepareHeader*)waveOutPrepareHeader,
-                                 (MmePrepareHeader*)waveOutUnprepareHeader,
+                                 0 /* not isInput */,
                                  (MmeHandle)stream->hWaveOuts[i],
                                  ((outputDevices) ? outputDevices[i].numChannels  : numOutputChannels) );
 
@@ -1416,8 +1467,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->abortEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
     if( stream->abortEvent == NULL )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
     abortEventInited = 1;
@@ -1450,7 +1501,7 @@ error:
             if( stream->inputBuffers[i] )
             {
                 TerminateBufferSet( &stream->inputBuffers[i], stream->numInputBuffers,
-                        (MmePrepareHeader*)waveInUnprepareHeader, (MmeHandle)stream->hWaveIns[i] );
+                        1 /* isInput */, (MmeHandle)stream->hWaveIns[i] );
             }
         }
 
@@ -1464,7 +1515,7 @@ error:
             if( stream->outputBuffers[i] )
             {
                 TerminateBufferSet( &stream->outputBuffers[i], stream->numOutputBuffers,
-                    (MmePrepareHeader*)waveOutUnprepareHeader, (MmeHandle)stream->hWaveOuts[i] );
+                    0 /* not isInput */, (MmeHandle)stream->hWaveOuts[i] );
             }
         }
 
@@ -1540,8 +1591,8 @@ static PaError AdvanceToNextInputBuffer( PaWinMmeStream *stream )
                                     sizeof(WAVEHDR) );
         if( mmresult != MMSYSERR_NOERROR )
         {
-            PaUtil_SetHostError( mmresult );
-            result = paHostError;
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
         }
     }
     stream->currentInputBufferIndex = (stream->currentInputBufferIndex+1 >= stream->numInputBuffers) ?
@@ -1566,8 +1617,8 @@ static PaError AdvanceToNextOutputBuffer( PaWinMmeStream *stream )
                                  sizeof(WAVEHDR) );
         if( mmresult != MMSYSERR_NOERROR )
         {
-            PaUtil_SetHostError( mmresult );
-            result = paHostError;
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
         }
     }
 
@@ -1608,8 +1659,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         waitResult = WaitForMultipleObjects( numEvents, events, FALSE, timeout );
         if( waitResult == WAIT_FAILED )
         {
-            PaUtil_SetHostError( GetLastError() );
-            result = paHostError;
+            result = paUnanticipatedHostError;
+            /* FIXME/REVIEW: can't return host error info from an asyncronous thread */
             done = 1;
         }
         else if( waitResult == WAIT_TIMEOUT )
@@ -1937,7 +1988,7 @@ static PaError CloseStream( PaStream* s )
         for( i=0; i<stream->numInputDevices; ++i )
         {
             TerminateBufferSet( &stream->inputBuffers[i], stream->numInputBuffers,
-                    (MmePrepareHeader*)waveInUnprepareHeader, (MmeHandle)stream->hWaveIns[i] );
+                    1 /* isInput */, (MmeHandle)stream->hWaveIns[i] );
         }
 
         PaUtil_FreeMemory( stream->inputBuffers );
@@ -1948,7 +1999,7 @@ static PaError CloseStream( PaStream* s )
         for( i=0; i<stream->numOutputDevices; ++i )
         {
             TerminateBufferSet( &stream->outputBuffers[i], stream->numOutputBuffers,
-                    (MmePrepareHeader*)waveOutUnprepareHeader, (MmeHandle)stream->hWaveOuts[i] );
+                    0 /* not isInput */, (MmeHandle)stream->hWaveOuts[i] );
         }
         
         PaUtil_FreeMemory( stream->outputBuffers );
@@ -1962,8 +2013,8 @@ static PaError CloseStream( PaStream* s )
             mmresult = waveInClose( stream->hWaveIns[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                result = paHostError;
-                PaUtil_SetHostError( mmresult );
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
                 goto error;
             }
         }
@@ -1978,8 +2029,8 @@ static PaError CloseStream( PaStream* s )
             mmresult = waveOutClose( stream->hWaveOuts[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                result = paHostError;
-                PaUtil_SetHostError( mmresult );
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
                 goto error;
             }
         }
@@ -1989,15 +2040,15 @@ static PaError CloseStream( PaStream* s )
 
     if( CloseHandle( stream->bufferEvent ) == 0 )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
 
     if( CloseHandle( stream->abortEvent ) == 0 )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
 
@@ -2029,8 +2080,8 @@ static PaError StartStream( PaStream *s )
                 mmresult = waveInAddBuffer( stream->hWaveIns[j], &stream->inputBuffers[j][i], sizeof(WAVEHDR) );
                 if( mmresult != MMSYSERR_NOERROR )
                 {
-                    result = paHostError;
-                    PaUtil_SetHostError( mmresult );
+                    result = paUnanticipatedHostError;
+                    PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
                     goto error;
                 }
             }
@@ -2045,8 +2096,8 @@ static PaError StartStream( PaStream *s )
         {
             if( (mmresult = waveOutPause( stream->hWaveOuts[i] )) != MMSYSERR_NOERROR )
             {
-                result = paHostError;
-                PaUtil_SetHostError( mmresult );
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
                 goto error;
             }
         }
@@ -2059,8 +2110,8 @@ static PaError StartStream( PaStream *s )
                 mmresult = waveOutWrite( stream->hWaveOuts[j], &stream->outputBuffers[j][i], sizeof(WAVEHDR) );
                 if( mmresult != MMSYSERR_NOERROR )
                 {
-                    result = paHostError;
-                    PaUtil_SetHostError( mmresult );
+                    result = paUnanticipatedHostError;
+                    PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
                     goto error;
                 }
             }
@@ -2078,15 +2129,15 @@ static PaError StartStream( PaStream *s )
 
     if( ResetEvent( stream->bufferEvent ) == 0 )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
 
     if( ResetEvent( stream->abortEvent ) == 0 )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
 
@@ -2094,8 +2145,8 @@ static PaError StartStream( PaStream *s )
     stream->processingThread = CreateThread( 0, 0, ProcessingThreadProc, stream, 0, &stream->processingThreadId );
     if( !stream->processingThread )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
 
@@ -2114,8 +2165,8 @@ static PaError StartStream( PaStream *s )
     {
         if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
         {
-            result = paHostError;
-            PaUtil_SetHostError( GetLastError() );
+            result = paUnanticipatedHostError;
+            PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
             goto error;
         }
     }
@@ -2129,8 +2180,8 @@ static PaError StartStream( PaStream *s )
 
     if( !SetThreadPriority( stream->processingThread, stream->highThreadPriority ) )
     {
-        result = paHostError;
-        PaUtil_SetHostError( GetLastError() );
+        result = paUnanticipatedHostError;
+        PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
         goto error;
     }
     stream->processingThreadPriority = stream->highThreadPriority;
@@ -2144,8 +2195,8 @@ static PaError StartStream( PaStream *s )
             PA_DEBUG(("Pa_StartStream: waveInStart returned = 0x%X.\n", mmresult));
             if( mmresult != MMSYSERR_NOERROR )
             {
-                result = paHostError;
-                PaUtil_SetHostError( mmresult );
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
                 goto error;
             }
         }
@@ -2157,8 +2208,8 @@ static PaError StartStream( PaStream *s )
         {
             if( (mmresult = waveOutRestart( stream->hWaveOuts[i] )) != MMSYSERR_NOERROR )
             {
-                result = paHostError;
-                PaUtil_SetHostError( mmresult );
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
                 goto error;
             }
         }
@@ -2225,8 +2276,8 @@ static PaError StopStream( PaStream *s )
             mmresult = waveOutReset( stream->hWaveOuts[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                PaUtil_SetHostError( mmresult );
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
             }
         }
     }
@@ -2238,8 +2289,8 @@ static PaError StopStream( PaStream *s )
             mmresult = waveInReset( stream->hWaveIns[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                PaUtil_SetHostError( mmresult );
-                result = paHostError;
+                result = paUnanticipatedHostError;
+                PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
             }
         }
     }
@@ -2282,8 +2333,8 @@ static PaError AbortStream( PaStream *s )
             mmresult = waveOutReset( stream->hWaveOuts[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                PaUtil_SetHostError( mmresult );
-                return paHostError;
+                PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+                return paUnanticipatedHostError;
             }
         }
     }
@@ -2295,8 +2346,8 @@ static PaError AbortStream( PaStream *s )
             mmresult = waveInReset( stream->hWaveIns[i] );
             if( mmresult != MMSYSERR_NOERROR )
             {
-                PaUtil_SetHostError( mmresult );
-                return paHostError;
+                PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+                return paUnanticipatedHostError;
             }
         }
     }
@@ -2349,18 +2400,25 @@ static PaError UpdateStreamTime( PaWinMmeStream *stream )
     {
         /* assume that all devices have the same position */
         mmresult = waveOutGetPosition( stream->hWaveOuts[0], &mmtime, sizeof(mmtime) );
+
+        if( mmresult != MMSYSERR_NOERROR )
+        {
+            PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+            return paUnanticipatedHostError;
+        }
     }
     else
     {
         /* assume that all devices have the same position */
         mmresult = waveInGetPosition( stream->hWaveIns[0], &mmtime, sizeof(mmtime) );
+
+        if( mmresult != MMSYSERR_NOERROR )
+        {
+            PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+            return paUnanticipatedHostError;
+        }
     }
 
-    if( mmresult != MMSYSERR_NOERROR )
-    {
-        PaUtil_SetHostError( mmresult );
-        return paHostError;
-    }
 
     /* This data has two variables and is shared by foreground and background.
      * So we need to make it thread safe. */
@@ -2454,7 +2512,7 @@ static PaError WriteStream( PaStream* s,
 }
 
 
-static unsigned long GetStreamReadAvailable( PaStream* s )
+static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
@@ -2465,7 +2523,7 @@ static unsigned long GetStreamReadAvailable( PaStream* s )
 }
 
 
-static unsigned long GetStreamWriteAvailable( PaStream* s )
+static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
