@@ -47,6 +47,8 @@
 
 #include "pa_linux_alsa.h"
 
+pthread_mutex_t mtx;    /* Used for synchronizing access to SetLastHostErrorInfo */
+
 /* PaAlsaHostApiRepresentation - host api datastructure specific to this implementation */
 
 typedef struct
@@ -159,6 +161,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       GetStreamWriteAvailable );
 
     BuildDeviceList( alsaHostApi );
+    pthread_mutex_init( &mtx, NULL );
 
     return result;
 
@@ -383,6 +386,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     PaUtil_FreeMemory( alsaHostApi );
+    pthread_mutex_destroy( &mtx );
 }
 
 

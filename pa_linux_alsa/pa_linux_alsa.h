@@ -19,13 +19,16 @@
 #define STRINGIZE_HELPER(exp) #exp
 #define STRINGIZE(exp) STRINGIZE_HELPER(exp)
 
-/* TODO: Isolate call to SetLastHostErrorInfo with mutex? */
+extern pthread_mutex_t mtx;
+
 #define ENSURE(exp, code) \
     if( (exp) < 0 ) \
     { \
         if( (code) == paUnanticipatedHostError ) \
         { \
+            pthread_mutex_lock( &mtx ); \
             PaUtil_SetLastHostErrorInfo( paALSA, (exp), snd_strerror( (exp) ) ); \
+            pthread_mutex_unlock( &mtx ); \
         } \
         PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
