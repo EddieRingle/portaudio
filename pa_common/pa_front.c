@@ -1063,7 +1063,8 @@ static PaError ValidateOpenStreamParameters(
     if( (sampleRate < 1000.0) || (sampleRate > 200000.0) )
         return paInvalidSampleRate;
 
-    if( ((streamFlags & ~paPlatformSpecificFlags) & ~(paClipOff | paDitherOff)) != 0 ) return paInvalidFlag;
+    if( ((streamFlags & ~paPlatformSpecificFlags) & ~(paClipOff | paDitherOff | paNeverDropInput | paPrimeOutputBuffersUsingStreamCallback ) ) != 0 )
+        return paInvalidFlag;
 
     return paNoError;
 }

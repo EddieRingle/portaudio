@@ -554,17 +554,42 @@ typedef void PaStream;
  ORed together.
 
  @see Pa_OpenStream, Pa_OpenDefaultStream
- @see paNoFlag, paClipOff, paDitherOff, paPlatformSpecificFlags
+ @see paNoFlag, paClipOff, paDitherOff, paNeverDropInput,
+  paPrimeOutputBuffersUsingStreamCallback, paPlatformSpecificFlags
 */
 typedef unsigned long PaStreamFlags;
 
-#define   paNoFlag          ((PaStreamFlags) 0)      /**< @see PaStreamFlags */
-#define   paClipOff         ((PaStreamFlags) 0x00000001)   /**< Disable default clipping of out of range samples. @see PaStreamFlags */
-#define   paDitherOff       ((PaStreamFlags) 0x00000002)   /**< Disable default dithering. @see PaStreamFlags */
-#define   paNeverDropInput  ((PaStreamFlags) 0x00000004)/**< A full duplex stream will not discard overflowed input samples without calling the stream callback, this flag is ignored for blocking read/write streams */
+/** @see PaStreamFlags */
+#define   paNoFlag          ((PaStreamFlags) 0)
 
-#define   paPlatformSpecificFlags ((PaStreamFlags)0xFFFF0000) /**< A mask specifying the platform specific bits. @see PaStreamFlags */
+/** Disable default clipping of out of range samples.
+ @see PaStreamFlags
+*/
+#define   paClipOff         ((PaStreamFlags) 0x00000001)
 
+/** Disable default dithering.
+ @see PaStreamFlags
+*/
+#define   paDitherOff       ((PaStreamFlags) 0x00000002)
+
+/** A full duplex stream will not discard overflowed input samples without
+ calling the stream callback, this flag is ignored for blocking read/write
+ streams.
+ @see PaStreamFlags
+*/
+#define   paNeverDropInput  ((PaStreamFlags) 0x00000004)
+
+/** Call the stream callback to fill initial output buffers, rather than the
+ default behavior of priming the buffers with zeros (silence). This flag has
+ no effect for input-only and blocking read/write streams.
+ @see PaStreamFlags
+*/
+#define   paPrimeOutputBuffersUsingStreamCallback ((PaStreamFlags) 0x00000008)
+
+/** A mask specifying the platform specific bits.
+ @see PaStreamFlags
+*/
+#define   paPlatformSpecificFlags ((PaStreamFlags)0xFFFF0000)
 
 /**
  Timing information for the buffers passed to the stream callback.
@@ -578,14 +603,38 @@ typedef struct PaStreamCallbackTimeInfo{
 
 /**
  Flag bit constants for the statusFlags to PaStreamCallback.
+
+ @see paInputUnderflow, paInputOverflow, paOutputUnderflow, paOutputOverflow,
+ paPrimingOutput
 */
 typedef unsigned long PaStreamCallbackFlags;
 
-#define paInputUnderflow   ((PaStreamCallbackFlags) 0x00000001) /**< Input data is all zeros because no real data is available. */
-#define paInputOverflow    ((PaStreamCallbackFlags) 0x00000002) /**< Input data was discarded by PortAudio */
-#define paOutputUnderflow  ((PaStreamCallbackFlags) 0x00000004) /**< Output data was inserted by PortAudio because the stream callback is using too much CPU */
-#define paOutputOverflow   ((PaStreamCallbackFlags) 0x00000008) /**< Output data will be discarded because no room is available. */
+/** Input data is all zeros because no real data is available.
+ @see PaStreamCallbackFlags
+*/
+#define paInputUnderflow   ((PaStreamCallbackFlags) 0x00000001)
 
+/** Input data was discarded by PortAudio
+ @see PaStreamCallbackFlags
+*/
+#define paInputOverflow    ((PaStreamCallbackFlags) 0x00000002)
+
+/** Output data was inserted by PortAudio because the stream callback is using
+ too much CPU 
+ @see PaStreamCallbackFlags
+*/
+#define paOutputUnderflow  ((PaStreamCallbackFlags) 0x00000004)
+
+/** Output data will be discarded because no room is available.
+ @see PaStreamCallbackFlags
+*/
+#define paOutputOverflow   ((PaStreamCallbackFlags) 0x00000008)
+
+/** Some of all of the output data will be used to prime the stream, input
+ data may be zero.
+ @see PaStreamCallbackFlags
+*/
+#define paPrimingOutput    ((PaStreamCallbackFlags) 0x00000010)
 
 /**
  Allowable return values for the PaStreamCallback.
