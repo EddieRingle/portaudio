@@ -334,7 +334,6 @@ static void Float32_Int32_DitherClip(
 {
     float *src = (float*)sourceBuffer;
     signed long *dest =  (signed long*)destinationBuffer;
-    (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
     {
