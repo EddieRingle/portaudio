@@ -82,12 +82,18 @@ int PaUtil_CountCurrentlyAllocatedBlocks( void )
 
 void Pa_Sleep( long msec )
 {
+    while( msec > 999 )     /* For OpenBSD and IRIX, argument */
+        {                   /* to usleep must be < 1000000.   */
+        usleep( 999000 );
+        msec -= 999;
+        }
     usleep( msec * 1000 );
 }
 
-
+/*            *** NOT USED YET: ***
 static int usePerformanceCounter_;
 static double microsecondsPerTick_;
+*/
 
 void PaUtil_InitializeClock( void )
 {
