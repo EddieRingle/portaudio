@@ -19,7 +19,7 @@ o- patest_hang.c
 o- patest_latency.c
 x- patest_leftright.c
 o- patest_longsine.c
-o- patest_many.c
+x- patest_many.c
 o- patest_maxsines.c
 o- patest_multi_sine.c
 o- patest_pink.c
@@ -36,8 +36,8 @@ x- patest_start_stop.c
 x- patest_stop.c
 x- patest_sync.c
 o- patest_toomanysines.c
-o- patest_underflow.c
-o- patest_wire.c
+x- patest_underflow.c
+x- patest_wire.c
 x- patest_write_sine.c
 x- pa_devs.c
 x- pa_fuzz.c

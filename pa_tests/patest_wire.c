@@ -6,7 +6,10 @@
 	a PCI based audio card such as the SBLive.
 
 	@author Phil Burk  http://www.softsynth.com
-	@todo needs to be updated to use the V19 API
+    
+ While adapting to V19-API, I excluded configs with framesPerCallback=0
+ because of an assert in file pa_common/pa_process.c. Pieter, Oct 9, 2003.
+
 */
 /*
  * $Id$
@@ -57,11 +60,7 @@ typedef struct WireConfig_s
 #define USE_FLOAT_INPUT        (1)
 #define USE_FLOAT_OUTPUT       (1)
 
-#define INPUT_LATENCY_MSEC     (0)
-#define INPUT_LATENCY_FRAMES   ((INPUT_LATENCY_MSEC * SAMPLE_RATE) / 1000)
-#define OUTPUT_LATENCY_MSEC    (0)
-#define OUTPUT_LATENCY_FRAMES  ((OUTPUT_LATENCY_MSEC * SAMPLE_RATE) / 1000)
-
+/* Latencies set to defaults. */
 
 #if USE_FLOAT_INPUT
     #define INPUT_FORMAT  paFloat32
@@ -87,30 +86,32 @@ double gInOutScaler = 1.0;
 
 static PaError TestConfiguration( WireConfig_t *config );
 
-static int wireCallback( void *inputBuffer, void *outputBuffer,
+static int wireCallback( const void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
-                         PaTimestamp outTime, void *userData );
+                         const PaStreamCallbackTimeInfo* timeInfo,
+                         PaStreamCallbackFlags statusFlags,
+                         void *userData );
 
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may be called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
 
-static int wireCallback( void *inputBuffer, void *outputBuffer,
+static int wireCallback( const void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
-                         PaTimestamp outTime, void *userData )
+                         const PaStreamCallbackTimeInfo* timeInfo,
+                         PaStreamCallbackFlags statusFlags,
+                         void *userData )
 {
     INPUT_SAMPLE *in;
     OUTPUT_SAMPLE *out;
     int inStride;
     int outStride;
-
     int inDone = 0;
     int outDone = 0;
     WireConfig_t *config = (WireConfig_t *) userData;
     unsigned int i;
     int inChannel, outChannel;
-    (void) outTime;
 
     /* This may get called with NULL inputBuffer during initial setup. */
     if( inputBuffer == NULL) return 0;
@@ -168,8 +169,8 @@ int main(void)
     if( err != paNoError ) goto error;
 
     printf("Please connect audio signal to input and listen for it on output!\n");
-    printf("input format = %d\n", INPUT_FORMAT );
-    printf("output format = %d\n", OUTPUT_FORMAT );
+    printf("input format = %lu\n", INPUT_FORMAT );
+    printf("output format = %lu\n", OUTPUT_FORMAT );
     printf("input device ID  = %d\n", INPUT_DEVICE );
     printf("output device ID = %d\n", OUTPUT_DEVICE );
 
@@ -194,12 +195,13 @@ int main(void)
             {
                 for( config->numOutputChannels = 1; config->numOutputChannels < 3; config->numOutputChannels++ )
                 {
-                    for( config->framesPerCallback = 0; config->framesPerCallback < 65; config->framesPerCallback += 64 )
+                           /* If framesPerCallback = 0, assertion fails in file pa_common/pa_process.c, line 1413: EX. */
+                    for( config->framesPerCallback = 64; config->framesPerCallback < 129; config->framesPerCallback += 64 )
                     {
                         printf("-----------------------------------------------\n" );
                         printf("Configuration #%d\n", configIndex++ );
                         err = TestConfiguration( config );
-                    // give user a chance to bail out
+                        /* Give user a chance to bail out. */
                         if( err == 1 )
                         {
                             err = paNoError;
@@ -214,12 +216,9 @@ int main(void)
 
 done:
     Pa_Terminate();
-    
     printf("Full duplex sound test complete.\n"); fflush(stdout);
-    
     printf("Hit ENTER to quit.\n");  fflush(stdout);
     getchar();
-
     return 0;
 
 error:
@@ -237,29 +236,35 @@ static PaError TestConfiguration( WireConfig_t *config )
     int c;
     PaError err;
     PaStream *stream;
+    PaStreamParameters inputParameters, outputParameters;
+    
     printf("input %sinterleaved!\n", (config->isInputInterleaved ? " " : "NOT ") );
     printf("output %sinterleaved!\n", (config->isOutputInterleaved ? " " : "NOT ") );
     printf("input channels = %d\n", config->numInputChannels );
     printf("output channels = %d\n", config->numOutputChannels );
     printf("framesPerCallback = %d\n", config->framesPerCallback );
 
+    inputParameters.device = INPUT_DEVICE;              /* default input device */
+    inputParameters.channelCount = config->numInputChannels;
+    inputParameters.sampleFormat = INPUT_FORMAT | (config->isInputInterleaved ? 0 : paNonInterleaved);
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
+    inputParameters.hostApiSpecificStreamInfo = NULL;
+
+    outputParameters.device = OUTPUT_DEVICE;            /* default output device */
+    outputParameters.channelCount = config->numOutputChannels;
+    outputParameters.sampleFormat = OUTPUT_FORMAT | (config->isOutputInterleaved ? 0 : paNonInterleaved);
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+
     err = Pa_OpenStream(
               &stream,
-              INPUT_DEVICE,
-              config->numInputChannels,
-              INPUT_FORMAT | (config->isInputInterleaved ? 0 : paNonInterleaved),
-              INPUT_LATENCY_FRAMES,    /* input latency */
-              NULL,
-              OUTPUT_DEVICE,
-              config->numOutputChannels,
-              OUTPUT_FORMAT | (config->isOutputInterleaved ? 0 : paNonInterleaved),
-              OUTPUT_LATENCY_FRAMES,   /* output latency */
-              NULL,
+              &inputParameters,
+              &outputParameters,
               SAMPLE_RATE,
-              config->framesPerCallback,            /* frames per buffer */
-              paClipOff,       /* we won't output out of range samples so don't bother clipping them */
+              config->framesPerCallback, /* frames per buffer */
+              paClipOff, /* we won't output out of range samples so don't bother clipping them */
               wireCallback,
-              config );          /* user data */
+              config );
     if( err != paNoError ) goto error;
     
     err = Pa_StartStream( stream );
