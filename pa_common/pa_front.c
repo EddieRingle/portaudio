@@ -58,6 +58,9 @@ enquire about status on the PortAudio mailing list first.
 
 
 /** @file
+ @brief Implements public PortAudio API, checks some errors, forwards to
+ host API implementations.
+ 
  Implements the functions defined in the PortAudio API, checks for
  some parameter and state inconsistencies and forwards API requests to
  specific Host API implementations (via the interface declared in
@@ -81,9 +84,10 @@ enquire about status on the PortAudio mailing list first.
     @todo review whether Pa_CloseStream() should call the interface's
     CloseStream function if aborting the stream returns an error code.
 
-    @todo Consider returning an error code if a NULL buffer pointer, or a
-    zero or negative frame count, is passed to Pa_ReadStream or Pa_WriteStream.
+    @todo Create new error codes if a NULL buffer pointer, or a
+    zero frame count is passed to Pa_ReadStream or Pa_WriteStream.
 */
+
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -456,6 +460,14 @@ const char *Pa_GetErrorText( PaError errorCode )
     case paIncompatibleHostApiSpecificStreamInfo:   result = "Incompatible host API specific stream info"; break;
     case paStreamIsStopped:          result = "Stream is stopped"; break;
     case paStreamIsNotStopped:       result = "Stream is not stopped"; break;
+    case paInputOverflowed:          result = "Input overflowed"; break;
+    case paOutputUnderflowed:        result = "Output underflowed"; break;
+    case paHostApiNotFound:          result = "Host API not found"; break;
+    case paInvalidHostApi:           result = "Invalid host API"; break;
+    case paCanNotReadFromACallbackStream:       result = "Can't read from a callback stream"; break;
+    case paCanNotWriteToACallbackStream:        result = "Can't write to a callback stream"; break;
+    case paCanNotReadFromAnOutputOnlyStream:    result = "Can't read from an output only stream"; break;
+    case paCanNotWriteToAnInputOnlyStream:      result = "Can't write to an input only stream"; break;
     default:                         result = "Illegal error number"; break;
     }
     return result;
@@ -1740,9 +1752,18 @@ PaError Pa_ReadStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /** @todo should return an error if buffer is zero or frames <= 0 */
-    if( frames > 0 && buffer != 0 )
+    if( frames == 0 )
+    {
+        result = paInternalError; /** @todo should return a different error code */
+    }
+    else if( buffer == 0 )
+    {
+        result = paInternalError; /** @todo should return a different error code */
+    }
+    else
+    {
         result = PA_STREAM_INTERFACE(stream)->Read( stream, buffer, frames );
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_ReadStream returned:\n" );
@@ -1764,9 +1785,18 @@ PaError Pa_WriteStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /** @todo should return an error if buffer is zero or frames <= 0 */
-    if( frames > 0 && buffer != 0 )
+    if( frames == 0 )
+    {
+        result = paInternalError; /** @todo should return a different error code */
+    }
+    else if( buffer == 0 )
+    {
+        result = paInternalError; /** @todo should return a different error code */
+    }
+    else
+    {
         result = PA_STREAM_INTERFACE(stream)->Write( stream, buffer, frames );
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_WriteStream returned:\n" );

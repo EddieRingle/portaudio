@@ -31,6 +31,15 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ @brief Skeleton implementation of support for a host API.
+
+ @note This file is provided as a starting point for implementing support for
+ a new host API. IMPLEMENT ME comments are used to indicate functionality
+ which much be customised for each implementation.
+*/
+
+
 #include <string.h> /* strlen() */
 
 #include "pa_util.h"
@@ -39,14 +48,6 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-
-/** @file
-    NOTE TO IMPLEMENTORS:
-
-    This file is provided as a starting point for implementing support for
-    a new host API. IMPLEMENT ME comments are used to indicate functionality
-    which much be customised for each implementation.
-*/
 
 
 /* prototypes for functions declared in this file */
@@ -201,7 +202,8 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
     PaUtil_InitializeStreamInterface( &skeletonHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
-                                      PaUtil_DummyRead, PaUtil_DummyWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
+                                      PaUtil_DummyRead, PaUtil_DummyWrite,
+                                      PaUtil_DummyGetReadAvailable, PaUtil_DummyGetWriteAvailable );
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,

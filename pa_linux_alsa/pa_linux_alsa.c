@@ -152,8 +152,8 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyRead, PaUtil_DummyWrite,
-                                      PaUtil_DummyGetAvailable,
-                                      PaUtil_DummyGetAvailable );
+                                      PaUtil_DummyGetReadAvailable,
+                                      PaUtil_DummyGetWriteAvailable );
 
     PaUtil_InitializeStreamInterface( &alsaHostApi->blockingStreamInterface,
                                       CloseStream, StartStream,

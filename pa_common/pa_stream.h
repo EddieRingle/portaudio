@@ -33,8 +33,10 @@
  */
 
 /** @file
- Interface used by pa_front to virtualize functions which operate on streams.
+ @brief Interface used by pa_front to virtualize functions which operate on
+ streams.
 */
+
 
 #include "portaudio.h"
 
@@ -95,7 +97,7 @@ PaError PaUtil_DummyRead( PaStream* stream,
                        void *buffer,
                        unsigned long frames );
 
-                       
+
 /** Dummy Write function for use in an interfaces to callback based streams.
  Pass to the Write parameter of PaUtil_InitializeStreamInterface.
  @return An error code indicating that the function has no effect
@@ -106,13 +108,21 @@ PaError PaUtil_DummyWrite( PaStream* stream,
                        unsigned long frames );
 
 
-/** Dummy GetAvailable function for use in interfaces to callback based
- streams. Pass to the GetReadAvailable and GetWriteAvailable parameters of
- PaUtil_InitializeStreamInterface.
+/** Dummy GetReadAvailable function for use in interfaces to callback based
+ streams. Pass to the GetReadAvailable parameter of PaUtil_InitializeStreamInterface.
  @return An error code indicating that the function has no effect
  because the stream is a callback stream.
 */
-signed long PaUtil_DummyGetAvailable( PaStream* stream );
+signed long PaUtil_DummyGetReadAvailable( PaStream* stream );
+
+
+/** Dummy GetWriteAvailable function for use in interfaces to callback based
+ streams. Pass to the GetWriteAvailable parameter of PaUtil_InitializeStreamInterface.
+ @return An error code indicating that the function has no effect
+ because the stream is a callback stream.
+*/
+signed long PaUtil_DummyGetWriteAvailable( PaStream* stream );
+
 
 
 /** Dummy GetCpuLoad function for use in an interface to a read/write stream.

@@ -365,8 +365,8 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
                                       IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyRead, PaUtil_DummyWrite,
-                                      PaUtil_DummyGetAvailable,
-                                      PaUtil_DummyGetAvailable );
+                                      PaUtil_DummyGetReadAvailable,
+                                      PaUtil_DummyGetWriteAvailable );
 
     return result;
 

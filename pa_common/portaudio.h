@@ -1,11 +1,5 @@
 #ifndef PORTAUDIO_H
 #define PORTAUDIO_H
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif /* __cplusplus */
-
 /*
  * $Id$
  * PortAudio Portable Real-Time Audio Library
@@ -36,8 +30,17 @@ extern "C"
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
  */
+
+/** @file
+ @brief The PortAudio API.
+*/
+
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif /* __cplusplus */
 
  
 /** Retrieve the release number of the currently running PortAudio build,
@@ -83,7 +86,11 @@ typedef enum PaErrorCode
     paInputOverflowed,
     paOutputUnderflowed,
     paHostApiNotFound,
-    paInvalidHostApi
+    paInvalidHostApi,
+    paCanNotReadFromACallbackStream,      /**< @todo review error code name */
+    paCanNotWriteToACallbackStream,       /**< @todo review error code name */
+    paCanNotReadFromAnOutputOnlyStream,   /**< @todo review error code name */
+    paCanNotWriteToAnInputOnlyStream      /**< @todo review error code name */
 } PaErrorCode;
 
 

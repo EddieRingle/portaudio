@@ -1,7 +1,7 @@
 #ifndef PA_WIN_WMME_H
 #define PA_WIN_WMME_H
 /*
- *
+ * $Id$
  * PortAudio Portable Real-Time Audio Library
  * MME specific extensions
  *
@@ -32,6 +32,11 @@
  *
  */
 
+/** @file
+ @brief WMME-specific PortAudio API extension header file.
+*/
+
+
 #include "portaudio.h"
 
 #ifdef __cplusplus
@@ -58,6 +63,8 @@ extern "C"
     PaWinMmeDontThrottleOverloadedProcessingThread */
 #define PaWinMmeUseTimeCriticalThreadPriority           (0x10)
 
+
+
 typedef struct PaWinMmeDeviceAndChannelCount{
     PaDeviceIndex device;
     int channelCount;
@@ -65,9 +72,9 @@ typedef struct PaWinMmeDeviceAndChannelCount{
 
 
 typedef struct PaWinMmeStreamInfo{
-    unsigned long size;             /* sizeof(PaWinMmeStreamInfo) */
-    PaHostApiTypeId hostApiType;    /* paMME */
-    unsigned long version;          /* 1 */
+    unsigned long size;             /**< sizeof(PaWinMmeStreamInfo) */
+    PaHostApiTypeId hostApiType;    /**< paMME */
+    unsigned long version;          /**< 1 */
 
     unsigned long flags;
 
@@ -78,7 +85,7 @@ typedef struct PaWinMmeStreamInfo{
         flag.
     */
     unsigned long framesPerBuffer;
-    unsigned long numBuffers;  
+    unsigned long bufferCount;  /* formerly numBuffers */ 
 
     /* multiple devices per direction support
         If flags contains the PaWinMmeUseMultipleDevices flag,
