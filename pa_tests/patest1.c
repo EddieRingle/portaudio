@@ -22,7 +22,7 @@ typedef struct
 patest1data;
 static int patest1Callback( void *inputBuffer, void *outputBuffer,
                             unsigned long bufferFrames,
-                            PaTimestamp outTime, void *userData )
+                            PaTime outTime, void *userData )
 {
     patest1data *data = (patest1data*)userData;
     float *in = (float*)inputBuffer;

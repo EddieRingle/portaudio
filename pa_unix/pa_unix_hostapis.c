@@ -34,10 +34,15 @@
 
 PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 
 PaUtilHostApiInitializer *paHostApiInitializers[] =
     {
+#ifdef PA_USE_OSS
+        PaOSS_Initialize,
+#endif
+
 #ifdef PA_USE_ALSA
         PaAlsa_Initialize,
 #endif
@@ -45,6 +50,7 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #ifdef PA_USE_JACK
         PaJack_Initialize,
 #endif
+
 
         0   /* NULL terminated array */
     };

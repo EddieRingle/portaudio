@@ -35,7 +35,8 @@ COMMON_OBJS = \
 TESTS = \
 	bin/pa_devs \
    bin/pa_fuzz \
-	bin/patest_sine
+	bin/patest_sine \
+	bin/patest1
 
 # Most of these don't compile yet.  Put them in TESTS, above, if
 # you want to try to compile them...
