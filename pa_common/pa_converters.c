@@ -32,6 +32,55 @@
 #include "pa_converters.h"
 #include "pa_dither.h"
 
+
+PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableFormats, PaSampleFormat format )
+{
+    PaSampleFormat result;
+
+    format &= ~paNonInterleaved;
+    availableFormats &= ~paNonInterleaved;
+    
+    if( (format & availableFormats) == 0 )
+    {
+        /* NOTE: this code depends on the sample format constants being in
+            descending order of quality - ie best quality is 0 */
+
+        if( format != 0x01 )
+        {
+            /* scan for better formats */
+            result = format;
+            do
+            {
+                result >>= 1;
+            }
+            while( (result & availableFormats) == 0 && result != 0 );
+        }
+        else
+        {
+            result = 0;
+        }
+        
+        if( result == 0 ){
+            /* scan for worse formats */
+            result = format;
+            do
+            {
+                result <<= 1;
+            }
+            while( (result & availableFormats) == 0 && result != paCustomFormat );
+
+            if( (result & availableFormats) == 0 )
+                result = paSampleFormatNotSupported;
+        }
+        
+    }else{
+        result = format;
+    }
+
+    return result;
+}
+
+
 #define PA_SELECT_FORMAT_( format, float32, int32, int24, packedInt24, int16, int8, uint8 )\
     switch( format ){                                                       \
     case paFloat32:                                                     \

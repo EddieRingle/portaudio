@@ -336,10 +336,10 @@ typedef unsigned long PaSampleFormat;
 */
 
 #define paFloat32      ((PaSampleFormat) (1<<0)) /**< always available @see PaSampleFormat */
-#define paInt32        ((PaSampleFormat) (1<<2)) /**< always available @see PaSampleFormat */
-#define paInt16        ((PaSampleFormat) (1<<1)) /**< always available @see PaSampleFormat */
-#define paInt24        ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
-#define paPackedInt24  ((PaSampleFormat) (1<<4)) /**< @see PaSampleFormat */
+#define paInt32        ((PaSampleFormat) (1<<1)) /**< always available @see PaSampleFormat */
+#define paInt24        ((PaSampleFormat) (1<<2)) /**< @see PaSampleFormat */
+#define paPackedInt24  ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
+#define paInt16        ((PaSampleFormat) (1<<4)) /**< always available @see PaSampleFormat */
 #define paInt8         ((PaSampleFormat) (1<<5)) /**< @see PaSampleFormat */
 #define paUInt8        ((PaSampleFormat) (1<<6)) /**< @see PaSampleFormat */
 #define paCustomFormat ((PaSampleFormat) (1<<16))/**< @see PaSampleFormat */

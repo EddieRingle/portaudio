@@ -74,6 +74,7 @@ TODO:
 #include <windows.h>
 #include <mmsystem.h>
 #include <process.h>
+#include <assert.h>
 /* PLB20010422 - "memory.h" doesn't work on CodeWarrior for PC. Thanks Mike Berry for the mod. */
 #ifndef __MWERKS__
 #include <malloc.h>
@@ -818,7 +819,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int numHostInputBuffers = 0;
     int numHostOutputBuffers = 0;
     int framesPerHostInputBuffer = 0;
-    int framesPerHostOutputBuffer = 0;    
+    int framesPerHostOutputBuffer = 0;
+    int framesPerBufferProcessorCall;  
     int lockInited = 0;
     int bufferEventInited = 0;
     int abortEventInited = 0;
@@ -842,6 +844,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     framesPerHostOutputBuffer = 16384;
     numHostInputBuffers =  4; /* FIXME */
     numHostOutputBuffers = 4; /* FIXME */
+
+    framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
+            ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
+
+    /*
+        either input and output buffers must be the same size, or the
+        larger one must be an integer multiple of the smaller one.
+    */
+    assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
+    assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
+
+
 
 
     /*
@@ -882,13 +896,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
-    hostInputSampleFormat = paInt16;    /* IMPLEMENT ME - select closest supported format to user requested format */
-    hostOutputSampleFormat = paInt16;   /* IMPLEMENT ME - select closest supported format to user requested format */
+
+    /* IMPLEMENT ME - select closest supported format to user requested format */
+    hostInputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+
+    /* IMPLEMENT ME - select closest supported format to user requested format */
+    hostOutputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer, framesPerHostOutputBuffer,  /* FIXME: host buffer frame size should be passed to the process call */
+              sampleRate, streamFlags, framesPerBuffer, framesPerBufferProcessorCall,
               callback, userData );
     if( result != paNoError )
         goto error;

@@ -330,8 +330,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
-    hostInputSampleFormat = paInt16;    /* IMPLEMENT ME - select closest supported format to user requested format */
-    hostOutputSampleFormat = paInt16;   /* IMPLEMENT ME - select closest supported format to user requested format */
+    /* IMPLEMENT ME - select closest supported format to user requested format */
+    hostInputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+
+    /* IMPLEMENT ME - select closest supported format to user requested format */
+    hostOutputSampleFormat =
+        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+        
 
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,

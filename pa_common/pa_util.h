@@ -43,7 +43,7 @@ extern "C"
 void PaUtil_SetHostError( long error ); /* deprecated */
 
 
-/*
+/**
 PA_DEBUG() provides a simple debug message printing facility. The macro
 passes it's argument to a printf-like function called PaUtil_DebugPrint()
 which prints to stderr and always flushes the stream after printing.

@@ -43,8 +43,15 @@ extern "C"
 typedef struct PaUtilTriangularDitherGenerator PaUtilTriangularDitherGenerator;
 
 
-/* high level functions for use by implementations */
+/**
+Choose a format from availableFormats which can best be used to represent
+format. If the requested format is not available better formats are
+searched for before worse formats.
+*/
+PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableFormats, PaSampleFormat format );
 
+
+/* high level conversions functions for use by implementations */
 
 typedef void PaUtilConverter(
     void *destinationBuffer, signed int destinationStride,
