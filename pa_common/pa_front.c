@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <memory.h>
+#include <string.h>
 
 #include "portaudio.h"
 #include "pa_util.h"
@@ -76,12 +77,20 @@
     see the code for more detailed examples
 */
 
+#define PA_LAST_HOST_ERROR_TEXT_LENGTH_  1024
 
-static long hostError_ = 0;
+static char lastHostErrorText_[ PA_LAST_HOST_ERROR_TEXT_LENGTH_ + 1 ] = {0};
 
-void PaUtil_SetHostError( long error )
+static PaHostErrorInfo lastHostErrorInfo_ = { -1, 0, lastHostErrorText_ };
+
+
+void PaUtil_SetLastHostError( PaHostApiTypeId hostApiType, long errorCode,
+        const char *errorText )
 {
-    hostError_ = error;
+    lastHostErrorInfo_.hostApiType = hostApiType;
+    lastHostErrorInfo_.errorCode = errorCode;
+
+    strncpy( lastHostErrorText_, errorText, PA_LAST_HOST_ERROR_TEXT_LENGTH_ );
 }
 
 
@@ -326,41 +335,42 @@ PaError Pa_Terminate( void )
 }
 
 
-long Pa_GetHostError( void )
+const PaHostErrorInfo* Pa_GetLastHostError()
 {
-    return hostError_;
+    return &lastHostErrorInfo_;
 }
 
 
 const char *Pa_GetErrorText( PaError errnum )
 {
-    const char *msg;
+    const char *result;
 
     switch(errnum)
     {
-    case paNoError:                  msg = "Success"; break;
-    case paNotInitialized:           msg = "PortAudio not initialized"; break;
-    case paHostError:                msg = "Host error"; break;
-    case paInvalidChannelCount:      msg = "Invalid number of channels"; break;
-    case paInvalidSampleRate:        msg = "Invalid sample rate"; break;
-    case paInvalidDevice:            msg = "Invalid device"; break;
-    case paInvalidFlag:              msg = "Invalid flag"; break;
-    case paSampleFormatNotSupported: msg = "Sample format not supported"; break;
-    case paBadIODeviceCombination:   msg = "Illegal combination of I/O devices"; break;
-    case paInsufficientMemory:       msg = "Insufficient memory"; break;
-    case paBufferTooBig:             msg = "Buffer too big"; break;
-    case paBufferTooSmall:           msg = "Buffer too small"; break;
-    case paNullCallback:             msg = "No callback routine specified"; break;
-    case paBadStreamPtr:             msg = "Invalid stream pointer"; break;
-    case paTimedOut:                 msg = "Wait timed out"; break;
-    case paInternalError:            msg = "Internal PortAudio error"; break;
-    case paDeviceUnavailable:        msg = "Device unavailable"; break;
-    case paIncompatibleStreamInfo:   msg = "Incompatible host API specific stream info"; break;
-    case paStreamIsStopped:          msg = "Stream is stopped"; break;
-    case paStreamIsNotStopped:        msg = "Stream is not stopped"; break;
-    default:                         msg = "Illegal error number"; break;
+    case paNoError:                  result = "Success"; break;
+    case paNotInitialized:           result = "PortAudio not initialized"; break;
+    /** @todo could catenate the last host error text to result in the case of paUnanticipatedHostError */
+    case paUnanticipatedHostError:   result = "Unanticipated host error"; break;
+    case paInvalidChannelCount:      result = "Invalid number of channels"; break;
+    case paInvalidSampleRate:        result = "Invalid sample rate"; break;
+    case paInvalidDevice:            result = "Invalid device"; break;
+    case paInvalidFlag:              result = "Invalid flag"; break;
+    case paSampleFormatNotSupported: result = "Sample format not supported"; break;
+    case paBadIODeviceCombination:   result = "Illegal combination of I/O devices"; break;
+    case paInsufficientMemory:       result = "Insufficient memory"; break;
+    case paBufferTooBig:             result = "Buffer too big"; break;
+    case paBufferTooSmall:           result = "Buffer too small"; break;
+    case paNullCallback:             result = "No callback routine specified"; break;
+    case paBadStreamPtr:             result = "Invalid stream pointer"; break;
+    case paTimedOut:                 result = "Wait timed out"; break;
+    case paInternalError:            result = "Internal PortAudio error"; break;
+    case paDeviceUnavailable:        result = "Device unavailable"; break;
+    case paIncompatibleStreamInfo:   result = "Incompatible host API specific stream info"; break;
+    case paStreamIsStopped:          result = "Stream is stopped"; break;
+    case paStreamIsNotStopped:       result = "Stream is not stopped"; break;
+    default:                         result = "Illegal error number"; break;
     }
-    return msg;
+    return result;
 }
 
 
@@ -1199,11 +1209,7 @@ PaError Pa_OpenStream( PaStream** stream,
 #endif
         return result;
     }
-
-    if( streamCallback == NULL )
-    {
-        return paNullCallback; /* FIXME: remove when blocking read/write is added */
-    }
+    
 
     if( inputParameters )
     {
@@ -1264,7 +1270,6 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     PaStreamParameters hostApiInputParameters, hostApiOutputParameters;
     PaStreamParameters *hostApiInputParametersPtr, *hostApiOutputParametersPtr;
 
-    
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_OpenDefaultStream called:\n" );
     PaUtil_DebugPrint("\tPaStream** stream: 0x%p\n", stream );
@@ -1283,7 +1288,8 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
         hostApiInputParameters.numChannels = numInputChannels;
         hostApiInputParameters.sampleFormat = sampleFormat;
-        hostApiInputParameters.suggestedLatency = Pa_GetDefaultHighInputLatency( hostApiInputParameters.device );
+        hostApiInputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
+             Pa_GetDeviceInfo( hostApiInputParameters.device )->defaultHighInputLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiInputParametersPtr = &hostApiInputParameters;
     }
@@ -1297,7 +1303,8 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
         hostApiOutputParameters.numChannels = numOutputChannels;
         hostApiOutputParameters.sampleFormat = sampleFormat;
-        hostApiOutputParameters.suggestedLatency = Pa_GetDefaultHighOutputLatency( hostApiOutputParameters.device );
+        hostApiOutputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
+             Pa_GetDeviceInfo( hostApiOutputParameters.device )->defaultHighOutputLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = NULL;
         hostApiOutputParametersPtr = &hostApiOutputParameters;
     }
@@ -1690,10 +1697,10 @@ PaError Pa_WriteStream( PaStream* stream,
     return result;
 }
 
-unsigned long Pa_GetStreamReadAvailable( PaStream* stream )
+signed long Pa_GetStreamReadAvailable( PaStream* stream )
 {
     PaError error = ValidateStream( stream );
-    unsigned long result;
+    signed long result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetStreamReadAvailable called:\n" );
@@ -1725,10 +1732,10 @@ unsigned long Pa_GetStreamReadAvailable( PaStream* stream )
 }
 
 
-unsigned long Pa_GetStreamWriteAvailable( PaStream* stream )
+signed long Pa_GetStreamWriteAvailable( PaStream* stream )
 {
     PaError error = ValidateStream( stream );
-    unsigned long result;
+    signed long result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetStreamWriteAvailable called:\n" );
