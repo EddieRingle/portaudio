@@ -822,13 +822,7 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
         {
             PaAsioDeviceInfo *asioDeviceInfo =
                     (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
-/*
-// Hoontech values, for a test:
-asioDeviceInfo->minBufferSize = 64;
-asioDeviceInfo->maxBufferSize = 2730;
-asioDeviceInfo->preferredBufferSize = 1536;
-asioDeviceInfo->bufferGranularity = 4;
-*/
+
             *minLatency = asioDeviceInfo->minBufferSize;
             *maxLatency = asioDeviceInfo->maxBufferSize;
             *preferredLatency = asioDeviceInfo->preferredBufferSize;
@@ -1449,26 +1443,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         result = paInvalidSampleRate;
         goto error;
     }
-
-/*
-// Hoontech values, for a test:
-driverInfo.bufferMinSize = 64;
-driverInfo.bufferMaxSize = 2730;
-driverInfo.bufferPreferredSize = 1536;
-driverInfo.bufferGranularity = 4;
-*/
-
-    framesPerHostBuffer = SelectHostBufferSize(
-            (( suggestedInputLatencyFrames > suggestedOutputLatencyFrames )
-                    ? suggestedInputLatencyFrames : suggestedOutputLatencyFrames),
-            &driverInfo );
     
     /*
         IMPLEMENT ME:
             - if a full duplex stream is requested, check that the combination
                 of input and output parameters is supported
-    */
-
+    */        
     
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -1527,14 +1507,37 @@ driverInfo.bufferGranularity = 4;
         info->buffers[0] = info->buffers[1] = 0;
     }
 
-    asioError = ASIOCreateBuffers( stream->asioBufferInfos, numInputChannels+numOutputChannels,
-                                  framesPerHostBuffer, &asioCallbacks_ );
+
+    framesPerHostBuffer = SelectHostBufferSize(
+            (( suggestedInputLatencyFrames > suggestedOutputLatencyFrames )
+                    ? suggestedInputLatencyFrames : suggestedOutputLatencyFrames),
+            &driverInfo );
+
+    /*
+        Some buggy drivers (like the Hoontech DSP24) give incorrect
+        [min, preferred, max] values They should work with the preferred size
+        value, thus if Pa_ASIO_CreateBuffers fails with the hostBufferSize
+        computed in SelectHostBufferSize, we try again with the preferred size.
+    */                 
+
+    asioError = ASIOCreateBuffers( stream->asioBufferInfos,
+            numInputChannels+numOutputChannels,
+            framesPerHostBuffer, &asioCallbacks_ );
     if( asioError != ASE_OK )
     {
-        result = paUnanticipatedHostError;
-         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
-        goto error;
-    } 
+        framesPerHostBuffer = driverInfo.bufferPreferredSize;
+
+        ASIOError asioError2 = ASIOCreateBuffers( stream->asioBufferInfos,
+                numInputChannels+numOutputChannels,
+                 framesPerHostBuffer, &asioCallbacks_ );
+
+        if( asioError2 != ASE_OK )
+        {
+            result = paUnanticipatedHostError;
+            PA_ASIO_SET_LAST_ASIO_ERROR( asioError ); /* use error result from first call to ASIOCreateBuffers() */
+            goto error;
+        }
+    }
 
     asioBuffersCreated = 1;
 
