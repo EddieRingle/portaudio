@@ -33,9 +33,6 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  */
-/*
-  All memory allocations and frees are marked with MEM for quick review.
-*/
 
 /* Modification History:
  PLB = Phil Burk
@@ -55,6 +52,7 @@
  RDB20020417 - stopped counting WAVE_MAPPER when there were no real devices
                refactoring, renaming and fixed a few edge case bugs
  RDB20020531 - converted to V19 framework
+ ** NOTE  maintanance history is now stored in CVS **
 */
 
 /** @file
@@ -943,7 +941,7 @@ typedef struct PaWinMmeStream
 
     DWORD allBuffersDurationMs; /* used to calculate timeouts */
 
-    // FIXME: we no longer need the following for GetStreamTime support
+    /* @todo FIXME: we no longer need the following for GetStreamTime support */
     /* GetStreamTime() support ------------- */
 
     PaTime streamPosition;
@@ -2555,4 +2553,5 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
 

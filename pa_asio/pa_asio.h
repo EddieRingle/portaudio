@@ -42,8 +42,7 @@ extern "C"
 #endif /* __cplusplus */
 
 
-/**
- Retrieve legal latency settings for the specificed device, in samples.
+/** Retrieve legal latency settings for the specificed device, in samples.
 
  @param device The global index of the device about which the query is being made.
  @param minLatency A pointer to the location which will recieve the minimum latency value.
@@ -55,7 +54,7 @@ extern "C"
 
  @see ASIOGetBufferSize in the ASIO SDK.
 
- @note This function should have a better name, any suggestions?
+ @todo This function should have a better name, any suggestions?
 */
 PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
 		long *minLatency, long *maxLatency, long *preferredLatency, long *granularity );

@@ -40,7 +40,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 
-/*
+/** @file
     NOTE TO IMPLEMENTORS:
 
     This file is provided as a starting point for implementing support for

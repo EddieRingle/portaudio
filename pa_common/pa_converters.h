@@ -41,10 +41,14 @@ extern "C"
 struct PaUtilTriangularDitherGenerator;
 
 
-/**
-Choose a format from availableFormats which can best be used to represent
-format. If the requested format is not available better formats are
-searched for before worse formats.
+/** Choose an available sample format which is most appropriate for
+ representing the requested format. If the requested format is not available
+ higher quality formats are considered before lower quality formates.
+ @param availableFormats A variable containing the logical OR of all available
+ formats.
+ @param format The desired format.
+ @return The most appropriate available format for representing the requested
+ format.
 */
 PaSampleFormat PaUtil_SelectClosestAvailableFormat(
         PaSampleFormat availableFormats, PaSampleFormat format );
@@ -52,13 +56,10 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat(
 
 /* high level conversions functions for use by implementations */
 
-typedef void PaUtilConverter(
-    void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator );
-/**< The generic converter prototype. Converters convert count samples from
-    sourceBuffer to destinationBuffer. The actual type of the data pointed to
-    by these parameters varys for different converter functions.
+
+/** The generic sample converter prototype. Sample converters convert count
+    samples from sourceBuffer to destinationBuffer. The actual type of the data
+    pointed to by these parameters varys for different converter functions.
     @param destinationBuffer A pointer to the first sample of the destination.
     @param destinationStride An offset between successive destination samples
     expressed in samples (not bytes.) It may be negative.
@@ -70,12 +71,14 @@ typedef void PaUtilConverter(
     that do not perform dithering will ignore this parameter, in which case
     NULL or invalid dither state may be passed.
 */
+typedef void PaUtilConverter(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, struct PaUtilTriangularDitherGenerator *ditherGenerator );
 
 
-PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
-        PaSampleFormat destinationFormat, PaStreamFlags flags );
-/**< Find a converter function for the given source and destinations formats
-    and flags (clip and dither.)
+/** Find a sample converter function for the given source and destinations
+    formats and flags (clip and dither.)
     @return
     A pointer to a PaUtil_Converter which will perform the requested
     conversion, or NULL if the given format conversion is not supported.
@@ -85,12 +88,17 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
     If the source and destination formats are the same, a function which
     copies data of the appropriate size will be returned.
 */
+PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
+        PaSampleFormat destinationFormat, PaStreamFlags flags );
 
 
 /* low level functions and data structures which may be used for
     substituting additional conversion functions */
 
-    
+
+/** The type used to store all sample conversion functions.
+    @see paConverters;
+*/    
 typedef struct{
     PaUtilConverter *Float32_To_Int32;
     PaUtilConverter *Float32_To_Int32_Dither;
@@ -161,13 +169,9 @@ typedef struct{
     PaUtilConverter *Copy_24_To_24;     /* copy without any conversion */
     PaUtilConverter *Copy_32_To_32;     /* copy without any conversion */
 } PaUtilConverterTable;
-/**< The type used to store all sample conversion functions.
-    @see paConverters;
-*/
 
 
-extern PaUtilConverterTable paConverters;
-/**< A table of pointers to all required converter functions.
+/** A table of pointers to all required converter functions.
     PaUtil_SelectConverter() uses this table to lookup the appropriate
     conversion functions. The fields of this structure are initialized
     with default conversion functions. Fields may be NULL, indicating that
@@ -184,6 +188,7 @@ extern PaUtilConverterTable paConverters;
 
     @see PaUtilConverterTable, PaUtilConverter, PaUtil_SelectConverter
 */
+extern PaUtilConverterTable paConverters;
 
 
 #ifdef __cplusplus

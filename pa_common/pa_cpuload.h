@@ -42,7 +42,7 @@ typedef struct {
     double samplingPeriod;
     double measurementStartTime;
     double averageLoad;
-} PaUtilCpuLoadMeasurer; /* FIXME: need better name than measurer */
+} PaUtilCpuLoadMeasurer; /** @todo need better name than measurer */
 
 void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double sampleRate );
 void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer );

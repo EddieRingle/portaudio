@@ -92,7 +92,7 @@ PaError PaUtil_DummyReadWrite( PaStream* stream,
     (void)buffer; /* unused parameter */
     (void)frames; /* unused parameter */
 
-    return paNoError; /* FIXME: need new error code paCantReadWriteToCallbackStream or something */
+    return paNoError; /* @todo FIXME: need new error code paCantReadWriteToCallbackStream or something */
 }
 
 

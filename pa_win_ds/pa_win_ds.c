@@ -908,7 +908,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         {
-            // REVIEW: this calculation seems incorrect to me - rossb.
+            /* @todo REVIEW: this calculation seems incorrect to me - rossb. */
             int msecLatency = (int) ((stream->framesPerDSBuffer * MSEC_PER_SECOND) / sampleRate);
             PRINT(("PortAudio on DirectSound - Latency = %d frames, %d msec\n", stream->framesPerDSBuffer, msecLatency ));
         }

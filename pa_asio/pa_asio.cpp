@@ -61,25 +61,6 @@
         18-06-02 Added pa_asio.h, PaAsio_GetAvailableLatencyValues() : Ross B.
         21-06-02 Added SelectHostBufferSize() which selects host buffer size based on user latency parameters : Ross Bencina
         ** NOTE  maintanance history is now stored in CVS **
-
-        TO DO :
-
-        - work out how to implement stream stoppage from callback and
-            implement IsStreamActive properly
-
-        - rigorously check asio return codes and convert to pa error codes
-
-        - Different channels of a multichannel stream can have different sample
-            formats, but we assume that all are the same as the first channel for now.
-            Fixing this will require the block processor to maintain per-channel
-            conversion functions - could get nasty.
-
-        - investigate whether the asio processNow flag needs to be honoured
-
-        - handle asioMessages() callbacks in a useful way, or at least document
-            what cases we don't handle.
-
-        - miscellaneous other FIXMEs
 */
 
 /** @file
@@ -93,6 +74,23 @@
     @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
 
     @todo implement IsFormatSupported
+
+    @todo work out how to implement stream stoppage from callback and
+            implement IsStreamActive properly
+
+    @todo rigorously check asio return codes and convert to pa error codes
+
+    @todo Different channels of a multichannel stream can have different sample
+            formats, but we assume that all are the same as the first channel for now.
+            Fixing this will require the block processor to maintain per-channel
+            conversion functions - could get nasty.
+
+    @todo investigate whether the asio processNow flag needs to be honoured
+
+    @todo handle asioMessages() callbacks in a useful way, or at least document
+            what cases we don't handle.
+
+    @todo miscellaneous other FIXMEs
 */
 
 

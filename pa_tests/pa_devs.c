@@ -92,7 +92,7 @@ int main(void)
         printf("Default Sample Rate         = %8.2f\n", deviceInfo->defaultSampleRate  );
 
         
-        /* FIXME: could list available sample rates here by polling
+        /* @todo FIXME: could list available sample rates here by polling
             Pa_IsFormatConverted()
 
         here's some sampling rates to check for

@@ -32,6 +32,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ Interface used by pa_front to virtualise stream calls.
+*/
+
 #include "portaudio.h"
 
 #ifdef __cplusplus
@@ -81,9 +85,8 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     signed long (*GetWriteAvailable)( PaStream* stream ) );
 
 
-/*
-    use PaUtil_DummyReadWrite and PaUtil_DummyGetAvailable for
-    callback based streams.
+/** Use PaUtil_DummyReadWrite and PaUtil_DummyGetAvailable for
+ callback based streams.
 */
 PaError PaUtil_DummyReadWrite( PaStream* stream,
                        void *buffer,
@@ -92,8 +95,7 @@ PaError PaUtil_DummyReadWrite( PaStream* stream,
                        
 signed long PaUtil_DummyGetAvailable( PaStream* stream );
 
-/*
-    use PaUtil_DummyGetCpuLoad for read/write streams
+/** Use PaUtil_DummyGetCpuLoad for read/write streams
 */
 double PaUtil_DummyGetCpuLoad( PaStream* stream );
 

@@ -1,7 +1,7 @@
 /*
  * Id:
- * Portable Audio I/O Library allocation context implementation
- * memory allocation context for tracking allocation groups
+ * Portable Audio I/O Library allocation group implementation
+ * memory allocation group for tracking allocation groups
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
@@ -111,9 +111,9 @@ PaUtilAllocationGroup* PaUtil_CreateAllocationGroup( void )
 }
 
 
-void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* context )
+void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* group )
 {
-    struct PaUtilAllocationGroupLink *current = context->linkBlocks;
+    struct PaUtilAllocationGroupLink *current = group->linkBlocks;
     struct PaUtilAllocationGroupLink *next;
 
     while( current )
@@ -123,40 +123,40 @@ void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* context )
         current = next;
     }
 
-    PaUtil_FreeMemory( context );
+    PaUtil_FreeMemory( group );
 }
 
 
-void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* context, long size )
+void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* group, long size )
 {
     struct PaUtilAllocationGroupLink *links, *link;
     void *result = 0;
     
     /* allocate more links if necessary */
-    if( !context->spareLinks )
+    if( !group->spareLinks )
     {
         /* double the link count on each block allocation */
-        links = AllocateLinks( context->linkCount, context->linkBlocks, context->spareLinks );
+        links = AllocateLinks( group->linkCount, group->linkBlocks, group->spareLinks );
         if( links )
         {
-            context->linkCount += context->linkCount;
-            context->linkBlocks = &links[0];
-            context->spareLinks = &links[1];
+            group->linkCount += group->linkCount;
+            group->linkBlocks = &links[0];
+            group->spareLinks = &links[1];
         }
     }
 
-    if( context->spareLinks )
+    if( group->spareLinks )
     {
         result = PaUtil_AllocateMemory( size );
         if( result )
         {
-            link = context->spareLinks;
-            context->spareLinks = link->next;
+            link = group->spareLinks;
+            group->spareLinks = link->next;
 
             link->buffer = result;
-            link->next = context->allocations;
+            link->next = group->allocations;
 
-            context->allocations = link;
+            group->allocations = link;
         }
     }
 
@@ -164,9 +164,9 @@ void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* context, long size )
 }
 
 
-void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer )
+void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* group, void *buffer )
 {
-    struct PaUtilAllocationGroupLink *current = context->allocations;
+    struct PaUtilAllocationGroupLink *current = group->allocations;
     struct PaUtilAllocationGroupLink *previous = 0;
 
     if( buffer == 0 )
@@ -180,8 +180,8 @@ void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer )
             previous->next = current->next;
 
             current->buffer = 0;
-            current->next = context->spareLinks;
-            context->spareLinks = current;
+            current->next = group->spareLinks;
+            group->spareLinks = current;
         }
         previous = current;
         current = current->next;
@@ -191,9 +191,9 @@ void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer )
 }
 
 
-void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* context )
+void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* group )
 {
-    struct PaUtilAllocationGroupLink *current = context->allocations;
+    struct PaUtilAllocationGroupLink *current = group->allocations;
     struct PaUtilAllocationGroupLink *previous = 0;
 
     /* free all buffers in the allocations list */
@@ -209,9 +209,9 @@ void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* context )
     /* link the former allocations list onto the front of the spareLinks list */
     if( previous )
     {
-        previous->next = context->spareLinks;
-        context->spareLinks = context->allocations;
-        context->allocations = 0;
+        previous->next = group->spareLinks;
+        group->spareLinks = group->allocations;
+        group->allocations = 0;
     }
 }
 

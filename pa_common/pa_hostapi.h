@@ -32,6 +32,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ Virtualised host api mechanism used by pa_front.
+*/
+
 #include "portaudio.h"
 
 #ifdef __cplusplus

@@ -37,15 +37,15 @@ extern "C"
 {
 #endif /* __cplusplus */
 
-/*
-An allocation group is useful for keeping track of multiple blocks
-of memory which are allocated at the same time (such as during initialization)
-and need to be deallocated at the same time. The group maintains a list 
-of allocated blocks, and can deallocate them all simultaneously which can
-be usefull for cleaning up after a partially initialized object fails.
+/** @file 
+ An allocation group is useful for keeping track of multiple blocks
+ of memory which are allocated at the same time (such as during initialization)
+ and need to be deallocated at the same time. The allocation group maintains
+ a list of allocated blocks, and can deallocate them all simultaneously which
+ can be usefull for cleaning up after a partially initialized object fails.
 
-The PortAudio allocation group mechanism is built on top of the lower
-level allocation functions defined in pa_util.h
+ The allocation group implementation is built on top of the lower
+ level allocation functions defined in pa_util.h
 */
 
 
@@ -59,18 +59,31 @@ typedef struct
 }PaUtilAllocationGroup;
 
 
+
+/** Create an allocation group.
+*/
 PaUtilAllocationGroup* PaUtil_CreateAllocationGroup( void );
 
-void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* context );
-/**< frees the group, but not the memory allocated through the group */
+/** Destroy an allocation group, but not the memory allocated through the group.
+*/
+void PaUtil_DestroyAllocationGroup( PaUtilAllocationGroup* group );
 
-void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* context, long size );
+/** Allocate a block of memory though an allocation group.
+*/
+void* PaUtil_GroupAllocateMemory( PaUtilAllocationGroup* group, long size );
 
-void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* context, void *buffer );
-/**< calling this is a relatively time consuming operation */
+/** Free a block of memory that was previously allocated though an allocation
+ group. Calling this function is a relatively time consuming operation.
+ Under normal circumstances clients should call PaUtil_FreeAllAllocations to
+ free all allocated blocks simultaneously.
+ @see PaUtil_FreeAllAllocations
+*/
+void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* group, void *buffer );
 
-void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* context );
-/**< frees all allocations made through the group, doesn't free the group itself */
+/** Free all blocks of memory which have been allocated through the allocation
+ group. This function doesn't destroy the group itself.
+*/
+void PaUtil_FreeAllAllocations( PaUtilAllocationGroup* group );
 
 
 #ifdef __cplusplus

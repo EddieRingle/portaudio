@@ -40,12 +40,16 @@ extern "C"
 {
 #endif /* __cplusplus */
 
+/** @file
+
+    @todo finish documentation for the buffer processor
+*/
 
 typedef enum {
     paUtilFixedHostBufferSize,
     paUtilBoundedHostBufferSize,
     paUtilUnknownHostBufferSize,
-    paUtilVariableHostBufferSizePartialUsageAllowed,   /* the only mode where process() may not consume the whole buffer */
+    paUtilVariableHostBufferSizePartialUsageAllowed,   /**< the only mode where process() may not consume the whole buffer */
 }PaUtilHostBufferSizeMode;
 
 
@@ -75,13 +79,13 @@ typedef struct {
     int userOutputIsInterleaved;
     PaUtilConverter *outputConverter;
 
-    void *tempInputBuffer;          /* used for slips, block adaption, and conversion. */
-    void **tempInputBufferPtrs;     /* storage for non-interleaved buffer pointers, NULL for interleaved user input */
-    unsigned long framesInTempInputBuffer; /* frames remaining in input buffer from previous adaption iteration */
+    void *tempInputBuffer;          /**< used for slips, block adaption, and conversion. */
+    void **tempInputBufferPtrs;     /**< storage for non-interleaved buffer pointers, NULL for interleaved user input */
+    unsigned long framesInTempInputBuffer; /**< frames remaining in input buffer from previous adaption iteration */
 
-    void *tempOutputBuffer;         /* used for slips, block adaption, and conversion. */
-    void **tempOutputBufferPtrs;    /* storage for non-interleaved buffer pointers, NULL for interleaved user output */
-    unsigned long framesInTempOutputBuffer; /* frames remaining in input buffer from previous adaption iteration */
+    void *tempOutputBuffer;         /**< used for slips, block adaption, and conversion. */
+    void **tempOutputBufferPtrs;    /**< storage for non-interleaved buffer pointers, NULL for interleaved user output */
+    unsigned long framesInTempOutputBuffer; /**< frames remaining in input buffer from previous adaption iteration */
 
     PaStreamCallbackTimeInfo *timeInfo;
     
@@ -99,6 +103,15 @@ typedef struct {
 } PaUtilBufferProcessor;
 
 
+/**
+    @param framesPerHostBuffer Specifies the number of frames per host buffer
+    for fixed the fixed buffer size mode, and the maximum number of frames
+    per host buffer for the bounded host buffer size mode. It is ignored for
+    the other modes.
+    
+    @note The interleave flag is ignored for host buffer formats. Host interleave
+    is determined by the use of different SetInput and SetOutput functions.
+*/
 PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor,
             int numInputChannels, PaSampleFormat userInputSampleFormat,
             PaSampleFormat hostInputSampleFormat,
@@ -110,16 +123,7 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
             unsigned long framesPerHostBuffer,
             PaUtilHostBufferSizeMode hostBufferSizeMode,
             PaStreamCallback *streamCallback, void *userData );
-/**<
 
-    @param framesPerHostBuffer Specifies the number of frames per host buffer
-    for fixed the fixed buffer size mode, and the maximum number of frames
-    per host buffer for the bounded host buffer size mode. It is ignored for
-    the other modes.
-    
-    @note The interleave flag is ignored for host buffer formats. Host interleave
-    is determined by the use of different SetInput and SetOutput functions.
-*/
 
 void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 
@@ -132,19 +136,21 @@ void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
 void PaUtil_BeginBufferProcessing( PaUtilBufferProcessor* bufferProcessor,
         PaStreamCallbackTimeInfo* timeInfo );
 
+/** returns the number of frames processed */
 unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bufferProcessor, int *callbackResult );
-/*<< returns the number of frames processed */
 
+
+/** a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
 void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bufferProcessor,
         unsigned long frameCount );
-/*<< a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
+
 
 void PaUtil_SetInputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 
+/** if channel count is zero use all channels as specified to initialize buffer processor */
 void PaUtil_SetInterleavedInputChannels( PaUtilBufferProcessor* bufferProcessor,
         unsigned int firstChannel, void *data, unsigned int channelCount );
-/**< if channel count is zero use all channels as specified to initialize buffer processor */
 
 void PaUtil_SetNonInterleavedInputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data );
@@ -156,24 +162,23 @@ void PaUtil_Set2ndInputFrameCount( PaUtilBufferProcessor* bufferProcessor,
 void PaUtil_Set2ndInputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 
+/** if channel count is zero use all channels as specified to initialize buffer processor */
 void PaUtil_Set2ndInterleavedInputChannels( PaUtilBufferProcessor* bufferProcessor,
         unsigned int firstChannel, void *data, unsigned int channelCount );
-/**< if channel count is zero use all channels as specified to initialize buffer processor */
 
 void PaUtil_Set2ndNonInterleavedInputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data );
 
-
+/** a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
 void PaUtil_SetOutputFrameCount( PaUtilBufferProcessor* bufferProcessor,
         unsigned long frameCount );
-/*<< a 0 frameCount indicates to use the framesPerHostBuffer value passed to init */
 
 void PaUtil_SetOutputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 
+/** if channel count is zero use all channels as specified to initialize buffer processor */
 void PaUtil_SetInterleavedOutputChannels( PaUtilBufferProcessor* bufferProcessor,
         unsigned int firstChannel, void *data, unsigned int channelCount );
-/**< if channel count is zero use all channels as specified to initialize buffer processor */
 
 void PaUtil_SetNonInterleavedOutputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data );
@@ -185,9 +190,9 @@ void PaUtil_Set2ndOutputFrameCount( PaUtilBufferProcessor* bufferProcessor,
 void PaUtil_Set2ndOutputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data, unsigned int stride );
 
+/** if channel count is zero use all channels as specified to initialize buffer processor */
 void PaUtil_Set2ndInterleavedOutputChannels( PaUtilBufferProcessor* bufferProcessor,
         unsigned int firstChannel, void *data, unsigned int channelCount );
-/**< if channel count is zero use all channels as specified to initialize buffer processor */
 
 void PaUtil_Set2ndNonInterleavedOutputChannel( PaUtilBufferProcessor* bufferProcessor,
         unsigned int channel, void *data );

@@ -30,6 +30,17 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/* doxygen index page */
+/** @mainpage
+
+This documentation is under construction. Things you might be interested in
+include:
+
+- The PortAudio API 2.0 documented in portaudio.h
+
+- The possibly incomplete and totally unorganised <a href="todo.html">Todo List</a>
+*/
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <memory.h>
@@ -48,7 +59,8 @@
 
 
 
-//#define PA_LOG_API_CALLS
+/* #define PA_LOG_API_CALLS */
+
 /*
     The basic format for log messages is as follows:
  
@@ -448,7 +460,7 @@ PaError PaUtil_GetHostApiRepresentation( struct PaUtilHostApiRepresentation **ho
     }
     else
     {
-        result = paInternalError; // FIXME: should return host API not found
+        result = paInternalError; /* @todo should return host API not found */
                 
         for( i=0; i < hostApisCount_; ++i )
         {
@@ -1011,7 +1023,7 @@ static PaError ValidateOpenStreamParameters(
     if( (inputParameters == NULL) && (outputParameters == NULL) )
     {
 
-        return paInvalidDevice; // FIXME: should be a new error code "invalid device parameters" or something
+        return paInvalidDevice; /* @todo should be a new error code "invalid device parameters" or something */
 
     }
     else
@@ -1789,7 +1801,7 @@ PaError Pa_ReadStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /* FIXME: should return an error if buffer is zero or frames <= 0 */
+    /* @todo should return an error if buffer is zero or frames <= 0 */
     if( frames > 0 && buffer != 0 )
         result = PA_STREAM_INTERFACE(stream)->Read( stream, buffer, frames );
 
@@ -1813,7 +1825,7 @@ PaError Pa_WriteStream( PaStream* stream,
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    /* FIXME: should return an error if buffer is zero or frames <= 0 */
+    /* @todo should return an error if buffer is zero or frames <= 0 */
     if( frames > 0 && buffer != 0 )
         result = PA_STREAM_INTERFACE(stream)->Write( stream, buffer, frames );
 

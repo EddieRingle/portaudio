@@ -32,6 +32,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/** @file
+ Event trace mechanism for debugging. Allows data to be written to the buffer
+ at interrupt time and dumped later.
+*/
 
 #define PA_TRACE_REALTIME_EVENTS     (0)   /* Keep log of various real-time events. */
 #define PA_MAX_TRACE_RECORDS      (2048)

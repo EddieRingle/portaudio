@@ -36,7 +36,7 @@
 #include "pa_process.h"
 #include "pa_util.h"
 
-/*
+/** @file
     The code in this file is not optimised yet. there may appear to be redundancies
     that could be factored into common functions, but the redundanceis are left
     intentionally as each appearance may have different optimisation possibilities.
@@ -50,15 +50,10 @@
 
     Cache tilings for intereave<->deinterleave also need to be considered.
 
-    The abort flag from the streamCallback is currently not honoured properly
+    @todo The abort flag from the streamCallback is currently not honoured properly
     in this file, see fixmes.
-*/
-
-/** @file
 
     @todo see FIXMEs
-
-    @todo honour the abort flag from the streamCallback properly
 
     @todo implement the streamFlags callback parameter, currently it is
     always zero. It needs to be passed from the host layer somehow.
