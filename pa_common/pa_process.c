@@ -1419,7 +1419,7 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
             *callbackResult = bp->userCallback( userInput, userOutput,
                     bp->framesPerUserBuffer, bp->hostOutTime, bp->userData );
 
-            bp->hostOutTime += frameCount * bp->samplePeriod;
+            bp->hostOutTime += bp->framesPerUserBuffer * bp->samplePeriod;
 
             // FIXME: if callback result is abort, then abort!
         
