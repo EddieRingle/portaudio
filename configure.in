@@ -67,8 +67,8 @@ AC_ARG_WITH(winapi,
 
 dnl Mac API added for ASIO, can have other api's listed
 AC_ARG_WITH(macapi,
-            [  --with-macapi (asio) default=asio)],
-            with_macapi=$withval, with_macapi="asio")
+            [  --with-macapi ((asio/core/sm) default=core)],
+            with_macapi=$withval, with_macapi="core")
 
 AC_ARG_WITH(asiodir,
             [  --with-asiodir (default=/usr/local/asiosdk2)],
@@ -90,11 +90,11 @@ case "${host_os}" in
   darwin* )
 	dnl Mac OS X configuration
 
-	OTHER_OBJS="pa_mac_core/pa_mac_core.o";
-	LIBS="-framework AudioUnit -framework AudioToolbox -framework CoreAudio";
+	AC_DEFINE(PA_USE_COREAUDIO)
+	OTHER_OBJS="pa_mac/pa_mac_hostapis.o pa_unix/pa_unix_util.o pa_mac_core/pa_mac_core.o";
+	LIBS="-framework CoreAudio -framework AudioToolbox";
 	PADLL="libportaudio.dylib";
-	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
-	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
+	SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -dynamiclib";
         if [[ $with_macapi = "asio" ]] ; then
             if [[ $with_asiodir ]] ; then
               ASIODIR="$with_asiodir";
