@@ -35,6 +35,8 @@
 PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+/* Added for IRIX, Pieter, oct 2, 2003: */
+PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 
 PaUtilHostApiInitializer *paHostApiInitializers[] =
@@ -50,8 +52,10 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #ifdef PA_USE_JACK
         PaJack_Initialize,
 #endif
-
-
+                    /* Added for IRIX, Pieter, oct 2, 2003: */
+#ifdef PA_USE_SGI 
+        PaSGI_Initialize,
+#endif
         0   /* NULL terminated array */
     };
 
