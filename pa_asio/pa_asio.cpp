@@ -63,7 +63,24 @@
         
         - Check Pa_StopSteam and Pa_AbortStream
         - Optimization for Input only or Ouput only (really necessary ??)
+
+
+        Ross' notes about the old implementation:
+
+        - Pa_ASIO_CreateBuffers sets up the callbacks and creates the buffers.
+            - i think the callback structure could just be a temp on the stack or as a static struct.
+            - the buffer info structures will need to be dynamically allocated for the stream.
+
+
+        - the function called Pa_ASIO_loadDevice might be usable in the device query section too..
+            it's not clear that this functionality should be in a separate function for OpenStream
+
+        - PaHost_OpenStream does the work of opening the stream
+
 */
+
+
+
 
 
 #include <stdio.h>
@@ -98,10 +115,9 @@
 #endif
 */
 
-// Some external references
+/* external references */
 extern AsioDrivers* asioDrivers ;
 bool loadAsioDriver(char *name);
-unsigned long get_sys_reference_time();
 
 
 /* We are trying to be compatible with CARBON but this has not been thoroughly tested. */
@@ -155,6 +171,13 @@ typedef struct
     PaUtilStreamInterface blockingStreamInterface;
 
     PaUtilAllocationContext *allocations;
+
+    /* the ASIO C API only allows one ASIO driver to be open at a time,
+        so we kee track of whether we have the driver open here, and
+        use this information to return errors from OpenStream if the
+        driver is already open.
+    */
+    int driverOpen;
 }
 PaAsioHostApiRepresentation;
 
@@ -255,6 +278,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         result = paInsufficientMemory;
         goto error;
     }
+
+    asioHostApi->driverOpen = 0;
 
     *hostApi = &asioHostApi->commonHostApiRep;
     (*hostApi)->info.structVersion = 1;
@@ -450,15 +475,13 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 /* PaAsioStream - a stream data structure specifically for this implementation */
 
 typedef struct PaAsioStream
-{ /* IMPLEMENT ME: rename this */
+{ 
     PaUtilStreamRepresentation streamRepresentation;
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
 
-    /* IMPLEMENT ME:
-            - implementation specific data goes here
-    */
-    unsigned long framesPerHostCallback; /* just an example */
+    PaAsioHostApiRepresentation *asioHostApi;
+    unsigned long framesPerHostCallback;
 }
 PaAsioStream;
 
@@ -488,6 +511,31 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAsioStream *stream = 0;
     unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    const char *deviceName;
+
+    /* unless we move to using lower level ASIO calls, we can only have
+        one device open at a time */
+    if( asioHostApi->driverOpen )
+        return paDeviceUnavailable;
+
+    if( inputDevice != paNoDevice && outputDevice != paNoDevice )
+    {
+        /* full duplex ASIO stream must use the same device for input and output */
+
+        if( inputDevice != outputDevice )
+            return paBadIODeviceCombination;
+    }
+
+    if( inputDevice != paNoDevice )
+    {
+        deviceName = asioHostApi->commonHostApiRep.deviceInfos[ inputDevice ]->name;
+    }
+    else
+    {
+        deviceName = asioHostApi->commonHostApiRep.deviceInfos[ outputDevice ]->name;
+    }
+
+
 
     /*
         IMPLEMENT ME:
@@ -552,11 +600,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
     
-    /* IMPLEMENT ME - establish which  host formats are available */
+    /* IMPLEMENT ME - establish which host formats are available */
     hostInputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
 
-    /* IMPLEMENT ME - establish which  host formats are available */
+    /* IMPLEMENT ME - establish which host formats are available */
     hostOutputSampleFormat =
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
         
@@ -574,8 +622,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             - additional stream setup + opening
     */
 
+    stream->asioHostApi = asioHostApi;
     stream->framesPerHostCallback = framesPerHostBuffer;
 
+    asioHostApi->driverOpen = 1;
+    
     *s = (PaStream*)stream;
 
     return result;
@@ -659,6 +710,9 @@ static PaError CloseStream( PaStream* s )
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
+
+    stream->asioHostApi->driverOpen = 0;
+    
     PaUtil_FreeMemory( stream );
 
     return result;
@@ -1112,126 +1166,6 @@ static ASIOError Pa_ASIO_CreateBuffers (PaHostSoundControl *asioDriverInfo, long
 }
 
 
-/*
- Query ASIO driver info :
-
- First we get all available ASIO drivers located in the ASIO folder,
- then try to load each one. For each loaded driver, get all needed informations.
-*/
-static PaError Pa_ASIO_QueryDeviceInfo( internalPortAudioDevice * ipad )
-{
-
-#define NUM_STANDARDSAMPLINGRATES   3   /* 11.025, 22.05, 44.1 */
-#define NUM_CUSTOMSAMPLINGRATES     9   /* must be the same number of elements as in the array below */
-#define MAX_NUMSAMPLINGRATES  (NUM_STANDARDSAMPLINGRATES+NUM_CUSTOMSAMPLINGRATES)
-
-        ASIOSampleRate possibleSampleRates[]
-                = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
-                
-        ASIOChannelInfo channelInfos;
-        long InputChannels,OutputChannels;
-        double *sampleRates;
-        char* names[PA_MAX_DEVICE_INFO] ;
-        PaDeviceInfo *dev;
-        int           i;
-        int           numDrivers;
-        ASIOError     asioError;
-
-       /* Allocate names */
-        for (i = 0 ; i < PA_MAX_DEVICE_INFO ; i++) {
-            names[i] = (char*)PaHost_AllocateFastMemory(32);
-            /* check memory */
-            if(!names[i]) return paInsufficientMemory;
-        }
-        
-        /* MUST BE CHECKED : to force fragments loading on Mac */
-        Pa_ASIO_loadAsioDriver("dummy");
-        
-        /* Get names of all available ASIO drivers */
-        asioDrivers->getDriverNames(names,PA_MAX_DEVICE_INFO);
-        
-        /* Check all available ASIO drivers */
-#if MAC
-        numDrivers = asioDrivers->getNumFragments();
-#elif WINDOWS
-        numDrivers = asioDrivers->asioGetNumDev();
-#endif
-        DBUG(("PaASIO_QueryDeviceInfo: numDrivers = %d\n", numDrivers ));
-
-        for (int driver = 0 ; driver < numDrivers ; driver++)
-        {
-
-            #if WINDOWS
-                    asioDriverInfo.pahsc_driverInfo.asioVersion = 2; // FIXME - is this right? PLB
-                    asioDriverInfo.pahsc_driverInfo.sysRef = GetDesktopWindow(); // FIXME - is this right? PLB
-            #endif
-  
-            /* If the driver can be loaded : */
-            if ( !Pa_ASIO_loadAsioDriver(names[driver]) )
-            {
-                DBUG(("PaASIO_QueryDeviceInfo could not loadAsioDriver %s\n", names[driver]));
-            }
-            else if( (asioError = ASIOInit(&asioDriverInfo.pahsc_driverInfo)) != ASE_OK )
-            {
-                DBUG(("PaASIO_QueryDeviceInfo: ASIOInit returned %d for %s\n", asioError, names[driver]));
-            }
-            else if( (ASIOGetChannels(&InputChannels, &OutputChannels) != ASE_OK))
-            {
-                DBUG(("PaASIO_QueryDeviceInfo could not ASIOGetChannels for %s\n", names[driver]));
-            }
-            else
-            {
-                    /* Gets the name */
-                    dev = &(ipad[sNumDevices].pad_Info);
-                    dev->name = names[driver];
-                    names[driver] = 0;
-                    
-                    /* Gets Input and Output channels number */
-                    dev->maxInputChannels = InputChannels;
-                    dev->maxOutputChannels = OutputChannels;
-                    
-                    DBUG(("PaASIO_QueryDeviceInfo: InputChannels = %d\n", InputChannels ));
-                    DBUG(("PaASIO_QueryDeviceInfo: OutputChannels = %d\n", OutputChannels ));
-                    
-                    /* Make room in case device supports all rates. */
-                    sampleRates = (double*)PaHost_AllocateFastMemory(MAX_NUMSAMPLINGRATES * sizeof(double));
-                    /* check memory */
-                    if (!sampleRates) {
-                        ASIOExit();
-                        return paInsufficientMemory;
-                    }
-                    dev->sampleRates = sampleRates;
-                    dev->numSampleRates = 0;
-                    
-                    /* Loop through the possible sampling rates and check each to see if the device supports it. */
-                    for (int index = 0; index < MAX_NUMSAMPLINGRATES; index++) {
-                            if (ASIOCanSampleRate(possibleSampleRates[index]) != ASE_NoClock) {
-                                    DBUG(("PortAudio : possible sample rate = %d\n", (long)possibleSampleRates[index]));
-                                    dev->numSampleRates += 1;
-                                    *sampleRates = possibleSampleRates[index];
-                                    sampleRates++;
-                            }
-                    }
-                    
-                    /* We assume that all channels have the same SampleType, so check the first */
-                    channelInfos.channel = 0;
-                    channelInfos.isInput = 1;
-                    ASIOGetChannelInfo(&channelInfos);
-                    
-                    dev->nativeSampleFormats = Pa_ASIO_Convert_SampleFormat(channelInfos.type);
-                    
-                    /* unload the driver */
-                    ASIOExit();
-                    sNumDevices++;
-                }
-        }       
-        
-        /* free only unused names */
-        for (i = 0 ; i < PA_MAX_DEVICE_INFO ; i++) if (names[i]) PaHost_FreeFastMemory(names[i],32);
-        
-        return paNoError;
-}
-
 //----------------------------------------------------------------------------------
 // TAKEN FROM THE ASIO SDK: 
 static void sampleRateChanged(ASIOSampleRate sRate)
@@ -1435,932 +1369,9 @@ void bufferSwitch(long index, ASIOBool processNow)
 }
 
 //----------------------------------------------------------------------------------
-unsigned long get_sys_reference_time()
-{       
-        // get the system reference time
-        #if WINDOWS
-                return timeGetTime();
-         #elif MAC
-                static const double twoRaisedTo32 = 4294967296.;
-                UnsignedWide ys;
-                Microseconds(&ys);
-                double r = ((double)ys.hi * twoRaisedTo32 + (double)ys.lo);
-                return (unsigned long)(r / 1000.);
-        #endif
-}
 
 
-/*************************************************************
-** Calculate 2 LSB dither signal with a triangular distribution.
-** Ranged properly for adding to a 32 bit integer prior to >>15.
-*/
-#define DITHER_BITS   (15)
-#define DITHER_SCALE  (1.0f / ((1<<DITHER_BITS)-1))
-inline static long Pa_TriangularDither( void )
-{
-        static unsigned long previous = 0;
-        static unsigned long randSeed1 = 22222;
-        static unsigned long randSeed2 = 5555555;
-        long current, highPass;
-/* Generate two random numbers. */
-        randSeed1 = (randSeed1 * 196314165) + 907633515;
-        randSeed2 = (randSeed2 * 196314165) + 907633515;
-/* Generate triangular distribution about 0. */
-        current = (((long)randSeed1)>>(32-DITHER_BITS)) + (((long)randSeed2)>>(32-DITHER_BITS));
- /* High pass filter to reduce audibility. */
-        highPass = current - previous;
-        previous = current;
-        return highPass;
-}
 
-// TO BE COMPLETED WITH ALL SUPPORTED PA SAMPLE TYPES
-/*
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int16_Float32 (ASIOBufferInfo* nativeBuffer, float *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for( j=0; j<NumInputChannels; j++ ) {
-                short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                float *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapShort(temp);
-                        *userBufPtr = (1.0f / MAX_INT16_FP) * temp;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-        
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int32_Float32 (ASIOBufferInfo* nativeBuffer, float *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for( j=0; j<NumInputChannels; j++ ) {
-                long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                float *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapLong(temp);
-                        *userBufPtr = (1.0f / MAX_INT32_FP) * temp;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-static void Input_Float32_Float32 (ASIOBufferInfo* nativeBuffer, float *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        unsigned long temp;
-        int i,j;
-        
-        for( j=0; j<NumInputChannels; j++ ) {
-                unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                float *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapLong(temp);
-                        *userBufPtr = (float)temp;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static  void Input_Int16_Int32 (ASIOBufferInfo* nativeBuffer, long *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for( j=0; j<NumInputChannels; j++ ) {
-                short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                long *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapShort(temp);
-                        *userBufPtr = temp<<16;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static  void Input_Int32_Int32 (ASIOBufferInfo* nativeBuffer, long *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for( j=0; j<NumInputChannels; j++ ) {
-                long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                long *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapLong(temp);
-                        *userBufPtr = temp;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-static  void Input_Float32_Int32 (ASIOBufferInfo* nativeBuffer, long *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        unsigned long temp;
-        int i,j;
-
-        for( j=0; j<NumInputChannels; j++ ) {
-                unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                long *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapLong(temp);
-                        *userBufPtr = (long)((float)temp * MAX_INT32_FP); // Is temp a value between -1.0 and 1.0 ??
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
-
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static  void Input_Int16_Int16 (ASIOBufferInfo* nativeBuffer, short *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,bool swap)
-{
-        long temp;
-        int i,j;
-
-        for( j=0; j<NumInputChannels; j++ ) {
-                short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                short *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                for (i= 0; i < framePerBuffer; i++)
-                { 
-                        temp = asioBufPtr[i];
-                        if (swap) temp = SwapShort(temp);
-                        *userBufPtr = (short)temp;
-                        userBufPtr += NumInputChannels;
-                }
-        }
-}
- 
- //-------------------------------------------------------------------------------------------------------------------------------------------------------
-static  void Input_Int32_Int16 (ASIOBufferInfo* nativeBuffer, short *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset, int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        short *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (short)(temp>>16);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        short *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = (temp >> 1) + Pa_TriangularDither();
-                                temp = temp >> 15;
-                                temp = (short) ClipShort(temp);
-                                *userBufPtr = (short)temp;
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-static void Input_Float32_Int16 (ASIOBufferInfo* nativeBuffer, short *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,uint32 flags,bool swap)
-{
-        unsigned long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        short *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (short)((float)temp * MAX_INT16_FP); // Is temp a value between -1.0 and 1.0 ??
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        short *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                float dither  = Pa_TriangularDither()*DITHER_SCALE;
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = (short)(((float)temp * MAX_INT16_FP) + dither);
-                                temp = ClipShort(temp);
-                                *userBufPtr = (short)temp;
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int16_Int8 (ASIOBufferInfo* nativeBuffer, char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset, uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapShort(temp);
-                                *userBufPtr = (char)(temp>>8);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapShort(temp);
-                                temp += Pa_TriangularDither() >> 8;
-                                temp = ClipShort(temp);
-                                *userBufPtr = (char)(temp>>8);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int32_Int8 (ASIOBufferInfo* nativeBuffer, char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset, int userFrameOffset, uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (char)(temp>>24);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = temp>>16;  // Shift to get a 16 bit value, then use the 16 bits to 8 bits code (MUST BE CHECHED)
-                                temp += Pa_TriangularDither() >> 8;
-                                temp = ClipShort(temp);
-                                *userBufPtr = (char)(temp >> 8);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-
-static void Input_Float32_Int8 (ASIOBufferInfo* nativeBuffer, char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset,  uint32 flags,bool swap)
-{
-        unsigned long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (char)((float)temp*MAX_INT8_FP); // Is temp a value between -1.0 and 1.0 ??
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                float dither  = Pa_TriangularDither()*DITHER_SCALE;
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = (char)(((float)temp * MAX_INT8_FP) + dither);
-                                temp = ClipChar(temp);
-                                *userBufPtr = (char)temp;
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int16_IntU8 (ASIOBufferInfo* nativeBuffer, unsigned char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset, uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapShort(temp);
-                                *userBufPtr = (unsigned char)((temp>>8) + 0x80); 
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        short *asioBufPtr = &((short*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapShort(temp);
-                                temp += Pa_TriangularDither() >> 8;
-                                temp = ClipShort(temp);
-                                *userBufPtr = (unsigned char)((temp>>8) + 0x80); 
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Input_Int32_IntU8 (ASIOBufferInfo* nativeBuffer, unsigned char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset, int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (unsigned char)((temp>>24) + 0x80); 
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        long *asioBufPtr = &((long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = temp>>16; // Shift to get a 16 bit value, then use the 16 bits to 8 bits code (MUST BE CHECHED)
-                                temp += Pa_TriangularDither() >> 8;
-                                temp = ClipShort(temp);
-                                *userBufPtr = (unsigned char)((temp>>8) + 0x80); 
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-
-static void Input_Float32_IntU8 (ASIOBufferInfo* nativeBuffer, unsigned char *inBufPtr, int framePerBuffer, int NumInputChannels, int index, int hostFrameOffset,int userFrameOffset, uint32 flags,bool swap)
-{
-        unsigned long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                *userBufPtr = (unsigned char)(((float)temp*MAX_INT8_FP) + 0x80);
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-        else
-        {       
-                for( j=0; j<NumInputChannels; j++ ) {
-                        unsigned long *asioBufPtr = &((unsigned long*)nativeBuffer[j].buffers[index])[hostFrameOffset];
-                        unsigned char *userBufPtr = &inBufPtr[j+(userFrameOffset*NumInputChannels)];
-                        for (i= 0; i < framePerBuffer; i++)
-                        { 
-                                float dither  = Pa_TriangularDither()*DITHER_SCALE;
-                                temp = asioBufPtr[i];
-                                if (swap) temp = SwapLong(temp);
-                                temp = (char)(((float)temp * MAX_INT8_FP) + dither);
-                                temp = ClipChar(temp);
-                                *userBufPtr =  (unsigned char)(temp + 0x80); 
-                                userBufPtr += NumInputChannels;
-                        }
-                }
-        }
-}
-
-                
-// OUPUT 
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Float32_Int16 (ASIOBufferInfo* nativeBuffer, float *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset, int userFrameOffset,uint32 flags, bool swap)
-{
-        long temp;
-        int i,j;
-
-        if( flags & paDitherOff )
-                {
-                        if( flags & paClipOff ) // NOTHING
-                        {
-                                for( j=0; j<NumOuputChannels; j++ ) {
-                                        short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                                        
-                                        for (i= 0; i < framePerBuffer; i++) 
-                                        {
-                                                temp = (short) (*userBufPtr * MAX_INT16_FP);
-                                                if (swap) temp = SwapShort(temp);
-                                                asioBufPtr[i] = (short)temp;
-                                                userBufPtr += NumOuputChannels;
-                                        }
-                                }
-                        }
-                        else // CLIP
-                        {
-                                for( j=0; j<NumOuputChannels; j++ ) {
-                                        short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                                        
-                                        for (i= 0; i < framePerBuffer; i++) 
-                                        {
-                                                temp = (long) (*userBufPtr * MAX_INT16_FP);
-                                                temp = ClipShort(temp);
-                                                if (swap) temp = SwapShort(temp);
-                                                asioBufPtr[i] = (short)temp;
-                                                userBufPtr += NumOuputChannels;
-                                        }
-                                }
-                        }
-                }
-                else
-                {
-                        // If you dither then you have to clip because dithering could push the signal out of range!
-                        for( j=0; j<NumOuputChannels; j++ ) {
-                                short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                                float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                                
-                                for (i= 0; i < framePerBuffer; i++) 
-                                {
-                                        float dither = Pa_TriangularDither()*DITHER_SCALE;
-                                        temp = (long) ((*userBufPtr * MAX_INT16_FP) + dither);
-                                        temp = ClipShort(temp);
-                                        if (swap) temp = SwapShort(temp);
-                                        asioBufPtr[i] = (short)temp;
-                                        userBufPtr += NumOuputChannels;
-                                }
-                        }
-                }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Float32_Int32 (ASIOBufferInfo* nativeBuffer, float *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset, int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paClipOff )
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                temp = (long) (*userBufPtr * MAX_INT32_FP);
-                                if (swap) temp = SwapLong(temp);
-                                asioBufPtr[i] = temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-        }
-        else // CLIP *
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                float temp1 = *userBufPtr;
-                                temp1 = ClipFloat(temp1);
-                                temp = (long) (temp1*MAX_INT32_FP);
-                                if (swap) temp = SwapLong(temp);
-                                asioBufPtr[i] = temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-        }
-        
-}
-
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE TESTED
-
- static void Output_Float32_Float32 (ASIOBufferInfo* nativeBuffer, float *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset, int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paClipOff )
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        float *asioBufPtr = &((float*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                temp = (long) *userBufPtr;
-                                if (swap) temp = SwapLong(temp);
-                                asioBufPtr[i] = (float)temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-                
-        }
-        else // CLIP
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        float *asioBufPtr = &((float*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        float *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                float temp1 = *userBufPtr;
-                                temp1 = ClipFloat(temp1);  // Is is necessary??
-                                temp = (long) temp1;
-                                if (swap) temp = SwapLong(temp);
-                                asioBufPtr[i] = (float)temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-        }
-        
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------                                       
-static void Output_Int32_Int16(ASIOBufferInfo* nativeBuffer, long *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        if( flags & paDitherOff )
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        long *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                temp = (short) ((*userBufPtr) >> 16);
-                                if (swap) temp = SwapShort(temp);
-                                asioBufPtr[i] = (short)temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-        }
-        else
-        {
-                for (j= 0; j < NumOuputChannels; j++) 
-                {
-                        short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                        long *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                        for( i=0; i<framePerBuffer; i++ )
-                        {
-                                temp = (*userBufPtr >> 1) + Pa_TriangularDither();
-                                temp = temp >> 15;
-                                temp = (short) ClipShort(temp);
-                                if (swap) temp = SwapShort(temp);
-                                asioBufPtr[i] = (short)temp;
-                                userBufPtr += NumOuputChannels;
-                        }
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Int32_Int32(ASIOBufferInfo* nativeBuffer, long *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                long *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = *userBufPtr;
-                        if (swap) temp = SwapLong(temp);
-                        asioBufPtr[i] = temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE CHECKED
-
-static void Output_Int32_Float32(ASIOBufferInfo* nativeBuffer, long *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset,uint32 flags,bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                float *asioBufPtr = &((float*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                long *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = *userBufPtr;
-                        if (swap) temp = SwapLong(temp);
-                        asioBufPtr[i] = ((float)temp) * (1.0f / MAX_INT32_FP);
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Int16_Int16(ASIOBufferInfo* nativeBuffer, short *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset, int userFrameOffset,bool swap)
-{
-        long temp;
-        int i,j;
-
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                short *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = *userBufPtr;
-                        if (swap) temp = SwapShort(temp);
-                        asioBufPtr[i] = (short)temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Int16_Int32(ASIOBufferInfo* nativeBuffer, short *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                short *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = (*userBufPtr)<<16;
-                        if (swap) temp = SwapLong(temp);
-                        asioBufPtr[i] = temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE CHECKED
-static void Output_Int16_Float32(ASIOBufferInfo* nativeBuffer, short *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                float *asioBufPtr = &((float*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                short *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = *userBufPtr;
-                        asioBufPtr[i] = ((float)temp) * (1.0f / MAX_INT16_FP);
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Int8_Int16(ASIOBufferInfo* nativeBuffer, char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = (short)(*userBufPtr)<<8;
-                        if (swap) temp = SwapShort(temp);
-                        asioBufPtr[i] = (short)temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_Int8_Int32(ASIOBufferInfo* nativeBuffer, char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = (short)(*userBufPtr)<<24;
-                        if (swap) temp = SwapLong(temp);
-                        asioBufPtr[i] = temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE CHECKED
-static void Output_Int8_Float32(ASIOBufferInfo* nativeBuffer, char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = *userBufPtr;
-                        asioBufPtr[i] = (long)(((float)temp) * (1.0f / MAX_INT8_FP));
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_IntU8_Int16(ASIOBufferInfo* nativeBuffer, unsigned char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                unsigned char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = ((short)((*userBufPtr) - 0x80)) << 8;
-                        if (swap) temp = SwapShort(temp);
-                        asioBufPtr[i] = (short)temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}       
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Output_IntU8_Int32(ASIOBufferInfo* nativeBuffer, unsigned char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                unsigned char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = ((short)((*userBufPtr) - 0x80)) << 24;
-                        if (swap) temp = SwapLong(temp);
-                        asioBufPtr[i] = temp;
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-// MUST BE CHECKED
-
-static void Output_IntU8_Float32(ASIOBufferInfo* nativeBuffer, unsigned char *outBufPtr, int framePerBuffer, int NumInputChannels, int NumOuputChannels, int index, int hostFrameOffset,int userFrameOffset, bool swap)
-{
-        long temp;
-        int i,j;
-        
-        for (j= 0; j < NumOuputChannels; j++) 
-        {
-                float *asioBufPtr = &((float*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                unsigned char *userBufPtr = &outBufPtr[j+(userFrameOffset*NumOuputChannels)];
-                for( i=0; i<framePerBuffer; i++ )
-                {
-                        temp = ((short)((*userBufPtr) - 0x80)) << 24;
-                        asioBufPtr[i] = ((float)temp) * (1.0f / MAX_INT32_FP);
-                        userBufPtr += NumOuputChannels;
-                }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Pa_ASIO_Clear_Output_16 (ASIOBufferInfo* nativeBuffer, long frames, long NumInputChannels, long NumOuputChannels, long index, long hostFrameOffset)
-{
-        int i,j;
-
-        for( j=0; j<NumOuputChannels; j++ ) {
-                short *asioBufPtr = &((short*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                for (i= 0; i < frames; i++) {asioBufPtr[i] = 0; }
-        }
-}
-
-//-------------------------------------------------------------------------------------------------------------------------------------------------------
-static void Pa_ASIO_Clear_Output_32 (ASIOBufferInfo* nativeBuffer, long frames, long NumInputChannels, long NumOuputChannels, long index, long hostFrameOffset)
-{
-        int i,j;
-
-        for( j=0; j<NumOuputChannels; j++ ) {
-                long *asioBufPtr = &((long*)nativeBuffer[j+NumInputChannels].buffers[index])[hostFrameOffset];
-                for (i= 0; i < frames; i++) {asioBufPtr[i] = 0; }
-        }
-}
-                 */
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------
 static void Pa_ASIO_Adaptor_Init()
