@@ -1143,7 +1143,7 @@ PaError Pa_StartStream( PaStream *stream )
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
-    if( result != paNoError )
+    if( result == paNoError )
         result = PA_STREAM_INTERFACE(stream)->Start( stream );
 
 #ifdef PA_LOG_API_CALLS
