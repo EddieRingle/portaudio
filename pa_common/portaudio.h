@@ -178,9 +178,24 @@ typedef enum {
 */
 
 
+PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
+/**< Convert a static host API unique identifier, into a runtime
+ host API index.
+
+ @param type A unique host API identifier belonging to the PaHostApiTypeId
+ enumeration.
+
+ @return A valid PaHostApiIndex ranging from 0 to (Pa_CountHostApis()-1), or
+ -1 if the host API specified by the type parameter is not available.
+ 
+ @see PaHostApiTypeId
+*/
+
+
 PaHostApiIndex Pa_CountHostApis( void );
 /**< Retrieve the number of available host APIs. Even if a host API is
  available it may have no devices available.
+ 
  @return The number of available host APIs. May return 0 if PortAudio is
  not initialized or an error has occured.
      
@@ -223,26 +238,13 @@ const PaHostApiInfo * Pa_GetHostApiInfo( PaHostApiIndex hostApi );
 */
 
 
-PaDeviceIndex Pa_HostApiCountDevices( PaHostApiIndex hostApi );
-/**< Retrieve the number of devices belonging to a specific host API.
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
-     
- @return The number of devices belonging to the specified API.
-     
- @see Pa_ConvertHostApiDeviceIndexToGlobalDeviceIndex
-*/
-
-
 PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi );
 /**< Retrieve the default input device for the specified host API
      
  @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
      
- @return A host API specific device index ranging from
- 0 to (Pa_HostApiCountDevices(hostApi)-1), or paNoDevice if there
- is no input device available for the specified host API.
-     
- @see Pa_HostApiCountDevices
+ @return A device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+ if there is no default input device available for the specified host API.
 */
 
 
@@ -250,32 +252,39 @@ PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi );
 /**< Retrieve the default output device for the specified host API
      
  @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
+
+ @return A device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+ if there is no default output device available for the specified host API.
+*/
+
+
+int Pa_HostApiCountDevices( PaHostApiIndex hostApi );
+/**< Retrieve the number of devices belonging to a specific host API.
+ This function may be used in conjunction with Pa_HostApiDeviceIndexToDeviceIndex()
+ to enumerate all devices for a specific host API.
+ 
+ @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
      
- @return A host API specific device index ranging from
- 0 to (Pa_HostApiCountDevices(hostApi)-1), or paNoDevice if there
- is no output device available for the specified host API.
+ @return The number of devices belonging to the specified host API.
      
+ @see Pa_HostApiDeviceIndexToDeviceIndex
+*/
+
+
+PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi,
+        int hostApiDeviceIndex );
+/**< Convert a host-API-specific device index to standard PortAudio device index.
+ This function may be used in conjunction with Pa_HostApiCountDevices() to
+ enumerate all devices for a specific host API.
+
+ @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
+
+ @param hostApiDeviceIndex A valid per-host device index in the range
+ 0 to (Pa_HostApiCountDevices(hostApi)-1)
+
  @see Pa_HostApiCountDevices
 */
 
-
-PaDeviceIndex Pa_ConvertHostApiDeviceIndexToGlobalDeviceIndex( PaHostApiIndex hostApi,
-        PaDeviceIndex perHostApiDeviceIndex );
-/**< Convert per-host API device indicies to global device indicies.
- Per-host API device indicies are returned by Pa_HostApiDefaultInputDevice and
- Pa_HostApiDefaultOutputDevice. They range from 0 to (Pa_HostApiCountDevices()-1)
-     
- @see Pa_HostApiDefaultInputDevice, Pa_HostApiDefaultOutputDevice,
- Pa_HostApiCountDevices
-     
- @note FIXME: still not happy with the name of this function (too long)
-*/
-
-
-/*
-FIXME: what are we doing with the following?
-int Pa_HostAPIMinNumBuffers(PaHostApiIndex hostAPIID, int framesPerBuffer, double sampleRate );
-*/
 
 
 /* Device enumeration and capabilities */
