@@ -44,12 +44,14 @@ TESTS = \
 	bin/patest_clip \
 	bin/patest_dither \
 	bin/patest_hang \
+	bin/patest_in_overflow \
 	bin/patest_latency \
 	bin/patest_leftright \
 	bin/patest_longsine \
 	bin/patest_many \
 	bin/patest_maxsines \
 	bin/patest_multi_sine \
+	bin/patest_out_underflow \
 	bin/patest_pink \
 	bin/patest_prime \
 	bin/patest_read_record \
@@ -96,12 +98,14 @@ ALL_TESTS = \
 	bin/patest_clip \
 	bin/patest_dither \
 	bin/patest_hang \
+	bin/patest_in_overflow \
 	bin/patest_latency \
 	bin/patest_leftright \
 	bin/patest_longsine \
 	bin/patest_many \
 	bin/patest_maxsines \
 	bin/patest_multi_sine \
+	bin/patest_out_underflow \
 	bin/patest_pink \
 	bin/patest_read_record \
 	bin/patest_record \
@@ -152,7 +156,7 @@ install: lib/$(PALIB) lib/$(PADLLV)
 	@echo ""
 
 clean:
-	rm -f $(OBJS) $(TESTS) lib/$(PALIB)
+	rm -f $(OBJS) $(TESTS) lib/$(PALIB) lib/$(PADLLV)
 
 %.o: %.c Makefile $(PAINC)
 	$(CC) -c $(CFLAGS) $< -o $@
