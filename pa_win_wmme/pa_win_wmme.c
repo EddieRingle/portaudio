@@ -519,8 +519,8 @@ static PaError QueryFormatSupported( PaDeviceInfo *deviceInfo,
 }
 
 
-#define PA_MME_DEFAULT_SAMPLE_RATE_COUNT_  (13) /* must match array length below */
-static double defaultSampleRatesToTry[] =
+#define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_  (13) /* must match array length below */
+static double defaultSampleRateSearchOrder_[] =
     { 44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0, 192000.0,
         16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
 
@@ -532,9 +532,9 @@ static PaError DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, in
     
     deviceInfo->defaultSampleRate = 0.;
 
-    for( i=0; i < PA_MME_DEFAULT_SAMPLE_RATE_COUNT_; ++i )
+    for( i=0; i < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++i )
     {
-        double sampleRate = defaultSampleRatesToTry[ i ]; 
+        double sampleRate = defaultSampleRateSearchOrder_[ i ]; 
         PaError paerror = QueryFormatSupported( deviceInfo, waveFormatExQueryFunction, winMmeDeviceId, maxChannels, sampleRate );
         if( paerror == paNoError )
         {
