@@ -112,7 +112,7 @@ int main(void)
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
     outputParameters.numChannels = 2;       /* stereo output */
-    outputParameters.sampleFormat = /* 32 bit floating point output */
+    outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
     outputParameters.hostApiSpecificStreamInfo = NULL;
 
