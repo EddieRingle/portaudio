@@ -163,6 +163,24 @@ case "${host_os}" in
 	DLL_LIBS="-lwinmm";
 	;;
 
+  irix* )
+	dnl SGI IRIX audio library (AL) configuration (added by Pieter, oct 2, 2003).
+
+	AC_CHECK_LIB(pthread, pthread_create, , AC_MSG_ERROR([libpthread not found!]))
+	AC_CHECK_LIB(audio, alOpenPort, , AC_MSG_ERROR([IRIX audio library not found!]))
+
+	dnl See '#ifdef PA_USE_SGI' in file 'pa_unix/ pa_unix_hostapis.c'
+	dnl which selects the appropriate PaXXX_Initialize() functions.
+	AC_DEFINE(PA_USE_SGI)
+    
+	OTHER_OBJS="pa_sgi/pa_sgi.o pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o";
+	
+	dnl (SGI books say -lpthread should be the last of the libs).
+	LIBS="-lm -laudio -lpthread";
+	PADLL="libportaudio.so";
+	SHARED_FLAGS="-shared";
+	;;
+
   *)
 	dnl Unix OSS configuration
 
