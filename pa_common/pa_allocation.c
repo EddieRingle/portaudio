@@ -184,12 +184,22 @@ void PaUtil_GroupFreeMemory( PaUtilAllocationGroup* group, void *buffer )
     {
         if( current->buffer == buffer )
         {
-            previous->next = current->next;
+            if( previous )
+            {
+                previous->next = current->next;
+            }
+            else
+            {
+                group->allocations = current->next;
+            }
 
             current->buffer = 0;
             current->next = group->spareLinks;
             group->spareLinks = current;
+
+            break;
         }
+        
         previous = current;
         current = current->next;
     }
