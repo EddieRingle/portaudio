@@ -195,7 +195,8 @@ int main(void)
     int                 totalFrames;
     int                 numSamples;
     int                 numBytes;
-    SAMPLE              max, average, val;
+    SAMPLE              max, val;
+    double              average;
 
     printf("patest_record.c\n"); fflush(stdout);
 
@@ -214,7 +215,7 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto done;
 
-    inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    inputParameters.device = 2; //Pa_GetDefaultInputDevice(); /* default input device */
     inputParameters.channelCount = 2;                    /* stereo input */
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
@@ -236,18 +237,19 @@ int main(void)
     if( err != paNoError ) goto done;
     printf("Now recording!!\n"); fflush(stdout);
 
-    while( Pa_IsStreamActive( stream ) )
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
     {
         Pa_Sleep(1000);
         printf("index = %d\n", data.frameIndex ); fflush(stdout);
     }
+    if( err < 0 ) goto done;
 
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto done;
 
     /* Measure maximum peak amplitude. */
     max = 0;
-    average = 0;
+    average = 0.0;
     for( i=0; i<numSamples; i++ )
     {
         val = data.recordedSamples[i];
@@ -259,10 +261,10 @@ int main(void)
         average += val;
     }
 
-    average = average / numSamples;
+    average = average / (double)numSamples;
 
     printf("sample max amplitude = "PRINTF_S_FORMAT"\n", max );
-    printf("sample average = "PRINTF_S_FORMAT"\n", average );
+    printf("sample average = %lf\n", average );
 
     /* Write recorded data to a file. */
 #if 0
@@ -309,8 +311,9 @@ int main(void)
         if( err != paNoError ) goto done;
         printf("Waiting for playback to finish.\n"); fflush(stdout);
 
-        while( Pa_IsStreamActive( stream ) ) Pa_Sleep(100);
-
+        while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(100);
+        if( err < 0 ) goto done;
+        
         err = Pa_CloseStream( stream );
         if( err != paNoError ) goto done;
         printf("Done.\n"); fflush(stdout);
