@@ -527,7 +527,7 @@ PaError Pa_OpenStream( PaStream** stream,
                        unsigned long outputLatency,
                        PaHostApiSpecificStreamInfo *outputStreamInfo,
                        double sampleRate,
-                       unsigned long framesPerCallback,
+                       unsigned long framesPerBuffer,
                        PaStreamFlags streamFlags,
                        PortAudioCallback *callback,
                        void *userData );
@@ -584,9 +584,11 @@ PaError Pa_OpenStream( PaStream** stream,
  @param sampleRate The desired sampleRate. For full-duplex streams it is the
  sample rate for both input and output
      
- @param framesPerCallback The number of frames passed to the callback function.
+ @param framesPerBuffer The number of frames passed to the callback function,
+ or the preferred block granularity for a blocking read/write stream.
  When this parameter is 0 it indicates that the callback will recieve an
- optimal number of frames for the requested latency settings.
+ optimal (and possibly varying) number of frames based on host requirements
+ and the requested latency settings.
      
  @param streamFlags Flags which modify the behaviour of the streaming process.
  This parameter may contain a combination of flags ORed together. Some flags may
@@ -614,7 +616,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
                               int numOutputChannels,
                               PaSampleFormat sampleFormat,
                               double sampleRate,
-                              unsigned long framesPerCallback,
+                              unsigned long framesPerBuffer,
                               PortAudioCallback *callback,
                               void *userData );
 /**< A simplified version of Pa_OpenStream() that opens the default input

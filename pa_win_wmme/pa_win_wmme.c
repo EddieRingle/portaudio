@@ -156,7 +156,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData );
@@ -646,7 +646,7 @@ static PaError CalculateBufferSettings(
         unsigned long inputLatency, PaWinMmeStreamInfo *inputStreamInfo,
         int numOutputChannels, PaSampleFormat hostOutputSampleFormat,
         unsigned long outputLatency, PaWinMmeStreamInfo *outputStreamInfo,
-        unsigned long framesPerCallback )
+        unsigned long framesPerBuffer )
 {
     PaError result = paNoError;
 
@@ -897,7 +897,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData )
@@ -1079,7 +1079,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             &framesPerHostOutputBuffer, &numHostOutputBuffers,
             numInputChannels, hostInputSampleFormat, inputLatency, (PaWinMmeStreamInfo*)inputStreamInfo,
             numOutputChannels, hostOutputSampleFormat, outputLatency, (PaWinMmeStreamInfo*)outputStreamInfo,
-            framesPerCallback );
+            framesPerBuffer );
     if( result != paNoError )
         goto error;
 
@@ -1144,7 +1144,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback,
+              sampleRate, streamFlags, framesPerBuffer,
               framesPerBufferProcessorCall, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )

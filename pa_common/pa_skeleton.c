@@ -66,7 +66,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData );
@@ -253,7 +253,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData )
@@ -261,7 +261,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaSkeletonHostApiRepresentation *skeletonHostApi = (PaSkeletonHostApiRepresentation*)hostApi;
     PaSkeletonStream *stream = 0;
-    unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
+    unsigned long framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
     /* unless alternate device specification is supported, reject the use of
@@ -359,7 +359,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback,
+              sampleRate, streamFlags, framesPerBuffer,
               framesPerHostBuffer, paUtilFixedHostBufferSize,
               callback, userData );
     if( result != paNoError )

@@ -82,7 +82,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData );
@@ -621,7 +621,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            unsigned long outputLatency,
                            PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData )
@@ -719,8 +719,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback,
-              framesPerCallback, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
+              sampleRate, streamFlags, framesPerBuffer,
+              framesPerBuffer, /* ignored in paUtilVariableHostBufferSizePartialUsageAllowed mode. */
         /* This next mode is required because DS can split the host buffer when it wraps around. */
               paUtilVariableHostBufferSizePartialUsageAllowed,
               callback, userData );
@@ -746,8 +746,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         userLatencyFrames = (inputLatency > outputLatency) ? inputLatency : outputLatency;
         if( userLatencyFrames > 0 ) minLatencyFrames = userLatencyFrames;
 
-    /* Calculate stream->framesPerDSBuffer depending on framesPerCallback */
-        if( framesPerCallback == 0 )
+    /* Calculate stream->framesPerDSBuffer depending on framesPerBuffer */
+        if( framesPerBuffer == 0 )
         {
         /* App support variable framesPerBuffer */
             stream->framesPerDSBuffer = minLatencyFrames;
@@ -755,10 +755,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         else
         {
         /* Round up to number of buffers needed to guarantee that latency. */
-            int numUserBuffers = (minLatencyFrames + framesPerCallback - 1) / framesPerCallback;
+            int numUserBuffers = (minLatencyFrames + framesPerBuffer - 1) / framesPerBuffer;
             if( numUserBuffers < 1 ) numUserBuffers = 1;
             numUserBuffers += 1; /* So we have latency worth of buffers ahead of current buffer. */
-            stream->framesPerDSBuffer = framesPerCallback * numUserBuffers;
+            stream->framesPerDSBuffer = framesPerBuffer * numUserBuffers;
         }
 
         {

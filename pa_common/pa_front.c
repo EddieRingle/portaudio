@@ -1121,7 +1121,7 @@ PaError Pa_OpenStream( PaStream** stream,
                        unsigned long outputLatency,
                        PaHostApiSpecificStreamInfo *outputStreamInfo,
                        double sampleRate,
-                       unsigned long framesPerCallback,
+                       unsigned long framesPerBuffer,
                        PaStreamFlags streamFlags,
                        PortAudioCallback *callback,
                        void *userData )
@@ -1144,7 +1144,7 @@ PaError Pa_OpenStream( PaStream** stream,
     PaUtil_DebugPrint("\tunsigned long outputLatency: %d\n", outputLatency );
     PaUtil_DebugPrint("\tvoid *outputStreamInfo: 0x%p\n", outputStreamInfo );
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
-    PaUtil_DebugPrint("\tunsigned long framesPerCallback: %d\n", framesPerCallback );
+    PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
     PaUtil_DebugPrint("\tPaStreamFlags streamFlags: 0x%x\n", streamFlags );
     PaUtil_DebugPrint("\tPortAudioCallback *callback: 0x%p\n", callback );
     PaUtil_DebugPrint("\tvoid *userData: 0x%p\n", userData );
@@ -1210,7 +1210,7 @@ PaError Pa_OpenStream( PaStream** stream,
     result = hostApi->OpenStream( hostApi, stream,
                                   hostApiInputDevice, numInputChannels, inputSampleFormat, inputLatency, inputStreamInfo,
                                   hostApiOutputDevice, numOutputChannels, outputSampleFormat, outputLatency, outputStreamInfo,
-                                  sampleRate, framesPerCallback, streamFlags, callback, userData );
+                                  sampleRate, framesPerBuffer, streamFlags, callback, userData );
 
     if( result == paNoError )
         AddOpenStream( *stream );
@@ -1231,7 +1231,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
                               int numOutputChannels,
                               PaSampleFormat sampleFormat,
                               double sampleRate,
-                              unsigned long framesPerCallback,
+                              unsigned long framesPerBuffer,
                               PortAudioCallback *callback,
                               void *userData )
 {
@@ -1244,7 +1244,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     PaUtil_DebugPrint("\tint numOutputChannels: %d\n", numOutputChannels );
     PaUtil_DebugPrint("\tPaSampleFormat sampleFormat: %d\n", sampleFormat );
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
-    PaUtil_DebugPrint("\tunsigned long framesPerCallback: %d\n", framesPerCallback );
+    PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
     PaUtil_DebugPrint("\tPortAudioCallback *callback: 0x%p\n", callback );
     PaUtil_DebugPrint("\tvoid *userData: 0x%p\n", userData );
 #endif
@@ -1255,7 +1255,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
                  numInputChannels, sampleFormat, 0, NULL,
                  ((numOutputChannels > 0) ? Pa_GetDefaultOutputDevice() : paNoDevice),
                  numOutputChannels, sampleFormat, 0, NULL,
-                 sampleRate, framesPerCallback, paNoFlag, callback, userData );
+                 sampleRate, framesPerBuffer, paNoFlag, callback, userData );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_OpenDefaultStream returned:\n" );
