@@ -37,8 +37,11 @@
 #include "stdio.h"
 #include "portaudio.h"
 /* This will be called asynchronously by the PortAudio engine. */
-static int myCallback( void *inputBuffer, void *outputBuffer,
-                       unsigned long framesPerBuffer, PaTimestamp outTime, void *userData )
+static int myCallback(  void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData )
 {
     float *out = (float *) outputBuffer;
     float *in  = (float *) inputBuffer;
@@ -58,13 +61,13 @@ static int myCallback( void *inputBuffer, void *outputBuffer,
 /* Open a PortAudioStream to input and output audio data. */
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     Pa_Initialize();
     Pa_OpenDefaultStream(
         &stream,
-        2, 2,            /* stereo input and output */
+        2, 2,               /* stereo input and output */
         paFloat32,  44100.0,
-        64,  0,          /* 64 frames per buffer, let PA determine numBuffers */
+        64,                 /* 64 frames per buffer */
         myCallback, NULL );
     Pa_StartStream( stream );
     Pa_Sleep( 10000 );    /* Sleep for 10 seconds while processing. */

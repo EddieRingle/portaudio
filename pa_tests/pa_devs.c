@@ -97,7 +97,7 @@ int main(void)
             Pa_GetVersion(), Pa_GetVersionText() );
 
             
-    numDevices = Pa_CountDevices();
+    numDevices = Pa_GetDeviceCount();
     if( numDevices < 0 )
     {
         printf( "ERROR: Pa_CountDevices returned 0x%x\n", numDevices );

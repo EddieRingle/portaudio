@@ -155,9 +155,9 @@ typedef int PaDeviceIndex;
 /* Host API enumeration mechanism */
 
 /** The type used to enumerate to host APIs at runtime. Values of this type
- range from 0 to (Pa_CountHostApis()-1).
+ range from 0 to (Pa_GetHostApiCount()-1).
 
- @see Pa_CountHostApis
+ @see Pa_GetHostApiCount
 */
 typedef int PaHostApiIndex;
 
@@ -171,7 +171,7 @@ typedef int PaHostApiIndex;
 
  @see PaHostApiIndex
 */
-PaHostApiIndex Pa_CountHostApis( void );
+PaHostApiIndex Pa_GetHostApiCount( void );
 
 
 /** Retrieve the index of the default host API. The default host API will be
@@ -229,13 +229,13 @@ typedef struct PaHostApiInfo
     int deviceCount;
 
     /** The the default input device for this host API. The value will be a
-     device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+     device index ranging from 0 to (Pa_GetDeviceCount()-1), or paNoDevice
      if no default input device is available.
     */
     PaDeviceIndex defaultInputDevice;
 
     /** The the default output device for this host API. The value will be a
-     device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+     device index ranging from 0 to (Pa_GetDeviceCount()-1), or paNoDevice
      if no default output device is available.
     */
     PaDeviceIndex defaultOutputDevice;
@@ -246,7 +246,7 @@ typedef struct PaHostApiInfo
 /** Retrieve a pointer to a structure containing information about a specific
  host Api.
 
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
+ @param hostApi A valid host API index ranging from 0 to (Pa_GetHostApiCount()-1)
 
  @return A pointer to an immutable PaHostApiInfo structure describing
  a specific host API. If the hostApi parameter is out of range or an error
@@ -265,7 +265,7 @@ const PaHostApiInfo * Pa_GetHostApiInfo( PaHostApiIndex hostApi );
  @param type A unique host API identifier belonging to the PaHostApiTypeId
  enumeration.
 
- @return A valid PaHostApiIndex ranging from 0 to (Pa_CountHostApis()-1), or
+ @return A valid PaHostApiIndex ranging from 0 to (Pa_GetHostApiCount()-1), or
  -1 if the host API specified by the type parameter is not available.
 
  @see PaHostApiTypeId
@@ -277,7 +277,7 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
  This function may be used in conjunction with the deviceCount field of
  PaHostApiInfo to enumerate all devices for the specified host API.
 
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
+ @param hostApi A valid host API index ranging from 0 to (Pa_GetHostApiCount()-1)
 
  @param hostApiDeviceIndex A valid per-host device index in the range
  0 to (Pa_GetHostApiInfo(hostApi)->deviceCount-1)
@@ -321,7 +321,7 @@ const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void );
  @return The number of available devices. May return 0 if PortAudio is
  not initialized or an error has occured.
 */
-PaDeviceIndex Pa_CountDevices( void );
+PaDeviceIndex Pa_GetDeviceCount( void );
 
 
 /** Retrieve the index of the default input device. The result can be
@@ -421,7 +421,7 @@ typedef struct PaDeviceInfo
  @return A pointer to an immutable PaDeviceInfo structure. If the device
  parameter is out of range the function returns NULL.
 
- @param device A valid device index in the range 0 to (Pa_CountDevices()-1)
+ @param device A valid device index in the range 0 to (Pa_GetDeviceCount()-1)
 
  @note PortAudio manages the memory referenced by the returned pointer,
  the client must not manipulate or free the memory. The pointer is only
@@ -436,7 +436,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device );
 */
 typedef struct PaStreamParameters
 {
-    /** A valid device index in the range 0 to (Pa_CountDevices()-1)
+    /** A valid device index in the range 0 to (Pa_GetDeviceCount()-1)
      specifying the device to be used or the special constant
      paUseHostApiSpecificDeviceSpecification which indicates that the actual
      device(s) to use are specified in hostApiSpecificStreamInfo.

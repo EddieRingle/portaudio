@@ -522,12 +522,12 @@ PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
 }
 
 
-PaHostApiIndex Pa_CountHostApis( void )
+PaHostApiIndex Pa_GetHostApiCount( void )
 {
     int result;
 
 #ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_CountHostApis called.\n" );
+    PaUtil_DebugPrint("Pa_GetHostApiCount called.\n" );
 #endif
 
     if( !PA_IS_INITIALISED_ )
@@ -535,7 +535,7 @@ PaHostApiIndex Pa_CountHostApis( void )
         result = paNotInitialized;
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_CountHostApis returned:\n" );
+        PaUtil_DebugPrint("Pa_GetHostApiCount returned:\n" );
         PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
 #endif
 
@@ -545,7 +545,7 @@ PaHostApiIndex Pa_CountHostApis( void )
     {
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_CountHostApis returned:\n" );
+        PaUtil_DebugPrint("Pa_GetHostApiCount returned:\n" );
         PaUtil_DebugPrint("\tPaHostApiIndex %d\n\n", hostApisCount_ );
 #endif
 
@@ -713,12 +713,12 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int ho
 }
 
 
-PaDeviceIndex Pa_CountDevices( void )
+PaDeviceIndex Pa_GetDeviceCount( void )
 {
     PaDeviceIndex result;
 
 #ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_CountDevices called.\n" );
+    PaUtil_DebugPrint("Pa_GetDeviceCount called.\n" );
 #endif
 
     if( !PA_IS_INITIALISED_ )
@@ -726,7 +726,7 @@ PaDeviceIndex Pa_CountDevices( void )
         result = 0;
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_CountDevices returned:\n" );
+        PaUtil_DebugPrint("Pa_GetDeviceCount returned:\n" );
         PaUtil_DebugPrint("\tPaDeviceIndex: 0 [ PortAudio not initialized ]\n\n" );
 #endif
 
@@ -736,7 +736,7 @@ PaDeviceIndex Pa_CountDevices( void )
         result = deviceCount_;
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_CountDevices returned:\n" );
+        PaUtil_DebugPrint("Pa_GetDeviceCount returned:\n" );
         PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
 #endif
 
@@ -898,7 +898,7 @@ static int SampleFormatIsValid( PaSampleFormat format )
         inputParameters->device & outputParmeters->device  both use the same host api
  
     PaDeviceIndex inputParameters->device
-        - is within range (0 to Pa_CountDevices-1) Or:
+        - is within range (0 to Pa_GetDeviceCount-1) Or:
         - is paUseHostApiSpecificDeviceSpecification and
             inputParameters->hostApiSpecificStreamInfo is non-NULL and refers
             to a valid host api
@@ -914,7 +914,7 @@ static int SampleFormatIsValid( PaSampleFormat format )
         - if supplied its hostApi field matches the input device's host Api
  
     PaDeviceIndex outputParmeters->device
-        - is within range (0 to Pa_CountDevices-1)
+        - is within range (0 to Pa_GetDeviceCount-1)
  
     int outputParmeters->channelCount
         - if inputDevice is valid, channelCount is > 0
