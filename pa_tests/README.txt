@@ -35,7 +35,7 @@ o- patest_sine_time.c
 x- patest_start_stop.c
 x- patest_stop.c
 x- patest_sync.c
-o- patest_toomanysines.c
+x- patest_toomanysines.c
 x- patest_underflow.c
 x- patest_wire.c
 x- patest_write_sine.c
