@@ -1634,7 +1634,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     if( numOutputChannels > 0 )
     {
-        stream->primeBuffers = streamFlags & paPrimeOutputBuffersUsingStreamCallback;
+        /* XXX: Ignore paPrimeOutputBuffersUsingStreamCallback untill buffer priming is fully supported in pa_process.c */
+        /* stream->primeBuffers = streamFlags & paPrimeOutputBuffersUsingStreamCallback; */
         stream->playback.interleaved = !(outputSampleFormat & paNonInterleaved);
         outputLatency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
 
