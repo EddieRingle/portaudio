@@ -1741,17 +1741,16 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         PaUtil_BeginBufferProcessing( &theAsioStream->bufferProcessor, outTime );
 
         PaUtil_SetInputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-        for( int i=0; i<theAsioStream->numInputChannels; i++ )
+        for( int i=0; i<theAsioStream->numInputChannels; ++i )
             PaUtil_SetNonInterleavedInputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->inputBufferPtrs[index][i] );
 
         PaUtil_SetOutputFrameCount( &theAsioStream->bufferProcessor, 0 /* default to host buffer size */ );
-        for( int i=0; i<theAsioStream->numOutputChannels; i++ )
+        for( int i=0; i<theAsioStream->numOutputChannels; ++i )
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
         int callbackResult;
         unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
-
-
+        
         if( theAsioStream->outputBufferConverter )
         {
             for( int i=0; i<theAsioStream->numOutputChannels; i++ )
