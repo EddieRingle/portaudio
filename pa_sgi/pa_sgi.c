@@ -35,16 +35,18 @@
  @brief SGI IRIX AL implementation (according to V19 API version 2.0).
 
  @note This file started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
- Nothing to do with the old V18 pa_sgi version: using the newer AL calls now and 
- pthreads instead of sproc. A fresh start. 
- 
- FunctionIsFormatSupported() ok now.
- 
- Tested: - pa_devs                ok.
+ Nothing to do with the old V18 pa_sgi version: using the newer IRIX AL calls 
+ now and pthreads instead of sproc. A fresh start. 
+  
+ Tested: + pa_devs                ok.
          - pa_fuzz                ok
          - patest_sine            test has to be adapted: (usleep > 1000000)?
-         - patest_leftright       ok
-         - patest_sine_formats    ok
+         + patest_leftright       ok
+         - patest_sine_formats    FLOAT32=ok, INT16=ok, INT18=ok,
+                                  but UINT8 IS NOT OK!
+         - patest_start_stop GOES WRONG
+         - patest_write_sine sounds ok but messages error at closing.
+         - patest_callbackstop COREDUMPS !!!!!
  
  Todo:  - Find out why Pa_sleep doesn't work (probably us > 1000000).
         - Set queue sizes and latencies.
@@ -351,7 +353,7 @@ static PaError sr_supported(int al_device, double sr)
     int         e;
     PaError     result;
     ALparamInfo pinfo;
-    long long   lsr = alDoubleToFixed(sr);
+    long long   lsr;    /* 64 bit fixed point internal AL samplerate. */
     
     if (alGetParamInfo(al_device, AL_RATE, &pinfo))
         {
@@ -363,7 +365,8 @@ static PaError sr_supported(int al_device, double sr)
             result = paUnanticipatedHostError;
         }
     else
-        {    
+        {
+        lsr = alDoubleToFixed(sr);  /* Within the range? */
         if ((pinfo.min.ll <= lsr) && (lsr <= pinfo.max.ll))
             result = paFormatIsSupported;
         else
@@ -651,10 +654,10 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     else
         {
         inputChannelCount = 0;
-        inputSampleFormat = hostInputSampleFormat = 0; /* Surpress uninitialised warning. */
-        }
-    if (outputParameters)
-        {
+        inputSampleFormat = hostInputSampleFormat = paInt16; /* Surpress 'uninitialised var' warnings.       */
+        }                                                    /* PaUtil_InitializeBufferProcessor is called   */
+    if (outputParameters)                                    /* with these as args. Apparently, the latter 2 */
+        {                                                    /* are not actually used when ChannelCount = 0. */
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         if (outputParameters->device == paUseHostApiSpecificDeviceSpecification) /* Like input (above). */
@@ -668,7 +671,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     else
         {
         outputChannelCount = 0;
-        outputSampleFormat = hostOutputSampleFormat = 0; /* Surpress uninitialised warning. */
+        outputSampleFormat = hostOutputSampleFormat = paInt16; /* Surpress 'uninitialised var' warning. */
         }
     /*  It is guarenteed that inputParameters and outputParameters will never be both NULL.
     
@@ -1026,14 +1029,14 @@ static signed long GetStreamWriteAvailable( PaStream* s )
     return (signed long)alGetFillable(stream->portBuffOut.port);
 }
 
-/*------------------ for people with bad long- and short-term bio-mem: -----------
-  To download (co means checkout) 'v19-devel' branch from portaudio's CVS server:
+/* CVS reminder:
+   To download (co means checkout) 'v19-devel' branch from portaudio's CVS server:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs co -r v19-devel portaudio
-  Then 'cd' to the 'portaudio' directory that should have been created.
-  Login as 'pieter' and commit edits (requires password):
+   Then 'cd' to the 'portaudio' directory that should have been created.
+   Login as 'pieter' and commit edits (requires password):
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs login
-    cvs -d:pserver:pieter@www.portaudio.com:/home/cvs commit -m 'V19 fix for self-finishing callback.' -r v19-devel pa_sgi/pa_sgi.c
+    cvs -d:pserver:pieter@www.portaudio.com:/home/cvs commit -m 'blabla.' -r v19-devel pa_sgi/pa_sgi.c
     cvs -d:pserver:pieter@www.portaudio.com:/home/cvs logout
-  To see if someone else worked on something:
+   To see if someone else worked on something:
     cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -r v19-devel
 */
