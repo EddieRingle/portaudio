@@ -40,27 +40,30 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
-/*
-** Note that many of the older ISA sound cards on PCs do NOT support
-** full duplex audio (simultaneous record and playback).
-** And some only support full duplex at lower sample rates.
-*/
-#define SAMPLE_RATE            (44100)
-#define FRAMES_PER_BUFFER      (64)
-#define INPUT_DEVICE            (Pa_GetDefaultInputDevice())
-#define NUM_INPUT_CHANNELS     (2)
-#define OUTPUT_DEVICE           (Pa_GetDefaultOutputDevice())
-#define NUM_OUTPUT_CHANNELS    (2)
 
-#if 0
-    #define FLAG_INTERLEAVED   (paNonInterleaved)
-    #define CALLBACK_FUNCTION  wireCallbackNonInterleaved
-#else
+#define SAMPLE_RATE            (44100)
+
+/* Switch these USE flags between 0 and 1 for various test options. */
+#define USE_INTERLEAVED        (0)
+#define USE_FLOAT_INPUT        (1)
+#define USE_FLOAT_OUTPUT       (1)
+
+#define NUM_INPUT_CHANNELS     (1)
+#define NUM_OUTPUT_CHANNELS    (2)
+#define FRAMES_PER_CALLBACK      (0)
+
+#define OUTPUT_LATENCY_MSEC    (0)
+#define OUTPUT_LATENCY_FRAMES  (OUTPUT_LATENCY_MSEC * SAMPLE_RATE / 1000)
+
+#if USE_INTERLEAVED
     #define FLAG_INTERLEAVED   (0)
     #define CALLBACK_FUNCTION  wireCallback
-#endif
+#else
+    #define FLAG_INTERLEAVED   (paNonInterleaved)
+    #define CALLBACK_FUNCTION  wireCallbackNonInterleaved
+#endif /* USE_INTERLEAVED */
 
-#if 0
+#if USE_FLOAT_INPUT
     #define INPUT_FORMAT  paFloat32
     typedef float INPUT_SAMPLE;
 #else
@@ -68,7 +71,7 @@
     typedef short INPUT_SAMPLE;
 #endif
 
-#if 1
+#if USE_FLOAT_OUTPUT
     #define OUTPUT_FORMAT  paFloat32
     typedef float OUTPUT_SAMPLE;
 #else
@@ -78,6 +81,9 @@
 
 double gInOutScaler = 1.0;
 #define CONVERT_IN_TO_OUT(in)  ((OUTPUT_SAMPLE) ((in) * gInOutScaler))
+
+#define INPUT_DEVICE           (Pa_GetDefaultInputDevice())
+#define OUTPUT_DEVICE          (Pa_GetDefaultOutputDevice())
 
 static int wireCallback( void *inputBuffer, void *outputBuffer,
                          unsigned long framesPerBuffer,
@@ -101,14 +107,15 @@ static int wireCallback( void *inputBuffer, void *outputBuffer,
 
     for( i=0; i<framesPerBuffer; i++ )
     {
-        OUTPUT_SAMPLE left = CONVERT_IN_TO_OUT( *in++ );  /* left */
-        *out++ = left;
+        OUTPUT_SAMPLE outSample = CONVERT_IN_TO_OUT( *in++ );  /* left */
+        *out++ = outSample;
+
+#if ( NUM_INPUT_CHANNELS == 2 )
+        outSample = CONVERT_IN_TO_OUT( *in++ ); /* right input */
+#endif
+
 #if ( NUM_OUTPUT_CHANNELS == 2 )
-    #if ( NUM_OUTPUT_CHANNELS == 2 )
-            *out++ = CONVERT_IN_TO_OUT( *in++ );  /* right */
-    #else
-            *out++ = left;  /* right output */
-    #endif
+        *out++ = outSample;  /* right output */
 #endif
     }
 
@@ -136,12 +143,9 @@ static int wireCallbackNonInterleaved( void *inputBuffer, void *outputBuffer,
         INPUT_SAMPLE *in = inBuffers[inChannel];
         OUTPUT_SAMPLE *out = outBuffers[outChannel];
 
-        if( INPUT_FORMAT == OUTPUT_FORMAT )
+        for( i=0; i<framesPerBuffer; i++ )
         {
-                for( i=0; i<framesPerBuffer; i++ )
-                {
-                    *out++ = CONVERT_IN_TO_OUT( *in++ );
-                }
+            *out++ = CONVERT_IN_TO_OUT( *in++ );
         }
 
         if(inChannel < (NUM_INPUT_CHANNELS - 1)) inChannel++;
@@ -196,10 +200,10 @@ int main(void)
               OUTPUT_DEVICE,
               NUM_OUTPUT_CHANNELS,
               OUTPUT_FORMAT | FLAG_INTERLEAVED,
-              0,               /* output latency */
+              OUTPUT_LATENCY_FRAMES,   /* output latency */
               NULL,
               SAMPLE_RATE,
-              FRAMES_PER_BUFFER,            /* frames per buffer */
+              FRAMES_PER_CALLBACK,            /* frames per buffer */
               paClipOff,       /* we won't output out of range samples so don't bother clipping them */
               CALLBACK_FUNCTION,
               NULL );          /* no data */
