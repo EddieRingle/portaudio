@@ -2230,11 +2230,11 @@ static PaError AbortStream( PaStream *s )
         // make sure that the callback is not still in-flight when ASIOStop()
         // returns. This has been observed to happen on the Hoontech DSP24 for
         // example.
-        int count;  // only wait for 2 seconds, rather than hanging.
-        while( theAsioStream->reenterCount != -1 && count < 2000 )
+        int count = 2000;  // only wait for 2 seconds, rather than hanging.
+        while( theAsioStream->reenterCount != -1 && count > 0 )
         {
             Sleep(1);
-            ++count;
+            --count;
         }
     }
 
