@@ -93,6 +93,7 @@ static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
 void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags );
+void CleanUpStream( PaAlsaStream *stream );
 
 /* blocking calls are in blocking_calls.c */
 extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -590,7 +591,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         (PaAlsaHostApiRepresentation*)hostApi;
     PaAlsaStream *stream = 0;
     PaSampleFormat hostInputSampleFormat = 0, hostOutputSampleFormat = 0;
-    int numInputChannels, numOutputChannels;
+    int numInputChannels = 0, numOutputChannels = 0;
     PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0;
     unsigned long framesPerHostBuffer = framesPerBuffer;
 
@@ -673,24 +674,31 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
 
-    stream->streamRepresentation.streamInfo.inputLatency = framesPerHostBuffer;
-    stream->streamRepresentation.streamInfo.outputLatency = framesPerHostBuffer;
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
     /* open the devices now, so we can obtain info about the available formats */
 
+    char deviceName[50];
     if( numInputChannels > 0 )
     {
-        char inputDeviceName[50];
-
-        sprintf( inputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[inputParameters->device]->name );
-        if( snd_pcm_open( &stream->pcm_capture, inputDeviceName, SND_PCM_STREAM_CAPTURE, 0 ) < 0 )
+        int ret;
+        snprintf( deviceName, 50, "hw:CARD=%s", hostApi->deviceInfos[inputParameters->device]->name );
+		if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
         {
-            result = paBadIODeviceCombination;
+            if (ret == -EBUSY)
+                result = paDeviceUnavailable;
+            else
+                result = paBadIODeviceCombination;
             goto error;
         }
+        if( snd_pcm_nonblock( stream->pcm_capture, 0 ) < 0 )
+        {
+            result = paUnanticipatedHostError;
+            goto error;
+        }
+
+        stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
+
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_capture),
                                                  inputSampleFormat );
@@ -698,14 +706,24 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( numOutputChannels > 0 )
     {
-        char outputDeviceName[50];
-
-        sprintf( outputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[outputParameters->device]->name );
-        if( snd_pcm_open( &stream->pcm_playback, outputDeviceName, SND_PCM_STREAM_PLAYBACK, 0 ) < 0 )
+        int ret;
+        snprintf( deviceName, 50, "hw:CARD=%s", hostApi->deviceInfos[outputParameters->device]->name );
+        if( (ret = snd_pcm_open( &stream->pcm_playback, deviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) < 0 )
         {
-            result = paBadIODeviceCombination;
+            if (ret == -EBUSY)
+                result = paDeviceUnavailable;
+            else
+                result = paBadIODeviceCombination;
             goto error;
         }
+        if( snd_pcm_nonblock( stream->pcm_playback, 0 ) < 0 )
+        {
+            result = paUnanticipatedHostError;
+            goto error;
+        }
+
+        stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
+
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_playback),
                                                  outputSampleFormat );
@@ -823,6 +841,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
 
     /* configure the streams */
+    stream->streamRepresentation.streamInfo.inputLatency = 0.;
+    stream->streamRepresentation.streamInfo.outputLatency = 0.;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     if( numInputChannels > 0 )
     {
@@ -871,15 +892,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( stream->pcm_capture && stream->pcm_playback )
         snd_pcm_link( stream->pcm_capture, stream->pcm_playback );
 
-    stream->capture_nfds = 0;
-    stream->playback_nfds = 0;
-
-    if( stream->pcm_capture )
-        stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
-
-    if( stream->pcm_playback )
-        stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
-
     /* TODO: free this properly */
     stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture_nfds +
                                                            stream->playback_nfds + 1) *
@@ -900,7 +912,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 error:
     if( stream )
-        PaUtil_FreeMemory( stream );
+        CleanUpStream( stream );
 
     return result;
 }
@@ -915,19 +927,10 @@ static PaError CloseStream( PaStream* s )
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
-    if( stream->pcm_capture )
-    {
-        snd_pcm_close( stream->pcm_capture );
-    }
-
-    if( stream->pcm_playback )
-    {
-        snd_pcm_close( stream->pcm_playback );
-    }
-
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
-    PaUtil_FreeMemory( stream );
+
+    CleanUpStream( stream );
 
     return result;
 }
@@ -1183,3 +1186,28 @@ void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamF
     stream->pfds = NULL;
     stream->callbackAbort = 0;
 }
+
+/*!
+ * \brief Free resources associated with stream, and eventually stream itself
+ *
+ * Frees allocated memory, and closes opened pcms.
+ */
+void CleanUpStream( PaAlsaStream *stream )
+{
+    assert( stream );
+
+    if( stream->pcm_capture )
+    {
+        snd_pcm_close( stream->pcm_capture );
+    }
+    if( stream->pcm_playback )
+    {
+        snd_pcm_close( stream->pcm_playback );
+    }
+
+    if ( stream->pfds )
+        PaUtil_FreeMemory( stream->pfds );
+
+    PaUtil_FreeMemory( stream );
+}
+
