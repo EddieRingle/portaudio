@@ -40,6 +40,11 @@ software in general by hiding the complexities of device interfacing.
 
 See the PortAudio website for further information http://www.portaudio.com/
 
+This documentation pertains to PortAudio V19, API version 2.0 which is
+currently under development. API version 2.0 differs in a number of ways from
+previous versions, please consult the enhancement proposals for further details:
+http://www.portaudio.com/docs/proposals/index.html
+
 This documentation is under construction. Things you might be interested in
 include:
 
