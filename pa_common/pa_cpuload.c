@@ -56,6 +56,10 @@ void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double s
     measurer->averageLoad = 0.;
 }
 
+void PaUtil_ResetCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer )
+{
+    measurer->averageLoad = 0.;
+}
 
 void PaUtil_BeginCpuLoadMeasurement( PaUtilCpuLoadMeasurer* measurer )
 {

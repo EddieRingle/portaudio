@@ -68,7 +68,7 @@
 
 	@todo Investigate supporting host buffer formats > 16 bits
 
-    @todo implement underflow/overflow streamCallback statusFlags, paNeverDropInput.
+    @todo implement paInputUnderflow, paOutputOverflow streamCallback statusFlags, paNeverDropInput.
 
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
@@ -1792,7 +1792,7 @@ static PaError RetrieveDevicesFromStreamParameters(
 	if( streamInfo && streamInfo->flags & paWinMmeUseMultipleDevices )
 	{
 		totalChannelCount = 0;
-	    for( i=0; i< deviceCount; ++i )
+	    for( i=0; i < deviceCount; ++i )
 	    {
 	        /* validate that the device number is within range */
 	        result = PaUtil_DeviceIndexToHostApiDeviceIndex( &hostApiDevice,
@@ -1895,7 +1895,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     char useTimeCriticalProcessingThreadPriority = 0;
     char throttleProcessingThreadOnOverload = 1;
 
-
+    
     if( inputParameters )
     {
 		inputChannelCount = inputParameters->channelCount;
@@ -2080,7 +2080,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         -a quater of a buffer's duration */
     stream->throttledSleepMsecs =
             (unsigned long)(stream->bufferProcessor.framesPerHostBuffer *
-             stream->bufferProcessor.samplePeriod * .25);
+             stream->bufferProcessor.samplePeriod * .25 * 1000);
 
     stream->isStopped = 1;
     stream->isActive = 0;
@@ -2165,12 +2165,12 @@ error:
 }
 
 
-/* return non-zero if all current input buffers are done */
+/* return non-zero if all current buffers are done */
 static int BuffersAreDone( WAVEHDR **waveHeaders, unsigned int deviceCount, int bufferIndex )
 {
     unsigned int i;
     
-    for( i=0; i<deviceCount; ++i )
+    for( i=0; i < deviceCount; ++i )
     {
         if( !(waveHeaders[i][ bufferIndex ].dwFlags & WHDR_DONE) )
         {
@@ -2199,7 +2199,7 @@ static int NoBuffersAreQueued( PaWinMmeSingleDirectionHandlesAndBuffers *handles
 
     if( handlesAndBuffers->waveHandles )
     {
-        for( i=0; i<handlesAndBuffers->bufferCount; ++i )
+        for( i=0; i < handlesAndBuffers->bufferCount; ++i )
         {
             for( j=0; j < handlesAndBuffers->deviceCount; ++j )
             {
@@ -2217,6 +2217,9 @@ static int NoBuffersAreQueued( PaWinMmeSingleDirectionHandlesAndBuffers *handles
 
 #define PA_CIRCULAR_INCREMENT_( current, max )\
     ( (((current) + 1) >= (max)) ? (0) : (current+1) )
+
+#define PA_CIRCULAR_DECREMENT_( current, max )\
+    ( ((current) == 0) ? ((max)-1) : (current-1) )
     
 
 static signed long GetAvailableFrames( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers )
@@ -2253,7 +2256,7 @@ static PaError AdvanceToNextInputBuffer( PaWinMmeStream *stream )
     MMRESULT mmresult;
     unsigned int i;
 
-    for( i=0; i< stream->input.deviceCount; ++i )
+    for( i=0; i < stream->input.deviceCount; ++i )
     {
         mmresult = waveInAddBuffer( ((HWAVEIN*)stream->input.waveHandles)[i],
                                     &stream->input.waveHeaders[i][ stream->input.currentBufferIndex ],
@@ -2280,7 +2283,7 @@ static PaError AdvanceToNextOutputBuffer( PaWinMmeStream *stream )
     MMRESULT mmresult;
     unsigned int i;
 
-    for( i=0; i< stream->output.deviceCount; ++i )
+    for( i=0; i < stream->output.deviceCount; ++i )
     {
         mmresult = waveOutWrite( ((HWAVEOUT*)stream->output.waveHandles)[i],
                                  &stream->output.waveHeaders[i][ stream->output.currentBufferIndex ],
@@ -2301,6 +2304,56 @@ static PaError AdvanceToNextOutputBuffer( PaWinMmeStream *stream )
 }
 
 
+/* requeue all but the most recent input with the driver. Used for catching
+    up after a total input buffer underrun */
+static PaError CatchUpInputBuffers( PaWinMmeStream *stream )
+{
+    PaError result = paNoError;
+    unsigned int i;
+    
+    for( i=0; i < stream->input.bufferCount - 1; ++i )
+    {
+        result = AdvanceToNextInputBuffer( stream );
+        if( result != paNoError )
+            break;
+    }
+
+    return result;
+}
+
+
+/* take the most recent output and duplicate it to all other output buffers
+    and requeue them. Used for catching up after a total output buffer underrun.
+*/
+static PaError CatchUpOutputBuffers( PaWinMmeStream *stream )
+{
+    PaError result = paNoError;
+    unsigned int i, j;
+    unsigned int previousBufferIndex =
+            PA_CIRCULAR_DECREMENT_( stream->output.currentBufferIndex, stream->output.bufferCount );
+
+    for( i=0; i < stream->output.bufferCount - 1; ++i )
+    {
+        for( j=0; j < stream->output.deviceCount; ++j )
+        {
+            if( stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].lpData
+                    != stream->output.waveHeaders[j][ previousBufferIndex ].lpData )
+            {
+                CopyMemory( stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].lpData,
+                            stream->output.waveHeaders[j][ previousBufferIndex ].lpData,
+                            stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].dwBufferLength );
+            }
+        }
+
+        result = AdvanceToNextOutputBuffer( stream );
+        if( result != paNoError )
+            break;
+    }
+
+    return result;
+}
+
+
 static DWORD WINAPI ProcessingThreadProc( void *pArg )
 {
     PaWinMmeStream *stream = (PaWinMmeStream *)pArg;
@@ -2312,9 +2365,10 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     int timeoutCount = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
+    PaStreamCallbackFlags statusFlags;
     int callbackResult;
     int done = 0;
-    unsigned int channel, i, j;
+    unsigned int channel, i;
     unsigned long framesProcessed;
     
     /* prepare event array for call to WaitForMultipleObjects() */
@@ -2324,12 +2378,24 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         events[eventCount++] = stream->output.bufferEvent;
     events[eventCount++] = stream->abortEvent;
 
+    statusFlags = 0; /** @todo support paInputUnderflow, paOutputOverflow and paNeverDropInput */
+    
     /* loop until something causes us to stop */
     while( !done )
     {
         /* wait for MME to signal that a buffer is available, or for
-            the PA abort event to be signaled */
-        waitResult = WaitForMultipleObjects( eventCount, events, FALSE, timeout );
+            the PA abort event to be signaled.
+
+          When this indicates that one or more buffers are available
+          NoBuffersAreQueued() and Current*BuffersAreDone are used below to
+          poll for additional done buffers. NoBuffersAreQueued() will fail
+          to identify an underrun/overflow if the driver doesn't mark all done
+          buffers prior to signalling the event. Some drivers do this
+          (eg RME Digi96, and others don't eg VIA PC 97 input). This isn't a
+          huge problem, it just means that we won't always be able to detect
+          underflow/overflow.
+        */
+        waitResult = WaitForMultipleObjects( eventCount, events, FALSE /* wait all = FALSE */, timeout );
         if( waitResult == WAIT_FAILED )
         {
             result = paUnanticipatedHostError;
@@ -2375,7 +2441,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
             {
                 hostInputBufferIndex = -1;
                 hostOutputBufferIndex = -1;
-
+                
                 if( PA_IS_INPUT_STREAM_(stream) )
                 {
                     if( CurrentInputBuffersAreDone( stream ) )
@@ -2383,16 +2449,20 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         if( NoBuffersAreQueued( &stream->input ) )
                         {
                             /* if all of the other buffers are also ready then
-                               we discard all but the most recent. FIXME: this is
-                               an input buffer overrun and should be flagged as such
-                            */
+                               we discard all but the most recent. This is an
+                               input buffer overflow. FIXME: these buffers should
+                               be passed to the callback in a paNeverDropInput
+                               stream.
 
-                            for( i=0; i < stream->input.bufferCount - 1; ++i )
-                            {
-                                result = AdvanceToNextInputBuffer( stream );
-                                if( result != paNoError )
-                                    done = 1;
-                            }
+                               note that it is also possible for an input overflow
+                               to happen while the callback is processing a buffer.
+                               that is handled further down.
+                            */
+                            result = CatchUpInputBuffers( stream );
+                            if( result != paNoError )
+                                done = 1;
+
+                            statusFlags |= paInputOverflow;
                         }
 
                         hostInputBufferIndex = stream->input.currentBufferIndex;
@@ -2403,34 +2473,28 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                 {
                     if( CurrentOutputBuffersAreDone( stream ) )
                     {
+                        /* ok, we have an output buffer */
+                        
                         if( NoBuffersAreQueued( &stream->output ) )
                         {
-                            /* if all of the other buffers are also ready, catch up by copying
+                            /*
+                            if all of the other buffers are also ready, catch up by copying
                             the most recently generated buffer into all but one of the output
-                            buffers */
-                            
-                            /* FIXME: this is an output underflow buffer slip and should be flagged as such */
-                            unsigned int previousBufferIndex = (stream->output.currentBufferIndex==0)
-                                    ? stream->output.bufferCount - 1
-                                    : stream->output.currentBufferIndex - 1;
+                            buffers.
 
-                            for( i=0; i < stream->output.bufferCount - 1; ++i )
-                            {
-                                for( j=0; j<stream->output.deviceCount; ++j )
-                                {
-                                    if( stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].lpData
-                                            != stream->output.waveHeaders[j][ previousBufferIndex ].lpData )
-                                    {
-                                        CopyMemory( stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].lpData,
-                                                    stream->output.waveHeaders[j][ previousBufferIndex ].lpData,
-                                                    stream->output.waveHeaders[j][ stream->output.currentBufferIndex ].dwBufferLength );
-                                    }
-                                }
+                            note that this catch up code only handles the case where all
+                            buffers have been played out due to this thread not having
+                            woken up at all. a more common case occurs when this thread
+                            is woken up, processes one buffer, but takes too long, and as
+                            a result all the other buffers have become un-queued. that
+                            case is handled further down.
+                            */
 
-                                result = AdvanceToNextOutputBuffer( stream );
-                                if( result != paNoError )
-                                    done = 1;
-                            }
+                            result = CatchUpOutputBuffers( stream );
+                            if( result != paNoError )
+                                done = 1;
+
+                            statusFlags |= paOutputUnderflow;
                         }
 
                         hostOutputBufferIndex = stream->output.currentBufferIndex;
@@ -2485,7 +2549,10 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, 0 /** @todo pass underflow/overflow flags when necessary */  );
+                    PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, statusFlags  );
+
+                    /* reset status flags once they have been passed to the buffer processor */
+                    statusFlags = 0;
 
                     if( PA_IS_INPUT_STREAM_(stream) )
                     {
@@ -2549,7 +2616,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     }
                     else
                     {
-                        /* User cllback has asked us to stop with paComplete or other non-zero value */
+                        /* User callback has asked us to stop with paComplete or other non-zero value */
                         stream->stopProcessing = 1; /* stop once currently queued audio has finished */
                         result = paNoError;
                     }
@@ -2560,6 +2627,50 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     */
                     if( stream->stopProcessing == 0 && stream->abortProcessing == 0 )
                     {
+                        if( PA_IS_INPUT_STREAM_(stream) &&
+                                stream->input.framesUsedInCurrentBuffer == stream->input.framesPerBuffer )
+                        {
+                            if( NoBuffersAreQueued( &stream->input ) )
+                            {
+                                /** @todo need to handle PaNeverDropInput here where necessary */
+                                result = CatchUpInputBuffers( stream );
+                                if( result != paNoError )
+                                    done = 1;
+
+                                statusFlags |= paInputOverflow;
+                            }
+
+                            result = AdvanceToNextInputBuffer( stream );
+                            if( result != paNoError )
+                                done = 1;
+                        }
+
+                        if( PA_IS_OUTPUT_STREAM_(stream) &&
+                                stream->output.framesUsedInCurrentBuffer == stream->output.framesPerBuffer )
+                        {
+                            /* check for underflow before enquing the just-generated buffer,
+                                but recover from underflow after enquing it. This ensures
+                                that the most recent audio segment is repeated */
+                            int outputUnderflow = NoBuffersAreQueued( &stream->output );
+
+                            result = AdvanceToNextOutputBuffer( stream );
+                            if( result != paNoError )
+                                done = 1;
+
+                            if( outputUnderflow && !done )
+                            {
+                                /* Recover from underflow in the case where the
+                                    underflow occured while processing the buffer
+                                    we just finished */
+
+                                result = CatchUpOutputBuffers( stream );
+                                if( result != paNoError )
+                                    done = 1;
+
+                                statusFlags |= paOutputUnderflow;
+                            }
+                        }
+
                         if( stream->throttleProcessingThreadOnOverload != 0 )
                         {
                             if( PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer ) > 1. )
@@ -2582,22 +2693,6 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                 }
                             }
                         }
-
-                        if( PA_IS_INPUT_STREAM_(stream) &&
-                                stream->input.framesUsedInCurrentBuffer == stream->input.framesPerBuffer )
-                        {
-                            result = AdvanceToNextInputBuffer( stream );
-                            if( result != paNoError )
-                                done = 1;
-                        }
-
-                        if( PA_IS_OUTPUT_STREAM_(stream) &&
-                                stream->output.framesUsedInCurrentBuffer == stream->output.framesPerBuffer )
-                        {
-                            result = AdvanceToNextOutputBuffer( stream );
-                            if( result != paNoError )
-                                done = 1;
-                        }
                     }
                 }
                 else
@@ -2616,6 +2711,8 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
     if( stream->streamRepresentation.streamFinishedCallback != 0 )
         stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+
+    PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
     
     return result;
 }

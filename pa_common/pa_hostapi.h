@@ -156,6 +156,8 @@ typedef struct PaUtilHostApiRepresentation {
  
             PaStreamFlags streamFlags
                 - unused platform neutral flags are zero
+                - paNeverDropInput is only used for full-duplex callback streams
+                    with variable buffer size (paFramesPerBufferUnspecified)
 
             [*END PA FRONT VALIDATIONS*]
 

@@ -941,12 +941,16 @@ static int SampleFormatIsValid( PaSampleFormat format )
  
     PaStreamFlags streamFlags
         - unused platform neutral flags are zero
+        - paNeverDropInput is only used for full-duplex callback streams with
+            variable buffer size (paFramesPerBufferUnspecified)
 */
 static PaError ValidateOpenStreamParameters(
     const PaStreamParameters *inputParameters,
     const PaStreamParameters *outputParameters,
     double sampleRate,
+    unsigned long framesPerBuffer,
     PaStreamFlags streamFlags,
+    PaStreamCallback *streamCallback,
     PaUtilHostApiRepresentation **hostApi,
     PaDeviceIndex *hostApiInputDevice,
     PaDeviceIndex *hostApiOutputDevice )
@@ -1079,6 +1083,21 @@ static PaError ValidateOpenStreamParameters(
     if( ((streamFlags & ~paPlatformSpecificFlags) & ~(paClipOff | paDitherOff | paNeverDropInput | paPrimeOutputBuffersUsingStreamCallback ) ) != 0 )
         return paInvalidFlag;
 
+    if( streamFlags & paNeverDropInput )
+    {
+        /* must be a callback stream */
+        if( !streamCallback )
+             return paInvalidFlag;
+
+        /* must be a full duplex stream */
+        if( (inputParameters == NULL) || (outputParameters == NULL) )
+            return paInvalidFlag;
+
+        /* must use paFramesPerBufferUnspecified */
+        if( framesPerBuffer != paFramesPerBufferUnspecified )
+            return paInvalidFlag;
+    }
+    
     return paNoError;
 }
 
@@ -1135,7 +1154,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
 
     result = ValidateOpenStreamParameters( inputParameters,
                                            outputParameters,
-                                           sampleRate, paNoFlag,
+                                           sampleRate, 0, paNoFlag, 0,
                                            &hostApi,
                                            &hostApiInputDevice,
                                            &hostApiOutputDevice );
@@ -1273,7 +1292,8 @@ PaError Pa_OpenStream( PaStream** stream,
 
     result = ValidateOpenStreamParameters( inputParameters,
                                            outputParameters,
-                                           sampleRate, streamFlags,
+                                           sampleRate, framesPerBuffer,
+                                           streamFlags, streamCallback,
                                            &hostApi,
                                            &hostApiInputDevice,
                                            &hostApiOutputDevice );

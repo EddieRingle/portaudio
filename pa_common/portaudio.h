@@ -601,16 +601,21 @@ typedef unsigned long PaStreamFlags;
 */
 #define   paDitherOff       ((PaStreamFlags) 0x00000002)
 
-/** A full duplex stream will not discard overflowed input samples without
- calling the stream callback, this flag is ignored for blocking read/write
- streams.
- @see PaStreamFlags
+/** Flag requests that where possible a full duplex stream will not discard
+ overflowed input samples without calling the stream callback. This flag is
+ only valid for full duplex callback streams and only when used in combination
+ with the paFramesPerBufferUnspecified (0) framesPerBuffer parameter. Using
+ this flag incorrectly results in a paInvalidFlag error being returned from
+ Pa_OpenStream and Pa_OpenDefaultStream.
+
+ @see PaStreamFlags, paFramesPerBufferUnspecified
 */
 #define   paNeverDropInput  ((PaStreamFlags) 0x00000004)
 
 /** Call the stream callback to fill initial output buffers, rather than the
  default behavior of priming the buffers with zeros (silence). This flag has
  no effect for input-only and blocking read/write streams.
+ 
  @see PaStreamFlags
 */
 #define   paPrimeOutputBuffersUsingStreamCallback ((PaStreamFlags) 0x00000008)
@@ -638,23 +643,31 @@ typedef struct PaStreamCallbackTimeInfo{
 */
 typedef unsigned long PaStreamCallbackFlags;
 
-/** Input data is all zeros because no real data is available.
+/** In a stream opened with paFramesPerBufferUnspecified, indicates that
+ input data is all silence (zeros) because no real data is available. In a
+ stream opened without paFramesPerBufferUnspecified, it indicates that one or
+ more zero samples have been inserted into the input buffer to compensate
+ for an input underflow.
  @see PaStreamCallbackFlags
 */
 #define paInputUnderflow   ((PaStreamCallbackFlags) 0x00000001)
 
-/** Input data was discarded by PortAudio
+/** In a stream opened with paFramesPerBufferUnspecified, indicates that data
+ prior to the first sample of the input buffer was discarded due to an
+ overflow, possibly because the stream callback is using too much CPU time.
+ Otherwise indicates that data prior to one or more samples in the
+ input buffer was discarded.
  @see PaStreamCallbackFlags
 */
 #define paInputOverflow    ((PaStreamCallbackFlags) 0x00000002)
 
-/** Output data was inserted by PortAudio because the stream callback is using
- too much CPU 
+/** Indicates that output data (or a gap) was inserted, possibly because the
+ stream callback is using too much CPU time.
  @see PaStreamCallbackFlags
 */
 #define paOutputUnderflow  ((PaStreamCallbackFlags) 0x00000004)
 
-/** Output data will be discarded because no room is available.
+/** Indicates that output data will be discarded because no room is available.
  @see PaStreamCallbackFlags
 */
 #define paOutputOverflow   ((PaStreamCallbackFlags) 0x00000008)
