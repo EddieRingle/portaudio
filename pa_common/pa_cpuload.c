@@ -42,6 +42,7 @@ void PaUtil_InitializeCpuLoadMeasurer( PaUtilCpuLoadMeasurer* measurer, double s
     assert( sampleRate > 0 );
 
     measurer->samplingPeriod = 1. / sampleRate;
+    measurer->averageLoad = 0.;
 }
 
 
