@@ -71,7 +71,7 @@ include:
 
 
 
-/* #define PA_LOG_API_CALLS */
+/* #define PA_LOG_API_CALLS  */
 
 /*
     The basic format for log messages is as follows:
@@ -126,7 +126,7 @@ static char lastHostErrorText_[ PA_LAST_HOST_ERROR_TEXT_LENGTH_ + 1 ] = {0};
 static PaHostErrorInfo lastHostErrorInfo_ = { -1, 0, lastHostErrorText_ };
 
 
-void PaUtil_SetLastHostError( PaHostApiTypeId hostApiType, long errorCode,
+void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
         const char *errorText )
 {
     lastHostErrorInfo_.hostApiType = hostApiType;
@@ -216,8 +216,15 @@ static PaError InitializeHostApis( void )
         {
 
             hostApis_[hostApisCount_]->privatePaFrontInfo.baseDeviceIndex = baseDeviceIndex;
-            baseDeviceIndex += hostApis_[hostApisCount_]->deviceCount;
-            deviceCount_ += hostApis_[hostApisCount_]->deviceCount;
+
+            if( hostApis_[hostApisCount_]->info.defaultInputDevice != paNoDevice )
+                hostApis_[hostApisCount_]->info.defaultInputDevice += baseDeviceIndex;
+
+            if( hostApis_[hostApisCount_]->info.defaultOutputDevice != paNoDevice )
+                hostApis_[hostApisCount_]->info.defaultOutputDevice += baseDeviceIndex;
+
+            baseDeviceIndex += hostApis_[hostApisCount_]->info.deviceCount;
+            deviceCount_ += hostApis_[hostApisCount_]->info.deviceCount;
 
             ++hostApisCount_;
         }
@@ -249,10 +256,10 @@ static int FindHostApi( PaDeviceIndex device, int *hostSpecificDeviceIndex )
         return -1;
 
     while( i < hostApisCount_
-            && device >= hostApis_[i]->deviceCount )
+            && device >= hostApis_[i]->info.deviceCount )
     {
 
-        device -= hostApis_[i]->deviceCount;
+        device -= hostApis_[i]->info.deviceCount;
         ++i;
     }
 
@@ -377,7 +384,7 @@ PaError Pa_Terminate( void )
 }
 
 
-const PaHostErrorInfo* Pa_GetLastHostError( void )
+const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void )
 {
     return &lastHostErrorInfo_;
 }
@@ -407,7 +414,7 @@ const char *Pa_GetErrorText( PaError errorNumber )
     case paTimedOut:                 result = "Wait timed out"; break;
     case paInternalError:            result = "Internal PortAudio error"; break;
     case paDeviceUnavailable:        result = "Device unavailable"; break;
-    case paIncompatibleStreamInfo:   result = "Incompatible host API specific stream info"; break;
+    case paIncompatibleHostApiSpecificStreamInfo:   result = "Incompatible host API specific stream info"; break;
     case paStreamIsStopped:          result = "Stream is stopped"; break;
     case paStreamIsNotStopped:       result = "Stream is not stopped"; break;
     default:                         result = "Illegal error number"; break;
@@ -497,7 +504,7 @@ PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
     
     x = device - hostApi->privatePaFrontInfo.baseDeviceIndex;
 
-    if( x < 0 || x >= hostApi->deviceCount )
+    if( x < 0 || x >= hostApi->info.deviceCount )
     {
         result = paInvalidDevice;
     }
@@ -513,6 +520,7 @@ PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
 
 PaHostApiIndex Pa_CountHostApis( void )
 {
+    int result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_CountHostApis called.\n" );
@@ -520,13 +528,14 @@ PaHostApiIndex Pa_CountHostApis( void )
 
     if( !PA_IS_INITIALISED_ )
     {
+        result = paNotInitialized;
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_CountHostApis returned:\n" );
-        PaUtil_DebugPrint("\tPaHostApiIndex: 0 [ PortAudio not initialized ]\n\n" );
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
 #endif
 
-        return 0;
+        return result;
     }
     else
     {
@@ -537,6 +546,54 @@ PaHostApiIndex Pa_CountHostApis( void )
 #endif
 
         return hostApisCount_;
+    }
+}
+
+
+PaHostApiIndex Pa_GetDefaultHostApi( void )
+{
+    int result;
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_GetDefaultHostApi called.\n" );
+#endif
+
+    if( !PA_IS_INITIALISED_ )
+    {
+        result = paNotInitialized;
+
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+
+        return result;
+    }
+    else
+    {
+        result = paDefaultHostApiIndex;
+
+        /* internal consistency check: make sure that the default host api
+         index is within range */
+
+        if( result < 0 || result >= hostApisCount_ )
+        {
+            result = paInternalError;
+            
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
+        PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+        }
+        else
+        {
+#ifdef PA_LOG_API_CALLS
+        PaUtil_DebugPrint("Pa_GetDefaultHostApi returned:\n" );
+        PaUtil_DebugPrint("\tPaHostApiIndex %d\n\n", result );
+#endif
+        }
+
+        return result;
     }
 }
 
@@ -590,160 +647,6 @@ const PaHostApiInfo* Pa_GetHostApiInfo( PaHostApiIndex hostApi )
 }
 
 
-PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi )
-{
-    PaDeviceIndex result;
-
-#ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice called:\n" );
-    PaUtil_DebugPrint("\tPaHostApiIndex hostApi: %d\n", hostApi );
-#endif
-
-    if( !PA_IS_INITIALISED_ )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ PortAudio not initialized ]\n\n" );
-#endif
-
-    }
-    else if( hostApi < 0 || hostApi >= hostApisCount_ )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApi out of range ]\n\n" );
-#endif
-
-    }
-    else if( hostApis_[hostApi]->defaultOutputDeviceIndex == paNoDevice )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ no default device ]\n\n" );
-#endif
-
-    }
-    else
-    {
-        result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex
-                 + hostApis_[hostApi]->defaultInputDeviceIndex;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultInputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
-#endif
-
-    }
-
-    return result;
-}
-
-
-PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi )
-{
-    PaDeviceIndex result;
-
-#ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice called:\n" );
-    PaUtil_DebugPrint("\tPaHostApiIndex hostApi: %d\n", hostApi );
-#endif
-
-    if( !PA_IS_INITIALISED_ )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ PortAudio not initialized ]\n\n" );
-#endif
-
-    }
-    else if( hostApi < 0 || hostApi >= hostApisCount_ )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ hostApi out of range ]\n\n" );
-#endif
-
-    }
-    else if( hostApis_[hostApi]->defaultOutputDeviceIndex == paNoDevice )
-    {
-        result = paNoDevice;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: paNoDevice [ no default device ]\n\n" );
-#endif
-
-    }
-    else
-    {
-        result = hostApis_[hostApi]->privatePaFrontInfo.baseDeviceIndex
-                 + hostApis_[hostApi]->defaultOutputDeviceIndex;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tPaDeviceIndex: %d\n\n", result );
-#endif
-
-    }
-
-    return result;
-}
-
-
-int Pa_HostApiCountDevices( PaHostApiIndex hostApi )
-{
-    int result;
-
-#ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice called:\n" );
-    PaUtil_DebugPrint("\tPaHostApiIndex hostApi: %d\n", hostApi );
-#endif
-
-    if( !PA_IS_INITIALISED_ )
-    {
-        result = 0;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tint: 0 [ PortAudio not initialized ]\n\n" );
-#endif
-
-    }
-    else if( hostApi < 0 || hostApi >= hostApisCount_ )
-    {
-        result = 0;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tint: 0 [ hostApi out of range ]\n\n" );
-#endif
-
-    }
-    else
-    {
-        result = hostApis_[hostApi]->deviceCount;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_HostApiDefaultOutputDevice returned:\n" );
-        PaUtil_DebugPrint("\tint: %d\n\n", result );
-#endif
-
-    }
-
-    return result;
-}
-
-
 PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int hostApiDeviceIndex )
 {
     PaDeviceIndex result;
@@ -780,7 +683,7 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi, int ho
         else
         {
             if( hostApiDeviceIndex < 0 ||
-                    hostApiDeviceIndex >= hostApis_[hostApi]->deviceCount )
+                    hostApiDeviceIndex >= hostApis_[hostApi]->info.deviceCount )
             {
                 result = paNoDevice;
 
@@ -841,13 +744,22 @@ PaDeviceIndex Pa_CountDevices( void )
 
 PaDeviceIndex Pa_GetDefaultInputDevice( void )
 {
+    PaHostApiIndex hostApi;
     PaDeviceIndex result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetDefaultInputDevice called.\n" );
 #endif
 
-    result = Pa_HostApiDefaultInputDevice( Pa_GetDefaultHostApi() );
+    hostApi = Pa_GetDefaultHostApi();
+    if( hostApi < 0 )
+    {
+        result = paNoDevice;
+    }
+    else
+    {
+        result = hostApis_[hostApi]->info.defaultInputDevice;
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetDefaultInputDevice returned:\n" );
@@ -860,13 +772,22 @@ PaDeviceIndex Pa_GetDefaultInputDevice( void )
 
 PaDeviceIndex Pa_GetDefaultOutputDevice( void )
 {
+    PaHostApiIndex hostApi;
     PaDeviceIndex result;
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetDefaultOutputDevice called.\n" );
 #endif
 
-    result = Pa_HostApiDefaultOutputDevice( Pa_GetDefaultHostApi() );
+    hostApi = Pa_GetDefaultHostApi();
+    if( hostApi < 0 )
+    {
+        result = paNoDevice;
+    }
+    else
+    {
+        result = hostApis_[hostApi]->info.defaultOutputDevice;
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetDefaultOutputDevice returned:\n" );
@@ -885,7 +806,6 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
 
 
 #ifdef PA_LOG_API_CALLS
-    int i;
     PaUtil_DebugPrint("Pa_GetDeviceInfo called:\n" );
     PaUtil_DebugPrint("\tPaDeviceIndex device: %d\n", device );
 #endif
@@ -914,18 +834,6 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
         PaUtil_DebugPrint("\t\tPaHostApiIndex hostApi: %d\n", result->hostApi );
         PaUtil_DebugPrint("\t\tint maxInputChannels: %d\n", result->maxInputChannels );
         PaUtil_DebugPrint("\t\tint maxOutputChannels: %d\n", result->maxOutputChannels );
-        PaUtil_DebugPrint("\t\tint numSampleRates: %d\n", result->numSampleRates );
-
-        PaUtil_DebugPrint("\t\tconst double *sampleRates: { " );
-        for( i=0; i<((result->numSampleRates==-1)?2:result->numSampleRates); ++i )
-        {
-            if( i != 0 )
-                PaUtil_DebugPrint(", " );
-            PaUtil_DebugPrint("%g", result->sampleRates[i] );
-        }
-        PaUtil_DebugPrint(" }\n" );
-
-        PaUtil_DebugPrint("\t\tPaSampleFormat nativeSampleFormats: 0x%x\n", result->nativeSampleFormats );
         PaUtil_DebugPrint("\t}\n\n" );
 #endif
 
@@ -991,8 +899,8 @@ static int SampleFormatIsValid( PaSampleFormat format )
             inputParameters->hostApiSpecificStreamInfo is non-NULL and refers
             to a valid host api
 
-    int inputParameters->numChannels
-        - if inputParameters->device is not paUseHostApiSpecificDeviceSpecification, numInputChannels is > 0
+    int inputParameters->channelCount
+        - if inputParameters->device is not paUseHostApiSpecificDeviceSpecification, channelCount is > 0
         - upper bound is NOT validated against device capabilities
  
     PaSampleFormat inputParameters->sampleFormat
@@ -1004,8 +912,8 @@ static int SampleFormatIsValid( PaSampleFormat format )
     PaDeviceIndex outputParmeters->device
         - is within range (0 to Pa_CountDevices-1)
  
-    int outputParmeters->numChannels
-        - if inputDevice is valid, numInputChannels is > 0
+    int outputParmeters->channelCount
+        - if inputDevice is valid, channelCount is > 0
         - upper bound is NOT validated against device capabilities
  
     PaSampleFormat outputParmeters->sampleFormat
@@ -1077,7 +985,7 @@ static PaError ValidateOpenStreamParameters(
 
             *hostApi = hostApis_[inputHostApiIndex];
 
-            if( inputParameters->numberOfChannels <= 0 )
+            if( inputParameters->channelCount <= 0 )
                 return paInvalidChannelCount;
 
             if( !SampleFormatIsValid( inputParameters->sampleFormat ) )
@@ -1087,7 +995,7 @@ static PaError ValidateOpenStreamParameters(
             {
                 if( ((PaUtilHostApiSpecificStreamInfoHeader*)inputParameters->hostApiSpecificStreamInfo)->hostApiType
                         != (*hostApi)->info.type )
-                    return paIncompatibleStreamInfo;
+                    return paIncompatibleHostApiSpecificStreamInfo;
             }
         }
 
@@ -1128,7 +1036,7 @@ static PaError ValidateOpenStreamParameters(
 
             *hostApi = hostApis_[outputHostApiIndex];
 
-            if( outputParameters->numberOfChannels <= 0 )
+            if( outputParameters->channelCount <= 0 )
                 return paInvalidChannelCount;
 
             if( !SampleFormatIsValid( outputParameters->sampleFormat ) )
@@ -1138,7 +1046,7 @@ static PaError ValidateOpenStreamParameters(
             {
                 if( ((PaUtilHostApiSpecificStreamInfoHeader*)inputParameters->hostApiSpecificStreamInfo)->hostApiType
                         != (*hostApi)->info.type )
-                    return paIncompatibleStreamInfo;
+                    return paIncompatibleHostApiSpecificStreamInfo;
             }
         }   
 
@@ -1180,7 +1088,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     }else{
         PaUtil_DebugPrint("\PaStreamParameters *inputParameters: 0x%p\n", inputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex inputParameters->device: %d\n", inputParameters->device );
-        PaUtil_DebugPrint("\tint inputParameters->numChannels: %d\n", inputParameters->numChannels );
+        PaUtil_DebugPrint("\tint inputParameters->channelCount: %d\n", inputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat inputParameters->sampleFormat: %d\n", inputParameters->sampleFormat );
         PaUtil_DebugPrint("\tPaTime inputParameters->suggestedLatency: %f\n", inputParameters->suggestedLatency );
         PaUtil_DebugPrint("\tvoid *inputParameters->hostApiSpecificStreamInfo: 0x%p\n", inputParameters->hostApiSpecificStreamInfo );
@@ -1191,7 +1099,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     }else{
         PaUtil_DebugPrint("\PaStreamParameters *outputParameters: 0x%p\n", outputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex outputParameters->device: %d\n", outputParameters->device );
-        PaUtil_DebugPrint("\tint outputParameters->numChannels: %d\n", outputParameters->numChannels );
+        PaUtil_DebugPrint("\tint outputParameters->channelCount: %d\n", outputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat outputParameters->sampleFormat: %d\n", outputParameters->sampleFormat );
         PaUtil_DebugPrint("\tPaTime outputParameters->suggestedLatency: %f\n", outputParameters->suggestedLatency );
         PaUtil_DebugPrint("\tvoid *outputParameters->hostApiSpecificStreamInfo: 0x%p\n", outputParameters->hostApiSpecificStreamInfo );
@@ -1230,7 +1138,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     if( inputParameters )
     {
         hostApiInputParameters.device = hostApiInputDevice;
-        hostApiInputParameters.numberOfChannels = inputParameters->numberOfChannels;
+        hostApiInputParameters.channelCount = inputParameters->channelCount;
         hostApiInputParameters.sampleFormat = inputParameters->sampleFormat;
         hostApiInputParameters.suggestedLatency = inputParameters->suggestedLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1244,7 +1152,7 @@ PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
     if( outputParameters )
     {
         hostApiOutputParameters.device = hostApiOutputDevice;
-        hostApiOutputParameters.numberOfChannels = outputParameters->numberOfChannels;
+        hostApiOutputParameters.channelCount = outputParameters->channelCount;
         hostApiOutputParameters.sampleFormat = outputParameters->sampleFormat;
         hostApiOutputParameters.suggestedLatency = outputParameters->suggestedLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1296,7 +1204,7 @@ PaError Pa_OpenStream( PaStream** stream,
     }else{
         PaUtil_DebugPrint("\PaStreamParameters *inputParameters: 0x%p\n", inputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex inputParameters->device: %d\n", inputParameters->device );
-        PaUtil_DebugPrint("\tint inputParameters->numChannels: %d\n", inputParameters->numChannels );
+        PaUtil_DebugPrint("\tint inputParameters->channelCount: %d\n", inputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat inputParameters->sampleFormat: %d\n", inputParameters->sampleFormat );
         PaUtil_DebugPrint("\tPaTime inputParameters->suggestedLatency: %f\n", inputParameters->suggestedLatency );
         PaUtil_DebugPrint("\tvoid *inputParameters->hostApiSpecificStreamInfo: 0x%p\n", inputParameters->hostApiSpecificStreamInfo );
@@ -1307,7 +1215,7 @@ PaError Pa_OpenStream( PaStream** stream,
     }else{
         PaUtil_DebugPrint("\PaStreamParameters *outputParameters: 0x%p\n", outputParameters );
         PaUtil_DebugPrint("\tPaDeviceIndex outputParameters->device: %d\n", outputParameters->device );
-        PaUtil_DebugPrint("\tint outputParameters->numChannels: %d\n", outputParameters->numChannels );
+        PaUtil_DebugPrint("\tint outputParameters->channelCount: %d\n", outputParameters->channelCount );
         PaUtil_DebugPrint("\tPaSampleFormat outputParameters->sampleFormat: %d\n", outputParameters->sampleFormat );
         PaUtil_DebugPrint("\tPaTime outputParameters->suggestedLatency: %f\n", outputParameters->suggestedLatency );
         PaUtil_DebugPrint("\tvoid *outputParameters->hostApiSpecificStreamInfo: 0x%p\n", outputParameters->hostApiSpecificStreamInfo );
@@ -1316,7 +1224,7 @@ PaError Pa_OpenStream( PaStream** stream,
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
     PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
     PaUtil_DebugPrint("\tPaStreamFlags streamFlags: 0x%x\n", streamFlags );
-    PaUtil_DebugPrint("\tPaStreamCallback *streamCallback: 0x%p\n", callback );
+    PaUtil_DebugPrint("\tPaStreamCallback *streamCallback: 0x%p\n", streamCallback );
     PaUtil_DebugPrint("\tvoid *userData: 0x%p\n", userData );
 #endif
 
@@ -1366,7 +1274,7 @@ PaError Pa_OpenStream( PaStream** stream,
     if( inputParameters )
     {
         hostApiInputParameters.device = hostApiInputDevice;
-        hostApiInputParameters.numberOfChannels = inputParameters->numberOfChannels;
+        hostApiInputParameters.channelCount = inputParameters->channelCount;
         hostApiInputParameters.sampleFormat = inputParameters->sampleFormat;
         hostApiInputParameters.suggestedLatency = inputParameters->suggestedLatency;
         hostApiInputParameters.hostApiSpecificStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -1380,7 +1288,7 @@ PaError Pa_OpenStream( PaStream** stream,
     if( outputParameters )
     {
         hostApiOutputParameters.device = hostApiOutputDevice;
-        hostApiOutputParameters.numberOfChannels = outputParameters->numberOfChannels;
+        hostApiOutputParameters.channelCount = outputParameters->channelCount;
         hostApiOutputParameters.sampleFormat = outputParameters->sampleFormat;
         hostApiOutputParameters.suggestedLatency = outputParameters->suggestedLatency;
         hostApiOutputParameters.hostApiSpecificStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1410,8 +1318,8 @@ PaError Pa_OpenStream( PaStream** stream,
 
 
 PaError Pa_OpenDefaultStream( PaStream** stream,
-                              int numInputChannels,
-                              int numOutputChannels,
+                              int inputChannelCount,
+                              int outputChannelCount,
                               PaSampleFormat sampleFormat,
                               double sampleRate,
                               unsigned long framesPerBuffer,
@@ -1425,8 +1333,8 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_OpenDefaultStream called:\n" );
     PaUtil_DebugPrint("\tPaStream** stream: 0x%p\n", stream );
-    PaUtil_DebugPrint("\tint numInputChannels: %d\n", numInputChannels );
-    PaUtil_DebugPrint("\tint numOutputChannels: %d\n", numOutputChannels );
+    PaUtil_DebugPrint("\tint inputChannelCount: %d\n", inputChannelCount );
+    PaUtil_DebugPrint("\tint outputChannelCount: %d\n", outputChannelCount );
     PaUtil_DebugPrint("\tPaSampleFormat sampleFormat: %d\n", sampleFormat );
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
     PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
@@ -1435,10 +1343,10 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
 #endif
 
 
-    if( numInputChannels > 0 )
+    if( inputChannelCount > 0 )
     {
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
-        hostApiInputParameters.numberOfChannels = numInputChannels;
+        hostApiInputParameters.channelCount = inputChannelCount;
         hostApiInputParameters.sampleFormat = sampleFormat;
         hostApiInputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiInputParameters.device )->defaultHighInputLatency;
@@ -1450,10 +1358,10 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
         hostApiInputParametersPtr = NULL;
     }
 
-    if( numOutputChannels > 0 )
+    if( outputChannelCount > 0 )
     {
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
-        hostApiOutputParameters.numberOfChannels = numOutputChannels;
+        hostApiOutputParameters.channelCount = outputChannelCount;
         hostApiOutputParameters.sampleFormat = sampleFormat;
         hostApiOutputParameters.suggestedLatency =  /* REVIEW: should we be using high input latency here? */
              Pa_GetDeviceInfo( hostApiOutputParameters.device )->defaultHighOutputLatency;
