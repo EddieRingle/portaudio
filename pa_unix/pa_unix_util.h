@@ -44,6 +44,14 @@ static PaError paUtilErr_;          /* Used with PA_ENSURE */
         } \
     } while (0);
 
+typedef struct {
+    pthread_t callbackThread;
+} PaUtilThreading;
+
+PaError PaUtil_InitializeThreading( PaUtilThreading *threading );
+PaError PaUtil_StartThreading( PaUtilThreading *threading, void *(*threadRoutine)(void *), void *data );
+PaError PaUtil_CancelThreading( PaUtilThreading *threading, int wait, PaError *exitResult );
+
 /* State accessed by utility functions */
 
 /*
