@@ -161,7 +161,6 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     {
         int framesInBuffer = bytesPerBuffer / (nChannels * sizeof(short));
         dsw->dsw_CounterTicksPerBuffer.QuadPart = (counterFrequency.QuadPart * framesInBuffer) / nFrameRate;
-        AddTraceMessage("dsw_CounterTicksPerBuffer = %d\n", dsw->dsw_CounterTicksPerBuffer.LowPart );
     }
     else
     {
@@ -233,8 +232,6 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
     {
         return hr;
     }
-    AddTraceMessage("playCursor", playCursor);
-    AddTraceMessage("dsw_WriteOffset", dsw->dsw_WriteOffset);
     // Determine size of gap between playIndex and WriteIndex that we cannot write into.
     playWriteGap = writeCursor - playCursor;
     if( playWriteGap < 0 ) playWriteGap += dsw->dsw_OutputSize; // unwrap
@@ -260,8 +257,6 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
         buffersWrapped = (bytesExpected - bytesPlayed) / dsw->dsw_OutputSize;
         if( buffersWrapped > 0 )
         {
-            AddTraceMessage("playCursor wrapped! bytesPlayed", bytesPlayed );
-            AddTraceMessage("playCursor wrapped! bytesExpected", bytesExpected );
             playCursor += (buffersWrapped * dsw->dsw_OutputSize);
             bytesPlayed += (buffersWrapped * dsw->dsw_OutputSize);
         }
@@ -276,7 +271,6 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
         if( dsw->dsw_OutputRunning )
         {
             dsw->dsw_OutputUnderflows += 1;
-            AddTraceMessage("underflow detected! numBytesEmpty", numBytesEmpty );
         }
         dsw->dsw_WriteOffset = writeCursor;
         numBytesEmpty = dsw->dsw_OutputSize - playWriteGap;
