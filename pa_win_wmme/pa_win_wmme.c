@@ -80,8 +80,6 @@
 
     @todo implement IsFormatSupported
 
-    @todo implement PaDeviceInfo.defaultSampleRate;
-
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
     @todo make sure all buffers have been played before stopping the stream
@@ -111,6 +109,10 @@
 #include "pa_process.h"
 
 #include "pa_win_wmme.h"
+
+#if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
+#pragma comment(lib, "winmm.lib")
+#endif
 
 /************************************************* Constants ********/
 
