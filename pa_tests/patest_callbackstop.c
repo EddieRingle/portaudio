@@ -175,14 +175,18 @@ int main(void)
          */
      
         j = 0;
-        while( Pa_IsStreamActive( stream ) && j < NUM_SECONDS * 2 )
+        while( (err = Pa_IsStreamActive( stream )) == 1 && j < NUM_SECONDS * 2 )
         {
             printf(".\n" );
             Pa_Sleep( 500 );
             ++j;
         }
 
-        if( Pa_IsStreamActive( stream ) )
+        if( err < 0 )
+        {
+            goto error;
+        }
+        else if( err == 1 )
         {
             printf( "TEST FAILED: Timed out waiting for buffers to finish playing.\n" );
         }

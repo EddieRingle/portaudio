@@ -190,8 +190,11 @@ int main(void)
         goto error;
 
     printf("Waiting for sound to finish.\n");
-    while( Pa_IsStreamActive( stream ) )
-        Pa_Sleep(10);
+
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
+        Pa_Sleep(100);
+    if( err < 0 )
+        goto error;
 
     err = Pa_CloseStream( stream );
     if( err != paNoError )

@@ -248,10 +248,10 @@ int main(void)
     if( err != paNoError ) goto error;
 
     printf("Stereo pink noise for one minute...\n");
-    while( Pa_IsStreamActive( stream ) )
-    {
-        Pa_Sleep(100); /* SPIN! */
-    }
+
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(100);
+    if( err < 0 ) goto error;
+
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
 #ifdef PINK_MEASURE

@@ -165,8 +165,8 @@ static PaError DoTest( int flags )
     printf("hear \"BEEP\"\n" );
     fflush(stdout);
 
-    while( Pa_IsStreamActive( stream ) )
-        Pa_Sleep(SLEEP_MSEC);
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(SLEEP_MSEC);
+    if( err < 0 ) goto error;
 
     err = Pa_StopStream( stream );
     if( err != paNoError ) goto error;

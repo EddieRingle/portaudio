@@ -176,7 +176,9 @@ int main(void)
     if( err != paNoError ) goto error;
 
     printf("Waiting %d seconds for sound to finish.\n", NUM_SECONDS );
-    while( Pa_IsStreamActive( stream ) ) Pa_Sleep(10);
+
+    while( ( err = Pa_IsStreamActive( stream ) ) == 1 ) Pa_Sleep(100);
+    if( err < 0 ) goto error;
 
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
