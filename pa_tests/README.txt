@@ -11,7 +11,7 @@ Feel free to fix some more of them, most simply require adjusting to the new API
 o- paqa_devs.c 
 o- paqa_errs.c 
 o- patest1.c
-o- patest_buffer.c
+x- patest_buffer.c
 x- patest_callbackstop.c
 x- patest_clip.c (last test fails, dither doesn't currently force clip in V19)
 o- patest_dither.c
