@@ -735,23 +735,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         inputChannelCount != outputChannelCount)
        return paInvalidChannelCount;
 
-    /* ATTEMPTED FIX from Ross, parameter device ids are already in host format
-    if (inputChannelCount > 0) {
-            result = PaUtil_DeviceIndexToHostApiDeviceIndex(&device, inputParameters->device, hostApi);
-        if (result != paNoError)
-            return result;
-    }
-    else {
-        result = PaUtil_DeviceIndexToHostApiDeviceIndex(&device, outputParameters->device, hostApi);
-        if (result != paNoError)
-            return result;
-    }
-    */
-
-    if (inputChannelCount > 0)
-        device = inputParameters->device;
-    else
-        device = outputParameters->device;
+    /* note that inputParameters and outputParameters device indicies are
+     * already in host format */
+    device = (inputChannelCount > 0 )
+            ? inputParameters->device
+            : outputParameters->device;
 
     deviceInfo = hostApi->deviceInfos[device];
     deviceName = (char *)deviceInfo->name;
@@ -1033,9 +1021,8 @@ static PaError StartStream( PaStream *s )
 
     DBUG(("PaOSS StartStream\n"));
 
-    /* ATTEMPTED FIX from Ross, only use thread for callback stream */
-    if( stream->streamRepresentation.bufferProcessor.streamCallback )
-    {
+    /* only use the thread for callback streams */
+    if( stream->bufferProcessor.streamCallback ) {
             presult = pthread_create(&stream->thread,
                              NULL /*pthread_attr_t * attr*/,
                              (void*)PaOSS_AudioThreadProc, (void *)stream);
@@ -1051,11 +1038,11 @@ static PaError StopStream( PaStream *s )
     PaOSSStream *stream = (PaOSSStream*)s;
 
     stream->stopSoon = 1;
-    /* ATTEMPTED FIX from Ross, only use thread for callback stream */
-    if( stream->streamRepresentation.bufferProcessor.streamCallback )
-    {
+
+    /* only use the thread for callback streams */
+    if( stream->bufferProcessor.streamCallback )
         pthread_join( stream->thread, NULL );
-    }
+
     stream->stopSoon = 0;
     stream->stopNow = 0;
     stream->isActive = 0;
@@ -1072,9 +1059,11 @@ static PaError AbortStream( PaStream *s )
     PaOSSStream *stream = (PaOSSStream*)s;
 
     stream->stopNow = 1;
-    /* ATTEMPTED FIX from Ross, only use thread for callback stream */
-    if( stream->streamRepresentation.bufferProcessor.streamCallback )
+
+    /* only use the thread for callback streams */
+    if( stream->bufferProcessor.streamCallback )
         pthread_join( stream->thread, NULL );
+
     stream->stopSoon = 0;
     stream->stopNow = 0;
     stream->isActive = 0;
