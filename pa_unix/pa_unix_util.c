@@ -104,4 +104,5 @@ void PaUtil_InitializeClock( void )
 double PaUtil_GetTime( void )
 {
     /* TODO */
+    return 0.0; /* Surpress warning. */
 }
