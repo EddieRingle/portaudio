@@ -2618,10 +2618,10 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     }
 
 PA_DEBUG(("PaAsio_ShowControlPanel: ASIOInit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
-PA_DEBUG(("asioVersion: ASIOInit(): %ld\n", driverInfo.asioVersion ));
-PA_DEBUG(("driverVersion: ASIOInit(): %ld\n", driverInfo.driverVersion ));
-PA_DEBUG(("Name: ASIOInit(): %s\n", driverInfo.name ));
-PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n", driverInfo.errorMessage ));
+PA_DEBUG(("asioVersion: ASIOInit(): %ld\n",   asioDriverInfo.asioVersion )); 
+PA_DEBUG(("driverVersion: ASIOInit(): %ld\n", asioDriverInfo.driverVersion )); 
+PA_DEBUG(("Name: ASIOInit(): %s\n",           asioDriverInfo.name )); 
+PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n",   asioDriverInfo.errorMessage )); 
 
     asioError = ASIOControlPanel();
     if( asioError != ASE_OK )
