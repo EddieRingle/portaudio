@@ -29,7 +29,7 @@ pa_common\pa_converters.c
 pa_common\pa_cpuload.c
 pa_common\pa_dither.c
 pa_common\pa_front.c
-pa_win\pa_win.c
+pa_win\pa_win_util.c
 pa_win\pa_win_hostapis.c
 pa_win_wmme\pa_win_wmme.c
 
@@ -79,7 +79,7 @@ pa_process.c/h
 pa_skeleton.c
     an skeleton implementation showing how the common code can be used.
 
-pa_win.c
+pa_win_util.c
     Win32 implementation of platform specific PaUtil functions (memory allocation,
     usec clock, Pa_Sleep().)  The file will be used with all Win32 host APIs.
     

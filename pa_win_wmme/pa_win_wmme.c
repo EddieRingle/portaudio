@@ -946,6 +946,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         wfx.wBitsPerSample = (WORD)((bytesPerInputFrame/numInputChannels) * 8);
         wfx.cbSize = 0;
 
+        /* REVIEW: consider not firing an event for input when a full duplex stream is being used */
         mmresult = waveInOpen( &stream->hWaveIn, inputWinMmeId, &wfx,
                                (DWORD)stream->bufferEvent, (DWORD) stream, CALLBACK_EVENT );
         if( mmresult != MMSYSERR_NOERROR )
