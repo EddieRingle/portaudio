@@ -71,16 +71,27 @@ PaError PaUtil_DeviceIndexToHostApiDeviceIndex(
         struct PaUtilHostApiRepresentation *hostApi );
 
 
-/** Set the host error value returned by Pa_GetHostError(). This function
- should be used as a last resort. Implementors should use existing PA
- error codes where possible, or nominate new ones. Note that at this stage
- it is better to use PaUtil_SetHostError() than to return an ambiguous or
- inaccurate PaError code.
- @note this function is deprecated and is marked for removal from the API.
+/** Set the host error information returned by Pa_GetLastHostError. This
+ function and the paUnanticipatedHostError error code should be used as a
+ last resort.  Implementors should use existing PA error codes where possible,
+ or nominate new ones. Note that at it is always better to use
+ PaUtil_SetLastHostError() and paUnanticipatedHostError than to return an
+ ambiguous or inaccurate PaError code.
+
+ @param hostApiType  The host API which encountered the error (ie of the caller)
+
+ @param errorCode The error code returned by the native API function.
+
+ @param errorText A string describing the error. PaUtil_SetLastHostError makes
+ a copy of the string, so it is not necessary for the pointer to remain valid
+ after the call to PaUtil_SetLastHostError() returns.
+
 */
-void PaUtil_SetHostError( long error );
+void PaUtil_SetLastHostError( PaHostApiTypeId hostApiType, long errorCode,
+        const char *errorText );
 
 
+        
 /**
 PA_DEBUG() provides a simple debug message printing facility. The macro
 passes it's argument to a printf-like function called PaUtil_DebugPrint()
