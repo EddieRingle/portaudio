@@ -79,21 +79,26 @@ typedef struct PaUtilHostApiSpecificStreamInfoHeader
 
 typedef struct PaUtilHostApiRepresentation {
     PaUtilPrivatePaFrontHostApiInfo privatePaFrontInfo;
-    PaHostApiInfo info;
-        
-    int deviceCount;
-    PaDeviceInfo** deviceInfos;
-    int defaultInputDeviceIndex;
-    int defaultOutputDeviceIndex;
 
-    /*
+    /**
+        The host api implementation should populate the info field. In the
+        case of info.defaultInputDevice and info.defaultOutputDevice the
+        values stored should be 0 based indicies within the host api's own
+        device index range (0 to deviceCount). These values will be converted
+        to global device indicies after PaUtilHostApiInitializer() returns.
+    */
+    PaHostApiInfo info;
+
+    PaDeviceInfo** deviceInfos;
+
+    /**
         (*Terminate)() is guaranteed to be called with a valid <hostApi>
         parameter, which was previously returned from the same implementation's
         initializer.
     */
     void (*Terminate)( struct PaUtilHostApiRepresentation *hostApi );
 
-    /*
+    /**
         The inputParameters and outputParameters pointers should not be saved
         as they will not remain valid after OpenStream is called.
 
@@ -204,20 +209,27 @@ typedef struct PaUtilHostApiRepresentation {
 } PaUtilHostApiRepresentation;
 
 
-/*
+/**
     every host api implementation must supply a host api initializer in the
     following form.
 */
 typedef PaError PaUtilHostApiInitializer( PaUtilHostApiRepresentation**, PaHostApiIndex );
 
 
-/*
+/**
  paHostApiInitializers is a NULL-terminated array of host api initializers
  for the host apis which will be initialized when Pa_Initialize() is called.
- each platform has a file which defines hostApiInitializers for that platform.
+ each platform has a file which defines paHostApiInitializers for that platform.
  see pa_win_init.c for example.
 */
 extern PaUtilHostApiInitializer *paHostApiInitializers[];
+
+
+/** index of the default host API in the paHostApiInitializers array. Each
+ platform has a file which defines paDefaultHostApiIndex for that platform.
+ see pa_win_init.c for example.
+*/
+extern int paDefaultHostApiIndex;
 
 
 #ifdef __cplusplus
