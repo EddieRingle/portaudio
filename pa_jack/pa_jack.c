@@ -242,12 +242,13 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
     PaUtilHostApiRepresentation *commonApi = &jackApi->commonHostApiRep;
 
     const char **jack_ports = NULL;
-    char *client_names[MAX_CLIENTS];
+    char **client_names = NULL;
     char *regex_pattern = alloca( jack_client_name_size() + 3 );
-    int num_clients = 0;
     int port_index, client_index, i;
     double globalSampleRate;
     regex_t port_regex;
+    unsigned long numClients = 0, numPorts = 0;
+    char *tmp_client_name = alloca( jack_client_name_size() );
 
     commonApi->info.defaultInputDevice = paNoDevice;
     commonApi->info.defaultOutputDevice = paNoDevice;
@@ -266,13 +267,17 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
      * enforced by jackd)
      * A: If jack_get_ports returns NULL, there's nothing for us to do */
     UNLESS( (jack_ports = jack_get_ports( jackApi->jack_client, "", "", 0 )) && jack_ports[0], paNoError );
+    /* Find number of ports */
+    while( jack_ports[numPorts] )
+        ++numPorts;
+    /* At least there will be one port per client :) */
+    UNLESS( client_names = alloca( numPorts * sizeof (char *) ), paInsufficientMemory );
 
     /* Build a list of clients from the list of ports */
-    for( port_index = 0; jack_ports[port_index] != NULL; port_index++ )
+    for( numClients = 0, port_index = 0; jack_ports[port_index] != NULL; port_index++ )
     {
-        int client_seen;
+        int client_seen = FALSE;
         regmatch_t match_info;
-        char *tmp_client_name = alloca( jack_client_name_size() );
         const char *port = jack_ports[port_index];
 
         /* extract the client name from the port name, using a regex
@@ -284,32 +289,33 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
         tmp_client_name[match_info.rm_eo - match_info.rm_so] = '\0';
 
         /* do we know about this port's client yet? */
-        client_seen = FALSE;
-        for( i = 0; i < num_clients; i++ )
+        for( i = 0; i < numClients; i++ )
+        {
             if( strcmp( tmp_client_name, client_names[i] ) == 0 )
                 client_seen = TRUE;
+        }
 
         if (client_seen)
             continue;   /* A: Nothing to see here, move along */
 
-        UNLESS( client_names[num_clients] = (char*)MALLOC(strlen(tmp_client_name) + 1), paInsufficientMemory );
+        UNLESS( client_names[numClients] = (char*)MALLOC(strlen(tmp_client_name) + 1), paInsufficientMemory );
 
         /* The alsa_pcm client should go in spot 0.  If this
          * is the alsa_pcm client AND we are NOT about to put
          * it in spot 0 put it in spot 0 and move whatever
          * was already in spot 0 to the end. */
-        if( strcmp( "alsa_pcm", tmp_client_name ) == 0 && num_clients > 0 )
+        if( strcmp( "alsa_pcm", tmp_client_name ) == 0 && numClients > 0 )
         {
             /* alsa_pcm goes in spot 0 */
-            strcpy( client_names[ num_clients ], client_names[0] );
+            strcpy( client_names[ numClients ], client_names[0] );
             strcpy( client_names[0], tmp_client_name );
         }
         else
         {
             /* put the new client at the end of the client list */
-            strcpy( client_names[ num_clients ], tmp_client_name );
+            strcpy( client_names[ numClients ], tmp_client_name );
         }
-        ++num_clients;
+        ++numClients;
     }
 
     /* Now we have a list of clients, which will become the list of
@@ -319,15 +325,15 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
 
     globalSampleRate = jack_get_sample_rate( jackApi->jack_client );
     UNLESS( commonApi->deviceInfos = (PaDeviceInfo**)MALLOC( sizeof(PaDeviceInfo*) *
-                                                     num_clients ), paInsufficientMemory );
+                                                     numClients ), paInsufficientMemory );
 
     assert( commonApi->info.deviceCount == 0 );
 
     /* Create a PaDeviceInfo structure for every client */
-    for( client_index = 0; client_index < num_clients; client_index++ )
+    for( client_index = 0; client_index < numClients; client_index++ )
     {
         PaDeviceInfo *curDevInfo;
-        const char **jack_ports = NULL; /* Local definition, for easier cleanup */
+        const char **clientPorts = NULL;
 
         UNLESS( curDevInfo = (PaDeviceInfo*)MALLOC( sizeof(PaDeviceInfo) ), paInsufficientMemory );
         UNLESS( curDevInfo->name = (char*)MALLOC( strlen(client_names[client_index]) + 1 ), paInsufficientMemory );
@@ -346,47 +352,47 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
         sprintf( regex_pattern, "%s:.*", client_names[client_index] );
 
         /* ... what are your output ports (that we could input from)? */
-        jack_ports = jack_get_ports( jackApi->jack_client, regex_pattern,
+        clientPorts = jack_get_ports( jackApi->jack_client, regex_pattern,
                                      NULL, JackPortIsOutput);
         curDevInfo->maxInputChannels = 0;
         curDevInfo->defaultLowInputLatency = 0.;
         curDevInfo->defaultHighInputLatency = 0.;
-        if( jack_ports )
+        if( clientPorts )
         {
-            jack_port_t *p = jack_port_by_name( jackApi->jack_client, jack_ports[0] );
+            jack_port_t *p = jack_port_by_name( jackApi->jack_client, clientPorts[0] );
             curDevInfo->defaultLowInputLatency = curDevInfo->defaultHighInputLatency =
                 jack_port_get_latency( p ) / globalSampleRate;
             free( p );
 
-            for( i = 0; jack_ports[i] != NULL ; i++)
+            for( i = 0; clientPorts[i] != NULL; i++)
             {
                 /* The number of ports returned is the number of output channels.
                  * We don't care what they are, we just care how many */
                 curDevInfo->maxInputChannels++;
             }
-            free(jack_ports);
+            free(clientPorts);
         }
 
         /* ... what are your input ports (that we could output to)? */
-        jack_ports = jack_get_ports( jackApi->jack_client, regex_pattern,
+        clientPorts = jack_get_ports( jackApi->jack_client, regex_pattern,
                                      NULL, JackPortIsInput);
         curDevInfo->maxOutputChannels = 0;
         curDevInfo->defaultLowOutputLatency = 0.;
         curDevInfo->defaultHighOutputLatency = 0.;
-        if( jack_ports )
+        if( clientPorts )
         {
-            jack_port_t *p = jack_port_by_name( jackApi->jack_client, jack_ports[0] );
+            jack_port_t *p = jack_port_by_name( jackApi->jack_client, clientPorts[0] );
             curDevInfo->defaultLowOutputLatency = curDevInfo->defaultHighOutputLatency =
                 jack_port_get_latency( p ) / globalSampleRate;
             free( p );
 
-            for( i = 0; jack_ports[i] != NULL ; i++)
+            for( i = 0; clientPorts[i] != NULL; i++)
             {
                 /* The number of ports returned is the number of input channels.
                  * We don't care what they are, we just care how many */
                 curDevInfo->maxOutputChannels++;
             }
-            free(jack_ports);
+            free(clientPorts);
         }
 
         /* Add this client to the list of devices */
@@ -401,7 +407,7 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
 error:
     regfree( &port_regex );
     free( jack_ports );
-    return paNoError;
+    return result;
 }
 #undef MALLOC
 
@@ -477,6 +483,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     PaJackHostApiRepresentation *jackHostApi;
     int activated = 0;
     char *clientName;
+    int written;
     *hostApi = NULL;    /* Initialize to NULL */
 
     UNLESS( jackHostApi = (PaJackHostApiRepresentation*)
@@ -491,7 +498,8 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
      * this, then this API cannot be used. */
 
     clientName = alloca( jack_client_name_size() );
-    snprintf( clientName, jack_client_name_size(), "PortAudio-%d", getpid() );
+    written = snprintf( clientName, jack_client_name_size(), "PortAudio-%d", getpid() );
+    assert( written < jack_client_name_size() );
     jackHostApi->jack_client = jack_client_new( clientName );
     if( jackHostApi->jack_client == NULL )
     {
@@ -681,13 +689,14 @@ static PaError InitializeStream( PaJackStream *stream, PaJackHostApiRepresentati
         int numOutputChannels )
 {
     PaError result = paNoError;
+    assert( stream );
 
     memset( stream, 0, sizeof (PaJackStream) );
     UNLESS( stream->stream_memory = PaUtil_CreateAllocationGroup(), paInsufficientMemory );
     stream->jack_client = hostApi->jack_client;
     stream->hostApi = hostApi;
 
-    if( numInputChannels )
+    if( numInputChannels > 0 )
     {
         UNLESS( stream->local_input_ports =
                 (jack_port_t**) PaUtil_GroupAllocateMemory( stream->stream_memory, sizeof(jack_port_t*) * numInputChannels ),
@@ -698,7 +707,7 @@ static PaError InitializeStream( PaJackStream *stream, PaJackHostApiRepresentati
                 paInsufficientMemory );
         memset( stream->remote_output_ports, 0, sizeof(jack_port_t*) * numInputChannels );
     }
-    if( numOutputChannels )
+    if( numOutputChannels > 0 )
     {
         UNLESS( stream->local_output_ports =
                 (jack_port_t**) PaUtil_GroupAllocateMemory( stream->stream_memory, sizeof(jack_port_t*) * numOutputChannels ),
@@ -777,7 +786,7 @@ static PaError AddStream( PaJackStream *stream )
 {
     PaError result = paNoError;
     PaJackHostApiRepresentation *hostApi = stream->hostApi;
-    /* Add to queue over streams that should be processed */
+    /* Add to queue of streams that should be processed */
     ASSERT_CALL( pthread_mutex_lock( &hostApi->mtx ), 0 );
     if( !hostApi->jackIsDown )
     {
@@ -1105,8 +1114,7 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
 
     for( chn = 0; chn < stream->num_incoming_connections; chn++ )
     {
-        jack_default_audio_sample_t *channel_buf;
-        channel_buf = (jack_default_audio_sample_t*)
+        jack_default_audio_sample_t *channel_buf = (jack_default_audio_sample_t*)
             jack_port_get_buffer( stream->local_input_ports[chn],
                     frames );
 
@@ -1117,8 +1125,7 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
 
     for( chn = 0; chn < stream->num_outgoing_connections; chn++ )
     {
-        jack_default_audio_sample_t *channel_buf;
-        channel_buf = (jack_default_audio_sample_t*)
+        jack_default_audio_sample_t *channel_buf = (jack_default_audio_sample_t*)
             jack_port_get_buffer( stream->local_output_ports[chn],
                     frames );
 
@@ -1142,82 +1149,92 @@ end:
     return result;
 }
 
+/* Alter the processing queue if necessary */
+static PaError UpdateQueue( PaJackHostApiRepresentation *hostApi )
+{
+    PaError result = paNoError;
+    int queueModified = 0;
+    const double jackSr = jack_get_sample_rate( hostApi->jack_client );
+    int err;
+
+    if( (err = pthread_mutex_trylock( &hostApi->mtx )) != 0 )
+    {
+        assert( err == EBUSY );
+        return paNoError;
+    }
+
+    if( hostApi->toAdd )
+    {
+        if( hostApi->processQueue )
+        {
+            PaJackStream *node = hostApi->processQueue;
+            /* Advance to end of queue */
+            while( node->next )
+                node = node->next;
+
+            node->next = hostApi->toAdd;
+        }
+        else
+            hostApi->processQueue = (PaJackStream *)hostApi->toAdd;
+
+        /* If necessary, update stream state */
+        if( hostApi->toAdd->streamRepresentation.streamInfo.sampleRate != jackSr )
+            UpdateSampleRate( hostApi->toAdd, jackSr );
+
+        hostApi->toAdd = NULL;
+        queueModified = 1;
+    }
+    if( hostApi->toRemove )
+    {
+        int removed = 0;
+        PaJackStream *node = hostApi->processQueue, *prev = NULL;
+        assert( hostApi->processQueue );
+
+        while( node )
+        {
+            if( node == hostApi->toRemove )
+            {
+                if( prev )
+                    prev->next = node->next;
+                else
+                    hostApi->processQueue = (PaJackStream *)node->next;
+
+                removed = 1;
+                break;
+            }
+
+            prev = node;
+            node = node->next;
+        }
+        UNLESS( removed, paInternalError );
+        hostApi->toRemove = NULL;
+        PA_DEBUG(( "%s: Removed stream from processing queue\n", __FUNCTION__ ));
+        queueModified = 1;
+    }
+
+    if( queueModified )
+    {
+        /* Signal that we've done what was asked of us */
+        ASSERT_CALL( pthread_cond_signal( &hostApi->cond ), 0 );
+    }
+
+error:
+    ASSERT_CALL( pthread_mutex_unlock( &hostApi->mtx ), 0 );
+
+    return result;
+}
+
 static int JackCallback( jack_nframes_t frames, void *userData )
 {
     PaError result = paNoError;
     PaJackHostApiRepresentation *hostApi = (PaJackHostApiRepresentation *)userData;
-    /*PaJackStream *stream = (PaJackStream*)userData;*/
-    int err;
-    int queueModified = 0;
     PaJackStream *stream = NULL;
-    const double jackSr = jack_get_sample_rate( hostApi->jack_client );
     int xrun = hostApi->xrun;
     hostApi->xrun = 0;
 
     assert( hostApi );
 
-    /* See if we should alter the processing queue */
-
-    if( (err = pthread_mutex_trylock( &hostApi->mtx )) == 0 )
-    {
-        if( hostApi->toAdd )
-        {
-            if( hostApi->processQueue )
-            {
-                PaJackStream *node = hostApi->processQueue;
-                /* Advance to end of queue */
-                while( node->next )
-                    node = node->next;
-
-                node->next = hostApi->toAdd;
-            }
-            else
-                hostApi->processQueue = (PaJackStream *)hostApi->toAdd;
-
-            /* If necessary, update stream state */
-            if( hostApi->toAdd->streamRepresentation.streamInfo.sampleRate != jackSr )
-                UpdateSampleRate( hostApi->toAdd, jackSr );
-
-            hostApi->toAdd = NULL;
-            queueModified = 1;
-        }
-        if( hostApi->toRemove )
-        {
-            int removed = 0;
-            PaJackStream *node = hostApi->processQueue, *prev = NULL;
-            assert( hostApi->processQueue );
-
-            while( node )
-            {
-                if( node == hostApi->toRemove )
-                {
-                    if( prev )
-                        prev->next = node->next;
-                    else
-                        hostApi->processQueue = (PaJackStream *)node->next;
-
-                    removed = 1;
-                    break;
-                }
-
-                prev = node;
-                node = node->next;
-            }
-            UNLESS( removed, paInternalError );
-            hostApi->toRemove = NULL;
-            PA_DEBUG(( "%s: Removed stream from processing queue\n", __FUNCTION__ ));
-            queueModified = 1;
-        }
-
-        if( queueModified )
-        {
-            /* Signal that we've done what was asked of us */
-            ASSERT_CALL( pthread_cond_signal( &hostApi->cond ), 0 );
-        }
-        ASSERT_CALL( pthread_mutex_unlock( &hostApi->mtx ), 0 );
-    }
-    else
-        assert( err == EBUSY );
+    ENSURE_PA( UpdateQueue( hostApi ) );
 
     /* Process each stream */
     stream = hostApi->processQueue;
