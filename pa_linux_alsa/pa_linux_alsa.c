@@ -62,6 +62,12 @@ static pthread_mutex_t gmtx;    /* Global mutex */
 static int aErr_;               /* Used with ENSURE */
 static PaError paErr_;          /* Used with PA_ENSURE */
 
+typedef enum
+{
+    streamIn,
+    streamOut
+} StreamIO;
+
 #define STRINGIZE_HELPER(exp) #exp
 #define STRINGIZE(exp) STRINGIZE_HELPER(exp)
 
@@ -494,14 +500,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     pthread_mutex_destroy( &gmtx );
 }
 
-typedef enum
-{
-    validateIn = 0,
-    validateOut
-} IOValidate;
-
 /* Check against known device capabilities */
-static PaError ValidateParameters( const PaStreamParameters *parameters, const PaAlsaDeviceInfo *deviceInfo, IOValidate io,
+static PaError ValidateParameters( const PaStreamParameters *parameters, const PaAlsaDeviceInfo *deviceInfo, StreamIO io,
         const PaAlsaStreamInfo *streamInfo )
 {
     int maxChans;
@@ -523,7 +523,7 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
         return paInvalidDevice;
     }
 
-    maxChans = (io == validateIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
+    maxChans = (io == streamIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
         deviceInfo->commonDeviceInfo.maxOutputChannels);
     if( parameters->channelCount > maxChans )
     {
@@ -593,25 +593,57 @@ static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
     }
 }
 
+/* \brief Open an ALSA pcm handle
+ * 
+ * The device to be open can be specified in a custom PaAlsaStreamInfo struct, or it will be a device number. In case of a
+ * device number, it maybe specified through an env variable (PA_ALSA_PLUGHW) that we should open the corresponding plugin
+ * device.
+ */
+static PaError AlsaOpen(snd_pcm_t **pcm, const PaAlsaDeviceInfo *deviceInfo, const PaAlsaStreamInfo
+        *streamInfo, snd_pcm_stream_t streamType )
+{
+    PaError result = paNoError;
+    int ret;
+    char *deviceName = alloca( 50 );
 
-static PaError TestParameters( const PaStreamParameters *parameters, const char *deviceString, double sampleRate,
-        snd_pcm_stream_t streamType )
+    if( !streamInfo )
+    {
+        int usePlug = 0;
+        char *prefix;
+        
+        if( getenv( "PA_ALSA_PLUGHW" ) )
+            usePlug = atoi( getenv( "PA_ALSA_PLUGHW" ) );
+        prefix = usePlug ? "plughw" : "hw";
+        snprintf( deviceName, 50, "%s:%d", prefix, deviceInfo->deviceNumber );
+    }
+    else
+        deviceName = (char *) streamInfo->deviceString;
+
+    if( (ret = snd_pcm_open( pcm, deviceName, streamType, SND_PCM_NONBLOCK )) < 0 )
+    {
+        *pcm = NULL;     /* Not to be closed */
+        ENSURE( ret, ret == -EBUSY ? paDeviceUnavailable : paBadIODeviceCombination );
+    }
+    ENSURE( snd_pcm_nonblock( *pcm, 0 ), paUnanticipatedHostError );
+
+end:
+    return result;
+
+error:
+    goto end;
+}
+
+static PaError TestParameters( const PaStreamParameters *parameters, const PaAlsaDeviceInfo *deviceInfo, const PaAlsaStreamInfo
+        *streamInfo, double sampleRate, snd_pcm_stream_t streamType )
 {
     PaError result = paNoError;
     snd_pcm_t *pcm = NULL;
     PaSampleFormat availableFormats;
     PaSampleFormat paFormat;
-    int ret;
     snd_pcm_hw_params_t *params;
     snd_pcm_hw_params_alloca( &params );
 
-    if( (ret = snd_pcm_open( &pcm, deviceString, streamType, SND_PCM_NONBLOCK )) < 0 )
-    {
-        pcm = NULL;     /* Not to be closed */
-        /* Take action based on return value */
-        ENSURE( ret, ret == -EBUSY ? paDeviceUnavailable : paUnanticipatedHostError );
-    }
-    ENSURE( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
+    PA_ENSURE( AlsaOpen( &pcm, deviceInfo, streamInfo, streamType ) );
 
     snd_pcm_hw_params_any( pcm, params );
 
@@ -653,7 +685,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, validateIn, inputStreamInfo ) );
+        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
 
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -669,7 +701,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, validateOut, outputStreamInfo ) );
+        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
 
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
@@ -698,26 +730,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputChannelCount )
     {
-        char *deviceName = alloca( 50 );
-
-        if( !inputStreamInfo )
-            snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
-        else
-            deviceName = (char *) inputStreamInfo->deviceString;
-
-        PA_ENSURE( TestParameters( inputParameters, deviceName, sampleRate, SND_PCM_STREAM_CAPTURE ) );
+        PA_ENSURE( TestParameters( inputParameters, inputDeviceInfo, inputStreamInfo, sampleRate, SND_PCM_STREAM_CAPTURE ) );
     }
 
     if ( outputChannelCount )
     {
-        char *deviceName = alloca( 50 );
-
-        if( !outputStreamInfo )
-            snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
-        else
-            deviceName = (char *) outputStreamInfo->deviceString;
-
-        PA_ENSURE( TestParameters( outputParameters, deviceName, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
+        PA_ENSURE( TestParameters( outputParameters, outputDeviceInfo, outputStreamInfo, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
     }
 
     return paFormatIsSupported;
@@ -803,7 +821,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     /* Find an acceptable number of periods */
     numPeriods = (*latency * *sampleRate) / framesPerBuffer + 1;
     numPeriods = MAX( numPeriods, 2 );  /* Should be at least 2 periods I think? */
-    ENSURE( snd_pcm_hw_params_set_periods_near( pcm, hwParams, &numPeriods, 0 ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_set_periods_near( pcm, hwParams, &numPeriods, NULL ), paUnanticipatedHostError );
 
     /*
     PA_DEBUG(( "numperiods: %d\n", numPeriods ));
@@ -909,7 +927,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, validateIn, inputStreamInfo ) );
+        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
 
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -925,7 +943,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, validateOut, outputStreamInfo ) );
+        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
 
         /*
         outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
@@ -964,20 +982,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( numInputChannels > 0 )
     {
-        int ret;
-        char *deviceName = alloca( 50 );
-
-        if( !inputStreamInfo )
-            snprintf( deviceName, 50, "hw:%d", inputDeviceInfo->deviceNumber );
-        else
-            deviceName = (char *) inputStreamInfo->deviceString;
-
-        if( (ret = snd_pcm_open( &stream->pcm_capture, deviceName, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK )) < 0 )
-        {
-            stream->pcm_capture = NULL;     /* Not to be closed */
-            ENSURE( ret, ret == -EBUSY ? paDeviceUnavailable : paBadIODeviceCombination );
-        }
-        ENSURE( snd_pcm_nonblock( stream->pcm_capture, 0 ), paUnanticipatedHostError );
+        PA_ENSURE( AlsaOpen( &stream->pcm_capture, inputDeviceInfo, inputStreamInfo, SND_PCM_STREAM_CAPTURE ) );
 
         stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
 
@@ -988,20 +993,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( numOutputChannels > 0 )
     {
-        int ret;
-        char *deviceName = alloca( 50 );
-
-        if( !outputStreamInfo )
-            snprintf( deviceName, 50, "hw:%d", outputDeviceInfo->deviceNumber );
-        else
-            deviceName = (char *) outputStreamInfo->deviceString;
-
-        if( (ret = snd_pcm_open( &stream->pcm_playback, deviceName, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK )) < 0 )
-        {
-            stream->pcm_playback = NULL;     /* Not to be closed */
-            ENSURE( ret, ret == -EBUSY ? paDeviceUnavailable : paBadIODeviceCombination );
-        }
-        ENSURE( snd_pcm_nonblock( stream->pcm_playback, 0 ), paUnanticipatedHostError );
+        PA_ENSURE( AlsaOpen( &stream->pcm_playback, outputDeviceInfo, outputStreamInfo, SND_PCM_STREAM_PLAYBACK ) );
 
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
 
@@ -1999,7 +1991,7 @@ static void OnExit( void *data )
     AlsaStop( stream, stream->callbackAbort );
     stream->callbackAbort = 0;      /* Clear state */
     
-    PA_DEBUG(( "Stoppage\n" ));
+    PA_DEBUG(( "OnExit: Stoppage\n" ));
 
     /* Eventually notify user all buffers have played */
     if( stream->streamRepresentation.streamFinishedCallback )
@@ -2007,6 +1999,12 @@ static void OnExit( void *data )
     stream->isActive = 0;
 }
 
+/* \brief Callback thread's function
+ *
+ * Roughly, the workflow consists of waiting untill ALSA reports available frames, and then consuming these frames in an inner loop
+ * till we must wait for more. If the inner loop detects an xrun condition however, the data consumption will stop and we go
+ * back to the waiting state.
+ */
 void *CallbackThread( void *userData )
 {
     PaError result = paNoError;
@@ -2115,7 +2113,7 @@ void *CallbackThread( void *userData )
             /* Priming output */
             if( startThreshold > 0 )
             {
-                PA_DEBUG(( "Priming\n" ));
+                PA_DEBUG(( "CallbackThread: Priming\n" ));
                 cbFlags |= paPrimingOutput;
                 framesAvail = MIN( framesAvail, startThreshold );
             }
@@ -2164,13 +2162,25 @@ void *CallbackThread( void *userData )
              */
             if( stream->pcm_capture )
             {
-                ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, stream->captureAvail ),
-                        paUnanticipatedHostError );
+                int res;
+                res = snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, stream->captureAvail );
+
+                /* Non-fatal error? Terminate loop (go back to polling for frames)*/
+                if( res == -EPIPE || res == -ESTRPIPE )
+                    framesAvail = 0;
+                else
+                    ENSURE( res, paUnanticipatedHostError );
             }
             if( stream->pcm_playback )
             {
-                ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, stream->playbackAvail ),
-                        paUnanticipatedHostError );
+                int res;
+                res = snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, stream->playbackAvail );
+
+                /* Non-fatal error? Terminate loop (go back to polling for frames) */
+                if( res == -EPIPE || res == -ESTRPIPE )
+                    framesAvail = 0;
+                else
+                    ENSURE( res, paUnanticipatedHostError );
             }
 
             /* If threshold for starting stream specified (priming buffer), decrement and compare */
