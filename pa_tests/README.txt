@@ -18,7 +18,7 @@ o- patest_dither.c
 x- patest_hang.c
 x- patest_latency.c
 x- patest_leftright.c
-o- patest_longsine.c
+x- patest_longsine.c
 x- patest_many.c
 x- patest_maxsines.c
 x- patest_multi_sine.c
