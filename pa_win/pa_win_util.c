@@ -110,6 +110,14 @@ double PaUtil_GetTime( void )
 
     if( usePerformanceCounter_ )
     {
+        /* FIXME:
+            according to this knowledge-base article, QueryPerformanceCounter
+            can skip forward by seconds!
+            http://support.microsoft.com/default.aspx?scid=KB;EN-US;Q274323&
+
+            it may be better to use the rtdsc instruction using inline asm,
+            however then a method is needed to calculate a ticks/seconds ratio.
+        */
         QueryPerformanceCounter( &time );
         return time.QuadPart * secondsPerTick_;
     }
