@@ -991,8 +991,11 @@ static PaError ValidateOpenStreamParameters(
     }
     else
     {
-
-        if( inputDevice != paNoDevice )
+        if( inputDevice == paNoDevice || inputDevice == paUseAlternateDeviceSpecification )
+        {
+            *hostApiInputDevice = inputDevice;
+        }
+        else
         {
             if( inputDevice < 0 || inputDevice >= deviceCount_ )
                 return paInvalidDevice;
@@ -1015,12 +1018,12 @@ static PaError ValidateOpenStreamParameters(
                     return paIncompatibleStreamInfo;
             }
         }
-        else
-        {
-            *hostApiInputDevice = paNoDevice;
-        }
 
-        if( outputDevice != paNoDevice )
+        if( outputDevice == paNoDevice || outputDevice == paUseAlternateDeviceSpecification  )
+        {
+            *hostApiOutputDevice = outputDevice;
+        }
+        else
         {
             if( outputDevice < 0 || outputDevice >= deviceCount_ )
                 return paInvalidDevice;
@@ -1042,11 +1045,7 @@ static PaError ValidateOpenStreamParameters(
                 if( ((PaHostApiSpecificStreamInfo*)outputStreamInfo)->hostApiType != (*hostApi)->info.type )
                     return paIncompatibleStreamInfo;
             }
-        }
-        else
-        {
-            *hostApiOutputDevice = paNoDevice;
-        }
+        }   
 
         if( inputDevice != paNoDevice && outputDevice != paNoDevice )
         {
@@ -1055,7 +1054,8 @@ static PaError ValidateOpenStreamParameters(
                 return paBadIODeviceCombination;
         }
     }
-
+    
+    
     /* Check for absurd sample rates. */
     if( (sampleRate < 1000.0) || (sampleRate > 200000.0) )
         return paInvalidSampleRate;

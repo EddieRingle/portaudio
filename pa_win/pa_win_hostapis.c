@@ -38,7 +38,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 
-const PaUtilHostApiInitializer *paHostApiInitializers[] =
+PaUtilHostApiInitializer *paHostApiInitializers[] =
     {
 
 #ifndef PA_NO_WMME

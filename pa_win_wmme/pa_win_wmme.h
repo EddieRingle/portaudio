@@ -66,10 +66,15 @@ typedef struct PaWinMmeStreamInfo{
     unsigned long numBuffers;  
 
     /* multiple devices per direction support
-        The total number of channels must agree with the numChannels parameters
-        to OpenStream. If flags contains the PaWinMmeUseMultipleDevices flag,
+        If flags contains the PaWinMmeUseMultipleDevices flag,
         this functionality will be used, otherwise the device parameter to
         Pa_OpenStream() will be used instead.
+        If devices are specified here, the corresponding device parameter
+        to Pa_OpenStream() should be set to paUseAlternateDeviceSpecification,
+        otherwise an paInvalidDevice error will result.
+        The total number of channels accross all specified devices
+        must agree with the corresponding numChannels parameter to
+        Pa_OpenStream() otherwise a paInvalidChannelCount error will result.
     */
     PaWinMmeDeviceAndNumChannels *devices;
     unsigned long numDevices;

@@ -264,6 +264,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
+    /* unless alternate device specification is supported, reject the use of
+        paUseAlternateDeviceSpecification */
+
+    if( (inputDevice == paUseAlternateDeviceSpecification)
+            || (outputDevice == paUseAlternateDeviceSpecification) )
+        return paInvalidDevice;                    
+
     /* check that input device can support numInputChannels */
     if( (inputDevice != paNoDevice) &&
             (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )

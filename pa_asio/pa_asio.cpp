@@ -1299,6 +1299,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( asioHostApi->driverOpen )
         return paDeviceUnavailable;
 
+        
+    /* unless alternate device specification is supported, reject the use of
+        paUseAlternateDeviceSpecification */
+
+    if( (inputDevice == paUseAlternateDeviceSpecification)
+            || (outputDevice == paUseAlternateDeviceSpecification) )
+        return paInvalidDevice;
+        
+
     if( inputDevice != paNoDevice && outputDevice != paNoDevice )
     {
         /* full duplex ASIO stream must use the same device for input and output */

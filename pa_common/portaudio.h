@@ -127,19 +127,26 @@ const char *Pa_GetErrorText( PaError errnum );
 typedef int PaDeviceIndex;
 /**< The type used to refer to audio devices. Values of this type usually
  range from 0 to (Pa_DeviceCount-1), and may also take on the PaNoDevice
- value.
+ and paUseAlternateDeviceSpecification values.
      
- @see Pa_DeviceCount, paNoDevice
+ @see Pa_DeviceCount, paNoDevice, paUseAlternateDeviceSpecification
 */
 
 
-#define paNoDevice -1
+#define paNoDevice (-1)
 /**< A special PaDeviceIndex value indicating that no device is available,
  or should be used.
-     
+
  @see PaDeviceIndex
 */
 
+#define paUseAlternateDeviceSpecification (-2)
+/**< A special PaDeviceIndex value indicating that the device to be used
+ is specified elsewhere, such as in a host api specific stream info
+ structure.
+
+ @see PaDeviceIndex
+*/
 
 /* Host API enumeration mechanism */
 
