@@ -66,14 +66,14 @@ int main(void)
         printf("---------------------------------------------- #%d", i );
     /* Mark global default devices and API specific defaults. */
         if( i == Pa_GetDefaultInputDevice() ) printf(" Default Input");
-        else if( i == Pa_HostApiDefaultInputDevice( deviceInfo->hostApi ) )
+        else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultInputDevice )
         {
             const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
             printf(" Default %s Input", hostInfo->name );
         }
         
         if( i == Pa_GetDefaultOutputDevice() ) printf(" Default Output");
-        else if( i == Pa_HostApiDefaultOutputDevice( deviceInfo->hostApi ) )
+        else if( i == Pa_GetHostApiInfo( deviceInfo->hostApi )->defaultOutputDevice )
         {
             const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
             printf(" Default %s Output", hostInfo->name );
