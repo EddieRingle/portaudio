@@ -37,12 +37,13 @@
  */
 #include <stdio.h>
 #include <math.h>
+
 #include "portaudio.h"
 #include "pa_util.h"
+
 #define NUM_SECONDS   (8)
 #define SAMPLE_RATE   (44100)
 #define FRAMES_PER_BUFFER  (64)
-#define NUM_BUFFERS   (0)
 
 #ifndef M_PI
 #define M_PI  (3.14159265)
@@ -50,6 +51,7 @@
 #define TWOPI (M_PI * 2.0)
 
 #define TABLE_SIZE   (200)
+
 typedef struct
 {
     double           left_phase;
@@ -99,6 +101,7 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
 
     return paContinue;
 }
+
 /*******************************************************************/
 static void ReportStreamTime( PaStream *stream, paTestData *data );
 static void ReportStreamTime( PaStream *stream, paTestData *data )
