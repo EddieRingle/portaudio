@@ -270,6 +270,8 @@ typedef struct
 
     PaUtilAllocationGroup *allocations;
 
+    void *systemSpecific;
+    
     /* the ASIO C API only allows one ASIO driver to be open at a time,
         so we kee track of whether we have the driver open here, and
         use this information to return errors from OpenStream if the
@@ -898,7 +900,8 @@ PaAsioDriverInfo;
     and must be closed by the called by calling ASIOExit() - if an error
     is returned the driver will already be closed.
 */
-static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info, void *systemSpecific )
+static PaError LoadAsioDriver( const char *driverName,
+        PaAsioDriverInfo *driverInfo, void *systemSpecific )
 {
     PaError result = paNoError;
     ASIOError asioError;
@@ -911,10 +914,10 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info, v
         goto error;
     }
 
-    memset( &info->asioDriverInfo, 0, sizeof(ASIODriverInfo) );
-    info->asioDriverInfo.asioVersion = 2;
-    info->asioDriverInfo.sysRef = systemSpecific;
-    if( (asioError = ASIOInit( &info->asioDriverInfo )) != ASE_OK )
+    memset( &driverInfo->asioDriverInfo, 0, sizeof(ASIODriverInfo) );
+    driverInfo->asioDriverInfo.asioVersion = 2;
+    driverInfo->asioDriverInfo.sysRef = systemSpecific;
+    if( (asioError = ASIOInit( &driverInfo->asioDriverInfo )) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
@@ -925,17 +928,17 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info, v
         asioIsInitialized = 1;
     }
 
-    if( (asioError = ASIOGetChannels(&info->numInputChannels,
-            &info->numOutputChannels)) != ASE_OK )
+    if( (asioError = ASIOGetChannels(&driverInfo->numInputChannels,
+            &driverInfo->numOutputChannels)) != ASE_OK )
     {
         result = paUnanticipatedHostError;
-         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
-    if( (asioError = ASIOGetBufferSize(&info->bufferMinSize,
-            &info->bufferMaxSize, &info->bufferPreferredSize,
-            &info->bufferGranularity)) != ASE_OK )
+    if( (asioError = ASIOGetBufferSize(&driverInfo->bufferMinSize,
+            &driverInfo->bufferMaxSize, &driverInfo->bufferPreferredSize,
+            &driverInfo->bufferGranularity)) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
@@ -943,9 +946,9 @@ static PaError LoadAsioDriver( const char *driverName, PaAsioDriverInfo *info, v
     }
 
     if( ASIOOutputReady() == ASE_OK )
-        info->postOutput = true;
+        driverInfo->postOutput = true;
     else
-        info->postOutput = false;
+        driverInfo->postOutput = false;
 
     return result;
 
@@ -966,16 +969,12 @@ static ASIOSampleRate defaultSampleRateSearchOrder_[]
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
-    int i, j, driverCount;
+    int i, driverCount;
     PaAsioHostApiRepresentation *asioHostApi;
     PaAsioDeviceInfo *deviceInfoArray;
     char **names;
     PaAsioDriverInfo paAsioDriverInfo;
-    ASIOError asioError;
-    ASIODriverInfo asioDriverInfo;
     ASIOChannelInfo asioChannelInfo;
-    double *sampleRates;
-
 
     asioHostApi = (PaAsioHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaAsioHostApiRepresentation) );
     if( !asioHostApi )
@@ -991,6 +990,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         goto error;
     }
 
+    asioHostApi->systemSpecific = 0;
     asioHostApi->openAsioDeviceIndex = paNoDevice;
 
     *hostApi = &asioHostApi->inheritedHostApiRep;
@@ -1001,12 +1001,13 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     (*hostApi)->info.deviceCount = 0;
 
     #ifdef WINDOWS
+        /* use desktop window as system specific ptr */
+        asioHostApi->systemSpecific = GetDesktopWindow();
         CoInitialize(NULL);
     #endif
 
     /* MUST BE CHECKED : to force fragments loading on Mac */
-    loadAsioDriver( "dummy" );
-
+    loadAsioDriver( "dummy" ); 
 
     /* driverCount is the number of installed drivers - not necessarily
         the number of installed physical devices. */
@@ -1045,18 +1046,10 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             goto error;
         }
 
-
-        #if WINDOWS
-            asioDriverInfo.asioVersion = 2; /* FIXME - is this right? PLB */
-            asioDriverInfo.sysRef = GetDesktopWindow(); /* FIXME - is this right? PLB */
-        #elif MAC
-            /* REVIEW: is anything needed here?? RDB */
-        #endif
-
         for( i=0; i < driverCount; ++i )
         {
             /* Attempt to load the asio driver... */
-            if( LoadAsioDriver( names[i], &paAsioDriverInfo, 0 ) == paNoError )
+            if( LoadAsioDriver( names[i], &paAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
             {
                 PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
                 PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
@@ -1474,7 +1467,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name, &driverInfo, 0 );
+    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name, &driverInfo, asioHostApi->systemSpecific );
     if( result == paNoError )
         asioIsInitialized = 1;
     else
@@ -1590,7 +1583,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             numInputChannels+numOutputChannels,
             framesPerHostBuffer, &asioCallbacks_ );
 
-    if( asioError != ASE_OK && framesPerHostBuffer != driverInfo.bufferPreferredSize )
+    if( asioError != ASE_OK
+            && framesPerHostBuffer != (unsigned long)driverInfo.bufferPreferredSize )
     {
         /*
             Some buggy drivers (like the Hoontech DSP24) give incorrect
@@ -2351,7 +2345,7 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
 	PaError result = paNoError;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-    ASIODriverInfo driverInfo;
+    ASIODriverInfo asioDriverInfo;
 	ASIOError asioError;
     int asioIsInitialized = 0;
     PaAsioHostApiRepresentation *asioHostApi;
@@ -2383,18 +2377,17 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
 
     asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
-			if( !loadAsioDriver(
-                    const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
-			{
-				result = paUnanticipatedHostError;
+    if( !loadAsioDriver( const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
+    {
+        result = paUnanticipatedHostError;
         goto error;
-			}
+    }
 
-			/* CRUCIAL!!! */
-			memset(&driverInfo,0,sizeof(ASIODriverInfo));
-    driverInfo.asioVersion = 2;
-			driverInfo.sysRef = systemSpecific;
-    asioError = ASIOInit( &driverInfo );
+    /* CRUCIAL!!! */
+    memset( &asioDriverInfo, 0, sizeof(ASIODriverInfo) );
+    asioDriverInfo.asioVersion = 2;
+    asioDriverInfo.sysRef = systemSpecific;
+    asioError = ASIOInit( &asioDriverInfo );
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
