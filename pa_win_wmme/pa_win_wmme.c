@@ -1259,7 +1259,7 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
 static PaError TerminateWaveHandles( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers, int isInput, int currentlyProcessingAnError );
 static PaError InitializeWaveHeaders( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers,
         unsigned long hostBufferCount,
-        PaSampleFormat long hostSampleFormat,
+        PaSampleFormat hostSampleFormat,
         unsigned long framesPerHostBuffer,
         PaWinMmeDeviceAndChannelCount *devices,
         int isInput );
@@ -1436,7 +1436,7 @@ static PaError TerminateWaveHandles( PaWinMmeSingleDirectionHandlesAndBuffers *h
 
 static PaError InitializeWaveHeaders( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers,
         unsigned long hostBufferCount,
-        PaSampleFormat long hostSampleFormat,
+        PaSampleFormat hostSampleFormat,
         unsigned long framesPerHostBuffer,
         PaWinMmeDeviceAndChannelCount *devices,
         int isInput )
@@ -1650,7 +1650,8 @@ static PaError RetrieveDevicesFromStreamParameters(
         unsigned long deviceCount )
 {
     PaError result = paNoError;
-    unsigned int i, totalChannelCount;
+    unsigned int i;
+    int totalChannelCount;
     PaDeviceIndex hostApiDevice;
     
 	if( streamInfo && streamInfo->flags & PaWinMmeUseMultipleDevices )
