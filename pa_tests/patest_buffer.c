@@ -1,6 +1,5 @@
 /** @file patest_buffer.c
 	@brief Test opening streams with different buffer sizes.
-	@todo needs to be updated to use the V19 API
 	@author Phil Burk  http://www.softsynth.com
 */
 /*
@@ -58,23 +57,21 @@ typedef struct
 paTestData;
 PaError TestOnce( int buffersize );
 
-static int patest1Callback( void *inputBuffer, void *outputBuffer,
-                            unsigned long framesPerBuffer,
-                            PaTimestamp outTime, void *userData );
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patest1Callback( void *inputBuffer, void *outputBuffer,
+static int patest1Callback( const void *inputBuffer, void *outputBuffer,
                             unsigned long framesPerBuffer,
-                            PaTimestamp outTime, void *userData )
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData )
 {
     paTestData *data = (paTestData*)userData;
     short *out = (short*)outputBuffer;
     unsigned int i;
     int finished = 0;
     (void) inputBuffer; /* Prevent "unused variable" warnings. */
-    (void) outTime;
 
     if( data->sampsToGo < framesPerBuffer )
     {
@@ -123,17 +120,19 @@ int main(void)
 
     for (i = 0 ; i < BUFFER_TABLE; i++)
     {
-        printf("Buffer size %d\n", buffer_table[i]);
+        printf("Buffer size %ld\n", buffer_table[i]);
         err = TestOnce(buffer_table[i]);
         if( err < 0 ) return 0;
 
     }
+    return 0;
 }
 
 
 PaError TestOnce( int buffersize )
 {
-    PortAudioStream *stream;
+    PaStreamParameters outputParameters;
+    PaStream *stream;
     PaError err;
     paTestData data;
     int i;
@@ -147,20 +146,19 @@ PaError TestOnce( int buffersize )
     data.sampsToGo = totalSamps =  NUM_SECONDS * SAMPLE_RATE; /* Play for a few seconds. */
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
+    
+    outputParameters.device = Pa_GetDefaultOutputDevice();  /* default output device */
+    outputParameters.channelCount = 2;                      /* stereo output */
+    outputParameters.sampleFormat = paInt16;                /* 32 bit floating point output */
+    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
     err = Pa_OpenStream(
               &stream,
-              paNoDevice,/* default input device */
-              0,              /* no input */
-              paInt16,  /* sample format */
-              NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
-              2,              /* stereo output */
-              paInt16,        /* sample format */
-              NULL,
+              NULL,                         /* no input */
+              &outputParameters,
               SAMPLE_RATE,
-              buffersize,           /* frames per buffer */
-              0,              /* number of buffers, if zero then use default minimum */
-              paClipOff,      /* we won't output out of range samples so don't bother clipping them */
+              buffersize,                   /* frames per buffer */
+              (paClipOff | paDitherOff),
               patest1Callback,
               &data );
     if( err != paNoError ) goto error;
