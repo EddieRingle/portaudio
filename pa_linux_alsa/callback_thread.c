@@ -68,11 +68,12 @@ static void HandleXrun( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun 
 static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun )
 {
     PaError result = paNoError;
-    int doPoll = 1; // needCapture = 0, needPlayback = 0;
+    int doPoll = 1; /* needCapture = 0, needPlayback = 0; */
     snd_pcm_sframes_t captureAvail = 0, playbackAvail = 0, commonAvail;
     struct pollfd *pfds = stream->pfds;
     int totalFds = stream->capture_nfds + stream->playback_nfds;
     int xrun = 0;   /* Under/overrun? */
+    int cnt = 0;
 
     assert( stream );
 
@@ -86,11 +87,10 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *o
         needPlayback = 1;
     */
 
-    int cnt = 0;
     while( doPoll )
     {
-        ++cnt;
 	unsigned short revents;
+        ++cnt;
 
         /* if the main thread has requested that we stop, do so now */
         pthread_testcancel();
@@ -163,7 +163,7 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *o
     commonAvail = MAX(captureAvail, playbackAvail); /* Will get rid of all data, somehow */
     commonAvail -= commonAvail % stream->frames_per_period;
 
-    PA_DEBUG(( "Wait: captureAvail: %d, playbackAvail: %d, commonAvail: %d\n", captureAvail, playbackAvail, commonAvail ));
+    /* PA_DEBUG(( "Wait: captureAvail: %d, playbackAvail: %d, commonAvail: %d\n", captureAvail, playbackAvail, commonAvail )); */
 
     return commonAvail;
 
@@ -283,7 +283,7 @@ static snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream )
         */
     }
 
-    // PA_DEBUG(( "SetUpBuffers: captureAvail: %d, playbackAvail: %d, commonFrames: %d\n\n", captureFrames, playbackFrames, commonFrames ));
+    /* PA_DEBUG(( "SetUpBuffers: captureAvail: %d, playbackAvail: %d, commonFrames: %d\n\n", captureFrames, playbackFrames, commonFrames )); */
     stream->playbackAvail = playbackFrames;
     stream->captureAvail = captureFrames;
 

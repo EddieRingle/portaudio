@@ -1044,13 +1044,13 @@ static PaError StartStream( PaStream *s )
     if( stream->callback_mode )
     {
         int res = 0;
+        PaTime pt = PaUtil_GetTime();
+        struct timespec ts;
 
         pthread_mutex_lock( &stream->startMtx );
         ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ), paInternalError );
 
         /*! Wait for stream to be started */
-        PaTime pt = PaUtil_GetTime();
-        struct timespec ts;
         ts.tv_sec = (__time_t) pt + 1;
         ts.tv_nsec = (long) pt * 1000000000;
 
@@ -1306,7 +1306,7 @@ int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
 static void SilenceBuffer( PaAlsaStream *stream )
 {
     const snd_pcm_channel_area_t *areas;
-    snd_pcm_sframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
+    snd_pcm_uframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
 
     snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
     snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
