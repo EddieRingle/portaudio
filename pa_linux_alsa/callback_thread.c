@@ -31,6 +31,12 @@ static int wait( PaAlsaStream *stream )
         int playback_pfd_offset;
         int total_fds = 0;
 
+        /*printf("still polling...\n");
+        if( need_capture )
+            printf("need capture.\n");
+        if( need_playback )
+            printf("need playback.\n"); */
+
         /* get the fds, packing all applicable fds into a single array,
          * so we can check them all with a single poll() call */
 
@@ -70,6 +76,9 @@ static int wait( PaAlsaStream *stream )
             snd_pcm_poll_descriptors_revents( stream->pcm_playback,
                                               stream->pfds + playback_pfd_offset,
                                               stream->playback_nfds, &revents );
+            //if( revents & POLLOUT )
+            //if( revents & POLLERR )
+            //    printf("polling error!");
             if( revents == POLLOUT )
                 need_playback = 0;
         }
@@ -198,13 +207,18 @@ void *CallbackThread( void *userData )
 {
     PaAlsaStream *stream = (PaAlsaStream*)userData;
 
+    if( stream->pcm_capture )
+        snd_pcm_start( stream->pcm_capture );
+    if( stream->pcm_playback )
+        snd_pcm_start( stream->pcm_playback );
+
     while(1)
     {
         int frames_avail;
         int frames_got;
 
-        PaTimestamp outTime = 0; /* IMPLEMENT ME */
-        int callbackResult;
+        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
+        PaStreamCallbackResult callbackResult;
         int framesProcessed;
 
 
@@ -227,19 +241,21 @@ void *CallbackThread( void *userData )
         */
 
         frames_avail = wait( stream );
-        printf( "%d frames available\n", frames_avail );
+        //printf( "%d frames available\n", frames_avail );
 
         /* Now we know the soundcard is ready to produce/receive at least
          * one period.  We just need to get the buffers for the client
          * to read/write. */
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, outTime );
+        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo );
 
         frames_got = setup_buffers( stream, frames_avail );
 
+        /*
         if( frames_avail == frames_got )
             printf("good, they were both %d\n", frames_avail );
         else
             printf("damn, they were different: avail: %d, got: %d\n", frames_avail, frames_got );
+            */
 
         /* this calls the callback */
 

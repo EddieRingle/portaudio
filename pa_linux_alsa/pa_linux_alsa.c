@@ -72,20 +72,12 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *callback,
                            void *userData );
 static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
@@ -93,15 +85,17 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTimestamp GetStreamTime( PaStream *stream );
+static PaTime GetStreamInputLatency( PaStream *stream );
+static PaTime GetStreamOutputLatency( PaStream *stream );
+static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
 
 /* blocking calls are in blocking_calls.c */
 extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
 extern PaError WriteStream( PaStream* stream, void *buffer, unsigned long frames );
-extern unsigned long GetStreamReadAvailable( PaStream* stream );
-extern unsigned long GetStreamWriteAvailable( PaStream* stream );
+extern signed long GetStreamReadAvailable( PaStream* stream );
+extern signed long GetStreamWriteAvailable( PaStream* stream );
 
 /* all callback-related functions are in callback_thread.c */
 extern void *CallbackThread( void *userData );
@@ -283,9 +277,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         }
     }
 
-    commonApi->deviceCount = deviceCount;
-    commonApi->defaultInputDeviceIndex = 0;
-    commonApi->defaultOutputDeviceIndex = 0;
+    commonApi->info.deviceCount = deviceCount;
+    commonApi->info.defaultInputDevice = 0;
+    commonApi->info.defaultOutputDevice = 0;
 
     return paNoError;
 }
@@ -412,7 +406,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
         default:
             return 1;
     }
-    printf("PortAudio format: %d\n", pa_format);
+    //printf("PortAudio format: %d\n", pa_format);
     printf("ALSA format: %d\n", alsa_format);
     ENSURE( snd_pcm_hw_params_set_format( stream, hw_params, alsa_format ) );
 
@@ -444,36 +438,73 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
-                           PaDeviceIndex inputDevice,
-                           int numInputChannels,
-                           PaSampleFormat inputSampleFormat,
-                           unsigned long inputLatency,
-                           PaHostApiSpecificStreamInfo *inputStreamInfo,
-                           PaDeviceIndex outputDevice,
-                           int numOutputChannels,
-                           PaSampleFormat outputSampleFormat,
-                           unsigned long outputLatency,
-                           PaHostApiSpecificStreamInfo *outputStreamInfo,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
                            double sampleRate,
-                           unsigned long framesPerCallback,
+                           unsigned long framesPerBuffer,
                            PaStreamFlags streamFlags,
-                           PortAudioCallback *callback,
+                           PaStreamCallback *callback,
                            void *userData )
 {
     PaError result = paNoError;
     PaAlsaHostApiRepresentation *skeletonHostApi =
         (PaAlsaHostApiRepresentation*)hostApi;
     PaAlsaStream *stream = 0;
-    unsigned long framesPerHostBuffer = framesPerCallback;
+    unsigned long framesPerHostBuffer = framesPerBuffer;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    int numInputChannels, numOutputChannels;
+    PaSampleFormat inputSampleFormat, outputSampleFormat;
 
-    /* validate inputStreamInfo */
-    if( inputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    if( inputParameters )
+    {
+        numInputChannels = inputParameters->channelCount;
+        inputSampleFormat = inputParameters->sampleFormat;
 
-    /* validate outputStreamInfo */
-    if( outputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification.
+            [JH] this could be supported in the future, to allow ALSA device strings
+                 like hw:0 */
+        if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that input device can support numInputChannels */
+        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
+            return paInvalidChannelCount;
+
+        /* validate inputStreamInfo */
+        if( inputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numInputChannels = 0;
+    }
+
+    if( outputParameters )
+    {
+        numOutputChannels = outputParameters->channelCount;
+        outputSampleFormat = outputParameters->sampleFormat;
+
+        /* unless alternate device specification is supported, reject the use of
+            paUseHostApiSpecificDeviceSpecification
+            [JH] this could be supported in the future, to allow ALSA device strings
+                 like hw:0 */
+
+        if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+            return paInvalidDevice;
+
+        /* check that output device can support numInputChannels */
+        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
+            return paInvalidChannelCount;
+
+        /* validate outputStreamInfo */
+        if( outputParameters->hostApiSpecificStreamInfo )
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+    }
+    else
+    {
+        numOutputChannels = 0;
+    }
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -514,7 +545,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         char inputDeviceName[50];
 
-        sprintf( inputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[inputDevice]->name );
+        sprintf( inputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[inputParameters->device]->name );
         if( snd_pcm_open( &stream->pcm_capture, inputDeviceName, SND_PCM_STREAM_CAPTURE, 0 ) < 0 )
         {
             result = paBadIODeviceCombination;
@@ -529,7 +560,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         char outputDeviceName[50];
 
-        sprintf( outputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[outputDevice]->name );
+        sprintf( outputDeviceName, "hw:CARD=%s", hostApi->deviceInfos[outputParameters->device]->name );
         if( snd_pcm_open( &stream->pcm_playback, outputDeviceName, SND_PCM_STREAM_PLAYBACK, 0 ) < 0 )
         {
             result = paBadIODeviceCombination;
@@ -545,7 +576,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
+              sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
               paUtilFixedHostBufferSize, callback, userData );
     if( result != paNoError )
         goto error;
@@ -650,33 +681,53 @@ static PaError StartStream( PaStream *s )
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
+    /* TODO: support errorText */
 #define ENSURE(x) \
-    if( (x) < 0 ) { \
-        printf("call at %d failed\n", __LINE__); \
-        return paHostError; \
+    { \
+        int error_ret; \
+        error_ret = (x); \
+        if( error_ret != 0 ) { \
+            PaHostErrorInfo err; \
+            err.errorCode = error_ret; \
+            err.hostApiType = paALSA; \
+            printf("call at %d failed\n", __LINE__); \
+            return paUnanticipatedHostError; \
+        } \
+        else \
+            printf("call at line %d succeeded\n", __LINE__); \
     }
 
     if( stream->pcm_capture )
     {
         ENSURE( snd_pcm_prepare( stream->pcm_capture ) );
-        ENSURE( snd_pcm_start( stream->pcm_capture ) );
     }
 
     if( stream->pcm_playback )
     {
         /* TODO: fill the initial frame with silence */
         const snd_pcm_channel_area_t *capture_areas;
-        snd_pcm_uframes_t offset, frames=stream->frames_per_period;
+        //snd_pcm_uframes_t offset, frames=stream->frames_per_period;
+        snd_pcm_uframes_t offset, frames;
         int tmp;
         ENSURE( tmp = snd_pcm_prepare( stream->pcm_playback ) );
+        frames = snd_pcm_avail_update( stream->pcm_playback );
 
         snd_pcm_mmap_begin( stream->pcm_playback, &capture_areas, &offset, &frames );
         snd_pcm_mmap_commit( stream->pcm_playback, offset, frames );
-        ENSURE( snd_pcm_start( stream->pcm_playback ) );
     }
 
     if( stream->callback_mode )
-        pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream );
+    {
+        ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ) );
+    }
+    else
+    {
+        if( stream->pcm_capture )
+            snd_pcm_start( stream->pcm_capture );
+        if( stream->pcm_playback )
+            snd_pcm_start( stream->pcm_playback );
+    }
+
 
     return result;
 }
@@ -751,7 +802,7 @@ static PaError IsStreamActive( PaStream *s )
 }
 
 
-static PaTimestamp GetStreamTime( PaStream *s )
+static PaTime GetStreamTime( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
@@ -778,6 +829,25 @@ static PaTimestamp GetStreamTime( PaStream *s )
 
     /* TODO: I now have timestamp.tv_sec and timestamp.tv_usec. convert them
      * to samples. */
+
+    return 0;
+}
+
+static PaTime GetStreamInputLatency( PaStream *s )
+{
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
+
+    return 0;
+}
+
+
+static PaTime GetStreamOutputLatency( PaStream *s )
+{
+    PaAlsaStream *stream = (PaAlsaStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;
 }

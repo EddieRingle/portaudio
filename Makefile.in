@@ -6,7 +6,7 @@
 
 PREFIX = @prefix@
 CC = @CC@
-CFLAGS = @CFLAGS@ -Ipa_common
+CFLAGS = @CFLAGS@ -Ipa_common @DEFS@
 LIBS = @LIBS@
 AR = @AR@
 RANLIB = @RANLIB@
@@ -22,6 +22,7 @@ PADLLV = $(PADLL).0.0.19
 PAINC = pa_common/portaudio.h
 
 COMMON_OBJS = \
+	pa_common/pa_allocation.o \
 	pa_common/pa_converters.o \
 	pa_common/pa_cpuload.o \
 	pa_common/pa_dither.o \

@@ -86,22 +86,24 @@ case "${host_os}" in
                 AC_MSG_ERROR([libpthread not found!]))
 
 	if [[ $have_alsa = "yes" ] && [ $with_alsa != "no" ]] ; then
-   	LIBS="$LIBS -lasound"
+                LIBS="$LIBS -lasound"
 		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/pa_linux_alsa.o"
 		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/callback_thread.o"
 		OTHER_OBJS="$OTHER_OBJS pa_linux_alsa/blocking_calls.o"
+                AC_DEFINE(PA_USE_ALSA)
 	fi
 
 	if [[ $have_jack = "yes" ] && [ $with_jack != "no" ]] ; then
    	LIBS="$LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
 		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
+                AC_DEFINE(PA_USE_JACK)
 	fi
 
 	if [[ $with_oss != "no" ]] ; then
 		OTHER_OBJS="$OTHER_OBJS pa_unix_oss/pa_unix_oss.o"
 	fi
-	LIBS="-lm -lpthread";
+	LIBS="$LIBS -lm -lpthread";
 	PADLL="libportaudio.so";
 	SHARED_FLAGS="-shared";
 

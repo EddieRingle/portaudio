@@ -38,8 +38,13 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
 PaUtilHostApiInitializer *paHostApiInitializers[] =
     {
-        PaJack_Initialize,
+#ifdef PA_USE_ALSA
         PaAlsa_Initialize,
+#endif
+
+#ifdef PA_USE_JACK
+        PaJack_Initialize,
+#endif
 
         0   /* NULL terminated array */
     };
