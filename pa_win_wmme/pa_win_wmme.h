@@ -104,6 +104,56 @@ typedef struct PaWinMmeStreamInfo{
 }PaWinMmeStreamInfo;
 
 
+/** Retrieve the number of wave in handles used by a PortAudio WinMME stream.
+ Returns zero if the stream is output only.
+
+ @return A non-negative value indicating the number of wave in handles
+ or, a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
+
+ @see PaWinMME_GetStreamInputHandle
+*/
+int PaWinMME_GetStreamInputHandleCount( PaStream* stream );
+
+
+/** Retrieve a wave in handle used by a PortAudio WinMME stream.
+
+ @param stream The stream to query.
+ @param handleIndex The zero based index of the wave in handle to retrieve. This
+    should be in the range [0, PaWinMME_GetStreamInputHandle(stream)-1].
+
+ @return A valid wave in handle, or NULL if an error occurred.
+
+ @see PaWinMME_GetStreamInputHandle
+*/
+HWAVEIN PaWinMME_GetStreamInputHandle( PaStream* stream, int handleIndex );
+
+
+/** Retrieve the number of wave out handles used by a PortAudio WinMME stream.
+ Returns zero if the stream is input only.
+ 
+ @return A non-negative value indicating the number of wave out handles
+ or, a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
+
+ @see PaWinMME_GetStreamOutputHandle
+*/
+int PaWinMME_GetStreamOutputHandleCount( PaStream* stream );
+
+
+/** Retrieve a wave out handle used by a PortAudio WinMME stream.
+
+ @param stream The stream to query.
+ @param handleIndex The zero based index of the wave out handle to retrieve.
+    This should be in the range [0, PaWinMME_GetStreamOutputHandleCount(stream)-1].
+
+ @return A valid wave out handle, or NULL if an error occurred.
+
+ @see PaWinMME_GetStreamOutputHandleCount
+*/
+HWAVEOUT PaWinMME_GetStreamOutputHandle( PaStream* stream, int handleIndex );
+
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

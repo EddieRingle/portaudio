@@ -3223,5 +3223,98 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 }
 
 
+/* NOTE: the following functions are MME-stream specific, and are called directly
+    by client code. We need to check for many more error conditions here because
+    we don't have the benefit of pa_front.c's parameter checking.
+*/
+
+static PaError GetWinMMEStreamPointer( PaWinMmeStream **stream, PaStream *s )
+{
+    PaError result;
+    PaUtilHostApiRepresentation *hostApi;
+    PaWinMmeHostApiRepresentation *winMmeHostApi;
+    
+    result = PaUtil_ValidateStreamPointer( s );
+    if( result != paNoError )
+        return result;
+
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paMME );
+    if( result != paNoError )
+        return result;
+
+    winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
+    
+    /* note, the following would be easier if there was a generic way of testing
+        that a stream belongs to a specific host API */
+    
+    if( PA_STREAM_REP( *stream )->streamInterface == &winMmeHostApi->callbackStreamInterface
+            || PA_STREAM_REP( *stream )->streamInterface == &winMmeHostApi->blockingStreamInterface )
+    {
+        /* s is a WinMME stream */
+        *stream = (PaWinMmeStream *)s;
+        return paNoError;
+    }
+    else
+    {
+        return paIncompatibleStreamHostApi;
+    }
+}
+
+
+int PaWinMME_GetStreamInputHandleCount( PaStream* s )
+{
+    PaWinMmeStream *stream;
+    PaError result = GetWinMMEStreamPointer( &stream, s );
+
+    if( result == paNoError )
+        return (PA_IS_INPUT_STREAM_(stream)) ? stream->input.deviceCount : 0;
+    else
+        return result;
+}
+
+
+HWAVEIN PaWinMME_GetStreamInputHandle( PaStream* s, int handleIndex )
+{
+    PaWinMmeStream *stream;
+    PaError result = GetWinMMEStreamPointer( &stream, s );
+
+    if( result == paNoError
+            && PA_IS_INPUT_STREAM_(stream)
+            && handleIndex >= 0
+            && (unsigned int)handleIndex < stream->input.deviceCount )
+        return ((HWAVEIN*)stream->input.waveHandles)[handleIndex];
+    else
+        return 0;
+}
+
+
+int PaWinMME_GetStreamOutputHandleCount( PaStream* s)
+{
+    PaWinMmeStream *stream;
+    PaError result = GetWinMMEStreamPointer( &stream, s );
+
+    if( result == paNoError )
+        return (PA_IS_OUTPUT_STREAM_(stream)) ? stream->output.deviceCount : 0;
+    else
+        return result;
+}
+
+
+HWAVEOUT PaWinMME_GetStreamOutputHandle( PaStream* s, int handleIndex )
+{
+    PaWinMmeStream *stream;
+    PaError result = GetWinMMEStreamPointer( &stream, s );
+
+    if( result == paNoError
+            && PA_IS_OUTPUT_STREAM_(stream)
+            && handleIndex >= 0
+            && (unsigned int)handleIndex < stream->output.deviceCount )
+        return ((HWAVEOUT*)stream->output.waveHandles)[handleIndex];
+    else
+        return 0;
+}
+
+
+
 
 
