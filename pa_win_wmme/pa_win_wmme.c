@@ -1119,7 +1119,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else
     {
         inputChannelCount = 0;
+        inputSampleFormat = -1;
+        suggestedInputLatency = 0.;
         inputStreamInfo = 0;
+        hostInputSampleFormat = -1; 
     }
 
 
@@ -1201,7 +1204,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else
     {
         outputChannelCount = 0;
+        outputSampleFormat = -1;
         outputStreamInfo = 0;
+        hostOutputSampleFormat = -1;
+        suggestedOutputLatency = 0.;
     }
 
 
