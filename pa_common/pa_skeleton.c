@@ -59,12 +59,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -246,12 +246,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -265,10 +265,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
     /* unless alternate device specification is supported, reject the use of
-        paUseAlternateDeviceSpecification */
+        paUseHostApiSpecificDeviceSpecification */
 
-    if( (inputDevice == paUseAlternateDeviceSpecification)
-            || (outputDevice == paUseAlternateDeviceSpecification) )
+    if( (inputDevice == paUseHostApiSpecificDeviceSpecification)
+            || (outputDevice == paUseHostApiSpecificDeviceSpecification) )
         return paInvalidDevice;                    
 
     /* check that input device can support numInputChannels */
@@ -393,8 +393,9 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     PaSkeletonStream *stream = (PaSkeletonStream*)userData;
     PaTimestamp outTime = 0; /* IMPLEMENT ME */
     int callbackResult;
-
-    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->framesPerHostCallback );
+    unsigned long framesProcessed;
+    
+    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
     
     /*
         IMPLEMENT ME:
@@ -429,7 +430,7 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
             outputBuffer,
             0 ); /* 0 - use numOutputChannels passed to init buffer processor */
 
-    PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
+    framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
 
     
     /*
@@ -437,7 +438,7 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
         routines in pa_byteswappers.h
     */
 
-    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
 
 
     if( callbackResult == paContinue )

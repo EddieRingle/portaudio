@@ -72,12 +72,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -614,12 +614,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -633,9 +633,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
     /* unless alternate device specification is supported, reject the use of
-    paUseAlternateDeviceSpecification */
-    if( (inputDevice == paUseAlternateDeviceSpecification)
-            || (outputDevice == paUseAlternateDeviceSpecification) )
+    paUseHostApiSpecificDeviceSpecification */
+    if( (inputDevice == paUseHostApiSpecificDeviceSpecification)
+            || (outputDevice == paUseHostApiSpecificDeviceSpecification) )
         return paInvalidDevice; 
 
     /* check that input device can support numInputChannels */
@@ -907,7 +907,7 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     if( framesToXfer > 0 )
     {
 
-        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesToXfer );
+        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
     /* The outTime parameter should indicates the time at which
         the first sample of the output buffer is heard at the DACs. */
@@ -1012,7 +1012,7 @@ error1:
         }
 error2:
 
-        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, numFrames );
 
     }
     

@@ -146,12 +146,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -1270,12 +1270,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
                            unsigned long inputLatency,
-                           void *inputStreamInfo,
+                           PaHostApiSpecificStreamInfo *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
                            unsigned long outputLatency,
-                           void *outputStreamInfo,
+                           PaHostApiSpecificStreamInfo *outputStreamInfo,
                            double sampleRate,
                            unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
@@ -1301,10 +1301,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         
     /* unless alternate device specification is supported, reject the use of
-        paUseAlternateDeviceSpecification */
+        paUseHostApiSpecificDeviceSpecification */
 
-    if( (inputDevice == paUseAlternateDeviceSpecification)
-            || (outputDevice == paUseAlternateDeviceSpecification) )
+    if( (inputDevice == paUseHostApiSpecificDeviceSpecification)
+            || (outputDevice == paUseHostApiSpecificDeviceSpecification) )
         return paInvalidDevice;
         
 
@@ -1723,7 +1723,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     }
     else
     {
-        PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, theAsioStream->framesPerHostCallback );
+        PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 
         PaTimestamp outTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001) +
                 theAsioStream->asioHostApi->timeBaseOffset +
@@ -1749,7 +1749,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
         int callbackResult;
-        PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
+        unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
 
 
         if( theAsioStream->outputBufferConverter )
@@ -1761,7 +1761,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             }
         }
 
-        PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
+        PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, framesProcessed );
 
         // Finally if the driver supports the ASIOOutputReady() optimization,
         // do it here, all data are in place
