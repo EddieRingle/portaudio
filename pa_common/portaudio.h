@@ -141,9 +141,8 @@ typedef int PaDeviceIndex;
 */
 
 #define paUseAlternateDeviceSpecification (-2)
-/**< A special PaDeviceIndex value indicating that the device to be used
- is specified elsewhere, such as in a host api specific stream info
- structure.
+/**< A special PaDeviceIndex value indicating that the device(s) to be used
+ are specified in the host api specific stream info structure.
 
  @see PaDeviceIndex
 */
@@ -447,7 +446,7 @@ typedef double PaTimestamp;
 */
 
 
-typedef struct
+typedef struct PaHostApiSpecificStreamInfo
 {
     unsigned long size;    /**< size of whole structure including this header */
     PaHostApiTypeId hostApiType; /**< host API for which this data is intended */

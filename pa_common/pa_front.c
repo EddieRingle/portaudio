@@ -991,9 +991,31 @@ static PaError ValidateOpenStreamParameters(
     }
     else
     {
-        if( inputDevice == paNoDevice || inputDevice == paUseAlternateDeviceSpecification )
+        if( inputDevice == paNoDevice )
         {
-            *hostApiInputDevice = inputDevice;
+            *hostApiInputDevice = paNoDevice;
+        }
+        else if( inputDevice == paUseAlternateDeviceSpecification )
+        {
+            if( inputStreamInfo )
+            {
+                inputHostApiIndex = Pa_HostApiTypeIdToHostApiIndex(
+                        ((PaHostApiSpecificStreamInfo*)inputStreamInfo)->hostApiType );
+
+                if( inputHostApiIndex != -1 )
+                {
+                    *hostApiInputDevice = paUseAlternateDeviceSpecification;
+                    *hostApi = hostApis_[inputHostApiIndex];
+                }
+                else
+                {
+                    return paInvalidDevice;
+                }
+            }
+            else
+            {
+                return paInvalidDevice;
+            }
         }
         else
         {
@@ -1019,9 +1041,31 @@ static PaError ValidateOpenStreamParameters(
             }
         }
 
-        if( outputDevice == paNoDevice || outputDevice == paUseAlternateDeviceSpecification  )
+        if( outputDevice == paNoDevice )
         {
-            *hostApiOutputDevice = outputDevice;
+            *hostApiOutputDevice = paNoDevice;
+        }
+        else if( outputDevice == paUseAlternateDeviceSpecification  )
+        {
+            if( outputStreamInfo )
+            {
+                outputHostApiIndex = Pa_HostApiTypeIdToHostApiIndex(
+                        ((PaHostApiSpecificStreamInfo*)outputStreamInfo)->hostApiType );
+
+                if( outputHostApiIndex != -1 )
+                {
+                    *hostApiOutputDevice = paUseAlternateDeviceSpecification;
+                    *hostApi = hostApis_[outputHostApiIndex];
+                }
+                else
+                {
+                    return paInvalidDevice;
+                }
+            }
+            else
+            {
+                return paInvalidDevice;
+            }
         }
         else
         {
