@@ -195,26 +195,26 @@ int main(void)
     int        numSamples;
     int        numBytes;
     SAMPLE     max, average, val;
+
     printf("patest_record.c\n"); fflush(stdout);
 
     data.maxFrameIndex = totalFrames = NUM_SECONDS * SAMPLE_RATE; /* Record for a few seconds. */
     data.frameIndex = 0;
     numSamples = totalFrames * NUM_CHANNELS;
-
     numBytes = numSamples * sizeof(SAMPLE);
-    data.recordedSamples = (SAMPLE *) malloc( numBytes );
+    data.recordedSamples = (SAMPLE *) malloc( numBytes ); /* From now on, recordedSamples is initialised. */
     if( data.recordedSamples == NULL )
     {
         printf("Could not allocate record array.\n");
-        exit(1);
+        goto done;
     }
     for( i=0; i<numSamples; i++ ) data.recordedSamples[i] = 0;
 
     err = Pa_Initialize();
-    if( err != paNoError ) goto error;
+    if( err != paNoError ) goto done;
 
     inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
-    inputParameters.channelCount = 2;       /* stereo input */
+    inputParameters.channelCount = 2;                    /* stereo input */
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = NULL;
@@ -229,10 +229,10 @@ int main(void)
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               recordCallback,
               &data );
-    if( err != paNoError ) goto error;
+    if( err != paNoError ) goto done;
 
     err = Pa_StartStream( stream );
-    if( err != paNoError ) goto error;
+    if( err != paNoError ) goto done;
     printf("Now recording!!\n"); fflush(stdout);
 
     while( Pa_IsStreamActive( stream ) )
@@ -242,7 +242,7 @@ int main(void)
     }
 
     err = Pa_CloseStream( stream );
-    if( err != paNoError ) goto error;
+    if( err != paNoError ) goto done;
 
     /* Measure maximum peak amplitude. */
     max = 0;
@@ -285,7 +285,7 @@ int main(void)
     data.frameIndex = 0;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
-    outputParameters.channelCount = 2;       /* stereo output */
+    outputParameters.channelCount = 2;                     /* stereo output */
     outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
     outputParameters.hostApiSpecificStreamInfo = NULL;
@@ -300,30 +300,32 @@ int main(void)
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               playCallback,
               &data );
-    if( err != paNoError ) goto error;
+    if( err != paNoError ) goto done;
 
     if( stream )
     {
         err = Pa_StartStream( stream );
-        if( err != paNoError ) goto error;
+        if( err != paNoError ) goto done;
         printf("Waiting for playback to finish.\n"); fflush(stdout);
 
         while( Pa_IsStreamActive( stream ) ) Pa_Sleep(100);
 
         err = Pa_CloseStream( stream );
-        if( err != paNoError ) goto error;
+        if( err != paNoError ) goto done;
         printf("Done.\n"); fflush(stdout);
     }
-    free( data.recordedSamples );
 
+done:
     Pa_Terminate();
-    return 0;
-
-error:
-    Pa_Terminate();
-    fprintf( stderr, "An error occured while using the portaudio stream\n" );
-    fprintf( stderr, "Error number: %d\n", err );
-    fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
-    return -1;
+    if (data.recordedSamples)       /* Sure it is NULL or valid. */
+        free(data.recordedSamples);
+    if (err != paNoError)
+        {
+        fprintf( stderr, "An error occured while using the portaudio stream\n" );
+        fprintf( stderr, "Error number: %d\n", err );
+        fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
+        err = 1;          /* Always return 0 or 1, but no other return codes. */
+        }
+    return err;
 }
 
