@@ -106,8 +106,6 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTime GetStreamInputLatency( PaStream *stream );
-static PaTime GetStreamOutputLatency( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -172,10 +170,7 @@ typedef struct PaWinDsStream
     double           framesWritten;
     double           secondsPerHostByte; /* Used to optimize latency calculation for outTime */
 
-    double           outputLatency;
-
 /* FIXME - move all below to PaUtilStreamRepresentation */
-    double           sampleRate; 
     volatile int     isStarted;
     volatile int     isActive;
     volatile int     stopProcessing; /* stop thread once existing buffers have been returned */
@@ -521,12 +516,12 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
+                                      GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winDsHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -810,7 +805,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
             - alter sampleRate to a close allowable rate if possible / necessary
 
-            - validate inputLatency and outputLatency parameters,
+            - validate suggestedInputLatency and suggestedOutputLatency parameters,
                 use default values where necessary
     */
 
@@ -838,7 +833,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                                &winDsHostApi->blockingStreamInterface, streamCallback, userData );
     }
 
+    stream->streamRepresentation.streamInfo.inputLatency = 0.;  /* FIXME: not initialised anywhere else */
+    stream->streamRepresentation.streamInfo.outputLatency = 0.;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
+    
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
@@ -894,7 +893,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* App support variable framesPerBuffer */
             stream->framesPerDSBuffer = minLatencyFrames;
 
-            stream->outputLatency = (double)(minLatencyFrames - 1) / sampleRate;
+            stream->streamRepresentation.streamInfo.outputLatency = (double)(minLatencyFrames - 1) / sampleRate;
         }
         else
         {
@@ -904,7 +903,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             numUserBuffers += 1; /* So we have latency worth of buffers ahead of current buffer. */
             stream->framesPerDSBuffer = framesPerBuffer * numUserBuffers;
 
-            stream->outputLatency = (double)(framesPerBuffer * (numUserBuffers-1)) / sampleRate;
+            stream->streamRepresentation.streamInfo.outputLatency = (double)(framesPerBuffer * (numUserBuffers-1)) / sampleRate;
         }
 
         {
@@ -998,8 +997,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
     }
-
-    stream->sampleRate = sampleRate;
 
     *s = (PaStream*)stream;
 
@@ -1266,7 +1263,7 @@ static PaError StartStream( PaStream *s )
     {
         int resolution;
         int framesPerWakeup = stream->framesPerDSBuffer / 4;
-        int msecPerWakeup = MSEC_PER_SECOND * framesPerWakeup / (int) stream->sampleRate;
+        int msecPerWakeup = MSEC_PER_SECOND * framesPerWakeup / (int) stream->streamRepresentation.streamInfo.sampleRate;
         if( msecPerWakeup < 10 ) msecPerWakeup = 10;
         else if( msecPerWakeup > 100 ) msecPerWakeup = 100;
         resolution = msecPerWakeup/4;
@@ -1298,7 +1295,7 @@ static PaError StopStream( PaStream *s )
 
     stream->stopProcessing = 1;
     /* Set timeout at 20% beyond maximum time we might wait. */
-    timeoutMsec = (int) (1200.0 * stream->framesPerDSBuffer / stream->sampleRate);
+    timeoutMsec = (int) (1200.0 * stream->framesPerDSBuffer / stream->streamRepresentation.streamInfo.sampleRate);
     while( stream->isActive && (timeoutMsec > 0)  )
     {
         Sleep(10);
@@ -1353,25 +1350,6 @@ static PaError IsStreamActive( PaStream *s )
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
     return stream->isActive;
-}
-
-
-/***********************************************************************************/
-static PaTime GetStreamInputLatency( PaStream *s )
-{
-    PaWinDsStream *stream = (PaWinDsStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
-}
-
-/***********************************************************************************/
-static PaTime GetStreamOutputLatency( PaStream *s )
-{
-    PaWinDsStream *stream = (PaWinDsStream*)s;
-
-    return stream->outputLatency;
 }
 
 /***********************************************************************************/

@@ -191,12 +191,12 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
+                                      GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -422,7 +422,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
             - alter sampleRate to a close allowable rate if possible / necessary
 
-            - validate inputLatency and outputLatency parameters,
+            - validate suggestedInputLatency and suggestedOutputLatency parameters,
                 use default values where necessary
     */
 
@@ -451,6 +451,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &skeletonHostApi->blockingStreamInterface, streamCallback, userData );
     }
+
+    /*
+        IMPLEMENT ME: initialise the following fields with estimated or actual
+        values.
+    */
+    stream->streamRepresentation.streamInfo.inputLatency = 0.;
+    stream->streamRepresentation.streamInfo.outputLatency = 0.;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
@@ -633,26 +641,6 @@ static PaError IsStreamActive( PaStream *s )
     PaSkeletonStream *stream = (PaSkeletonStream*)s;
 
     /* IMPLEMENT ME, see portaudio.h for required behavior */
-
-    return 0;
-}
-
-
-static PaTime GetStreamInputLatency( PaStream *s )
-{
-    PaSkeletonStream *stream = (PaSkeletonStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
-}
-
-
-static PaTime GetStreamOutputLatency( PaStream *s )
-{
-    PaSkeletonStream *stream = (PaSkeletonStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
 
     return 0;
 }

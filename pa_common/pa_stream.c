@@ -39,8 +39,6 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
                                        PaError (*Abort)( PaStream* ),
                                        PaError (*IsStopped)( PaStream* ),
                                        PaError (*IsActive)( PaStream* ),
-                                       PaTime (*GetInputLatency)( PaStream* ),
-                                       PaTime (*GetOutputLatency)( PaStream* ),
                                        PaTime (*GetTime)( PaStream* ),
                                        double (*GetCpuLoad)( PaStream* ),
                                        PaError (*Read)( PaStream*, void *, unsigned long ),
@@ -54,8 +52,6 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     streamInterface->Abort = Abort;
     streamInterface->IsStopped = IsStopped;
     streamInterface->IsActive = IsActive;
-    streamInterface->GetInputLatency = GetInputLatency;
-    streamInterface->GetOutputLatency = GetOutputLatency;
     streamInterface->GetTime = GetTime;
     streamInterface->GetCpuLoad = GetCpuLoad;
     streamInterface->Read = Read;
@@ -75,6 +71,9 @@ void PaUtil_InitializeStreamRepresentation( PaUtilStreamRepresentation *streamRe
     streamRepresentation->streamInterface = streamInterface;
     streamRepresentation->streamCallback = streamCallback;
     streamRepresentation->userData = userData;
+    streamRepresentation->streamInfo.inputLatency = 0.;
+    streamRepresentation->streamInfo.outputLatency = 0.;
+    streamRepresentation->streamInfo.sampleRate = 0.;
 }
 
 

@@ -804,20 +804,58 @@ PaError Pa_IsStreamStopped( PaStream *stream );
 PaError Pa_IsStreamActive( PaStream *stream );
 
 
-/**
- @return The input latency of the stream in seconds.
 
- @see PaTime, PaStreamCallback
+/** A structure containing unchanging information about an open stream.
+ @see Pa_GetStreamInfo
 */
-PaTime Pa_GetStreamInputLatency( PaStream *stream );
+
+typedef struct PaStreamInfo
+{
+    /** this is struct version 1 */
+    int structVersion;
+
+    /** The input latency of the stream in seconds. This value provides the most
+     accurate estimate of input latency available to the implementation. It may
+     differ significantly from the suggestedLatency value passed to Pa_OpenStream().
+     The value of this field will be zero (0.) for output-only streams.
+     @see PaTime
+    */
+    PaTime inputLatency;
+
+    /** The output latency of the stream in seconds. This value provides the most
+     accurate estimate of output latency available to the implementation. It may
+     differ significantly from the suggestedLatency value passed to Pa_OpenStream().
+     The value of this field will be zero (0.) for input-only streams.
+     @see PaTime
+    */
+    PaTime outputLatency;
+
+    /** The sample rate of the stream in Hertz (samples per second). In cases
+     where the hardware sample rate is inaccurate and PortAudio is aware of it,
+     the value of this field may be different from the sampleRate parameter
+     passed to Pa_OpenStream(). If information about the actual hardware sample
+     rate is not available, this field will have the same value as the sampleRate
+     parameter passed to Pa_OpenStream().
+    */
+    double sampleRate;
+    
+} PaStreamInfo;
 
 
-/**
- @return The output latency of the stream in seconds.
+/** Retrieve a pointer to a PaStreamInfo structure containing information
+ about the specified stream.
+ @return A pointer to an immutable PaStreamInfo structure. If the stream
+ parameter invalid, or an error is encountered, the function returns NULL.
 
- @see PaTime, PaStreamCallback
+ @param stream A pointer to an open stream previously created with Pa_OpenStream.
+
+ @note PortAudio manages the memory referenced by the returned pointer,
+ the client must not manipulate or free the memory. The pointer is only
+ guaranteed to be valid until the specified stream is closed.
+
+ @see PaStreamInfo
 */
-PaTime Pa_GetStreamOutputLatency( PaStream *stream );
+const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream );
 
 
 /**

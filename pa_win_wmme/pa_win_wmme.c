@@ -167,8 +167,6 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTime GetStreamInputLatency( PaStream *stream );
-static PaTime GetStreamOutputLatency( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -909,7 +907,6 @@ typedef struct PaWinMmeStream
     unsigned int currentInputBufferIndex;
     unsigned int framesPerInputBuffer;
     unsigned int framesUsedInCurrentInputBuffer;
-    PaTime inputLatency;
     
     /* Output -------------- */
     HWAVEOUT *hWaveOuts;
@@ -920,7 +917,6 @@ typedef struct PaWinMmeStream
     unsigned int currentOutputBufferIndex;
     unsigned int framesPerOutputBuffer;
     unsigned int framesUsedInCurrentOutputBuffer;
-    PaTime outputLatency;
 
     /* Processing thread management -------------- */
     HANDLE abortEvent;
@@ -1189,10 +1185,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     stream->hWaveIns = 0;
     stream->inputBuffers = 0;
-    stream->inputLatency = (double)(framesPerHostInputBuffer * (numHostInputBuffers-1)) / sampleRate;
     stream->hWaveOuts = 0;
     stream->outputBuffers = 0;
-    stream->outputLatency = (double)(framesPerHostOutputBuffer * (numHostOutputBuffers-1)) / sampleRate;
     stream->processingThread = 0;
 
     stream->noHighPriorityProcessClass = noHighPriorityProcessClass;
@@ -1201,6 +1195,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     
     PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                            &winMmeHostApi->callbackStreamInterface, streamCallback, userData );
+
+    stream->streamRepresentation.streamInfo.inputLatency = (double)(framesPerHostInputBuffer * (numHostInputBuffers-1)) / sampleRate;
+    stream->streamRepresentation.streamInfo.outputLatency = (double)(framesPerHostOutputBuffer * (numHostOutputBuffers-1)) / sampleRate;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 

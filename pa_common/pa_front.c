@@ -1569,13 +1569,13 @@ PaError Pa_IsStreamActive( PaStream *stream )
 }
 
 
-PaTime Pa_GetStreamInputLatency( PaStream *stream )
+const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream )
 {
     PaError error = ValidateStream( stream );
-    PaTime result;
+    const PaStreamInfo *result;
 
 #ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_GetStreamInputLatency called:\n" );
+    PaUtil_DebugPrint("Pa_GetStreamInfo called:\n" );
     PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
 #endif
 
@@ -1584,53 +1584,25 @@ PaTime Pa_GetStreamInputLatency( PaStream *stream )
         result = 0;
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetStreamInputLatency returned:\n" );
-        PaUtil_DebugPrint("\tPaTime: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
+        PaUtil_DebugPrint("Pa_GetStreamInfo returned:\n" );
+        PaUtil_DebugPrint("\const PaStreamInfo*: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
 #endif
 
     }
     else
     {
-        result = PA_STREAM_INTERFACE(stream)->GetInputLatency( stream );
+        result = &PA_STREAM_REP( stream )->streamInfo;
 
 #ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetStreamInputLatency returned:\n" );
-        PaUtil_DebugPrint("\tPaTime: %g\n\n", result );
-#endif
+        PaUtil_DebugPrint("Pa_GetStreamInfo returned:\n" );
+        PaUtil_DebugPrint("\tconst PaStreamInfo*: 0x%p:\n", result );
+        PaUtil_DebugPrint("\t{" );
 
-    }
-
-    return result;
-}
-
-
-PaTime Pa_GetStreamOutputLatency( PaStream *stream )
-{
-    PaError error = ValidateStream( stream );
-    PaTime result;
-
-#ifdef PA_LOG_API_CALLS
-    PaUtil_DebugPrint("Pa_GetStreamOutputLatency called:\n" );
-    PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
-#endif
-
-if( error != paNoError )
-    {
-        result = 0;
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetStreamOutputLatency returned:\n" );
-        PaUtil_DebugPrint("\tPaTime: 0 [PaError error:%d ( %s )]\n\n", result, error, Pa_GetErrorText( error ) );
-#endif
-
-    }
-    else
-    {
-        result = PA_STREAM_INTERFACE(stream)->GetOutputLatency( stream );
-
-#ifdef PA_LOG_API_CALLS
-        PaUtil_DebugPrint("Pa_GetStreamOutputLatency returned:\n" );
-        PaUtil_DebugPrint("\tPaTime: %g\n\n", result );
+        PaUtil_DebugPrint("\t\tint structVersion: %d\n", result->structVersion );
+        PaUtil_DebugPrint("\t\tPaTime inputLatency: %f\n", result->inputLatency );
+        PaUtil_DebugPrint("\t\tPaTime outputLatency: %f\n", result->outputLatency );
+        PaUtil_DebugPrint("\t\tdouble sampleRate: %f\n", result->sampleRate );
+        PaUtil_DebugPrint("\t}\n\n" );
 #endif
 
     }

@@ -164,8 +164,6 @@ static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
-static PaTime GetStreamInputLatency( PaStream *stream );
-static PaTime GetStreamOutputLatency( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -1073,12 +1071,12 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     PaUtil_InitializeStreamInterface( &asioHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, GetStreamCpuLoad,
+                                      GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &asioHostApi->blockingStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-                                      GetStreamInputLatency, GetStreamOutputLatency, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -1151,7 +1149,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( outputParameters )
     {
-        numOutputChannels = outputParameters->numberOfChannels;
+        numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
         
         /* unless alternate device specification is supported, reject the use of
@@ -1212,7 +1210,6 @@ typedef struct PaAsioStream
     ASIOBufferInfo *asioBufferInfos;
     ASIOChannelInfo *asioChannelInfos;
     long inputLatency, outputLatency; // actual latencies returned by asio
-    double inputLatencySeconds, outputLatencySeconds; // ditto
     
     long numInputChannels, numOutputChannels;
     bool postOutput;
@@ -1578,8 +1575,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
 
-    stream->inputLatencySeconds = (double)stream->inputLatency / sampleRate;
-    stream->outputLatencySeconds = (double)stream->outputLatency / sampleRate;
+    stream->streamRepresentation.streamInfo.inputLatency = (double)stream->inputLatency / sampleRate;   // seconds
+    stream->streamRepresentation.streamInfo.outputLatency = (double)stream->outputLatency / sampleRate; // seconds
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
 
     PA_DEBUG(("PaAsio : InputLatency = %ld latency = %ld msec \n",
@@ -1800,8 +1798,8 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         // asio systemTime is supposed to be measured according to the same
         // clock as timeGetTime
         paTimeInfo.currentTime = (ASIO64toDouble( timeInfo->timeInfo.systemTime ) * .000000001);
-        paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->inputLatencySeconds;
-        paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->outputLatencySeconds;
+        paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
+        paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
 
 
         if( theAsioStream->inputBufferConverter )
@@ -2027,24 +2025,6 @@ static PaError IsStreamActive( PaStream *s )
     //PaAsioStream *stream = (PaAsioStream*)s;
     (void) s; /* unused parameter */
     return theAsioStream != 0; /* FIXME: currently there is no way to stop the stream from the callback */
-}
-
-
-static PaTime GetStreamInputLatency( PaStream *s )
-{
-    PaAsioStream *stream = (PaAsioStream*)s;
-
-    // FIXME: should return 0 if this is an ouput-only stream
-    return stream->outputLatencySeconds;;
-}
-
-
-static PaTime GetStreamOutputLatency( PaStream *s )
-{
-    PaAsioStream *stream = (PaAsioStream*)s;
-
-    // FIXME: should return 0 if this is an input-only stream
-    return stream->inputLatencySeconds;
 }
 
 

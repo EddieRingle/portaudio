@@ -57,8 +57,6 @@ typedef struct {
     PaError (*Abort)( PaStream *stream );
     PaError (*IsStopped)( PaStream *stream );
     PaError (*IsActive)( PaStream *stream );
-    PaTime (*GetInputLatency)( PaStream* );
-    PaTime (*GetOutputLatency)( PaStream* );
     PaTime (*GetTime)( PaStream *stream );
     double (*GetCpuLoad)( PaStream* stream );
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames );
@@ -75,8 +73,6 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     PaError (*Abort)( PaStream* ),
     PaError (*IsStopped)( PaStream* ),
     PaError (*IsActive)( PaStream* ),
-    PaTime (*GetInputLatency)( PaStream* ),
-    PaTime (*GetOutputLatency)( PaStream* ),
     PaTime (*GetTime)( PaStream* ),
     double (*GetCpuLoad)( PaStream* ),
     PaError (*Read)( PaStream* stream, void *buffer, unsigned long frames ),
@@ -106,6 +102,7 @@ typedef struct PaUtilStreamRepresentation {
     PaUtilStreamInterface *streamInterface;
     PaStreamCallback *streamCallback;
     void *userData;
+    PaStreamInfo streamInfo;
 } PaUtilStreamRepresentation;
 
 
@@ -117,8 +114,11 @@ void PaUtil_InitializeStreamRepresentation( PaUtilStreamRepresentation *streamRe
 void PaUtil_TerminateStreamRepresentation( PaUtilStreamRepresentation *streamRepresentation );
 
 
+#define PA_STREAM_REP( streamRepPtr )\
+    ((PaUtilStreamRepresentation*) streamRepPtr )
+
 #define PA_STREAM_INTERFACE( streamRepPtr )\
-    ((PaUtilStreamRepresentation*) streamRepPtr )->streamInterface
+    PA_STREAM_REP( streamRepPtr )->streamInterface
 
 
 #ifdef __cplusplus
