@@ -38,7 +38,7 @@
 #include <math.h>
 #include "portaudio.h"
 
-#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDeviceID())
+#define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice()
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (256)
 #define FREQ_INCR           (300.0 / SAMPLE_RATE)
@@ -90,7 +90,7 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
     const PaDeviceInfo *pdi;
     paTestData data = {0};
@@ -109,14 +109,15 @@ int main(void)
               paNoDevice, /* default input device */
               0,              /* no input */
               paFloat32,  /* 32 bit floating point input */
+              0, /* default input latency */
               NULL,
               OUTPUT_DEVICE,
               data.numChannels,
               paFloat32,  /* 32 bit floating point output */
+              0, /* default output latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,  /* frames per buffer */
-              0,    /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
