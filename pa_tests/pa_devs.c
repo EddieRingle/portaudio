@@ -58,8 +58,21 @@ int main(void)
     {
         deviceInfo = Pa_GetDeviceInfo( i );
         printf("---------------------------------------------- #%d", i );
-        if( i == Pa_GetDefaultInputDevice() ) printf(" DefaultInput");
-        if( i == Pa_GetDefaultOutputDevice() ) printf(" DefaultOutput");
+    /* Mark global default devices and API specific defaults. */
+        if( i == Pa_GetDefaultInputDevice() ) printf(" Default Input");
+        else if( i == Pa_HostApiDefaultInputDevice( deviceInfo->hostApi ) )
+        {
+            const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
+            printf(" Default %s Input", hostInfo->name );
+        }
+        
+        if( i == Pa_GetDefaultOutputDevice() ) printf(" Default Output");
+        else if( i == Pa_HostApiDefaultOutputDevice( deviceInfo->hostApi ) )
+        {
+            const PaHostApiInfo *hostInfo = Pa_GetHostApiInfo( deviceInfo->hostApi );
+            printf(" Default %s Output", hostInfo->name );
+        }
+
         printf("\nName         = %s\n", deviceInfo->name );
         printf("Host API     = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
         printf("Max Inputs   = %d", deviceInfo->maxInputChannels  );
