@@ -720,18 +720,35 @@ typedef struct
     int isPlug;
 } DeviceNames;
 
+static PaError PaAlsa_StrDup( PaAlsaHostApiRepresentation *alsaApi,
+        char **dst,
+        const char *src)
+{
+    PaError result = paNoError;
+    int len = strlen( src ) + 1;
+
+    PA_DEBUG(("PaStrDup %s %d\n", src, len));
+
+    UNLESS( *dst = (char *)PaUtil_GroupAllocateMemory( alsaApi->allocations, len ),
+            paInsufficientMemory );
+    strncpy( *dst, src, len );
+
+error:
+    return result;
+}
+
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
     PaUtilHostApiRepresentation *commonApi = &alsaApi->commonHostApiRep;
     PaAlsaDeviceInfo *deviceInfoArray;
     int cardIdx = -1, devIdx = 0;
-    snd_ctl_t *ctl;
-    snd_ctl_card_info_t *card_info;
+    snd_ctl_card_info_t *cardInfo;
     PaError result = paNoError;
     size_t numDeviceNames = 0, maxDeviceNames = 1, i;
     DeviceNames *deviceNames = NULL;
     snd_config_t *top;
+    snd_pcm_info_t *pcmInfo;
     int res;
     int blocking = SND_PCM_NONBLOCK;
     if( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) && atoi( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) ) )
@@ -750,38 +767,59 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
      *
      * The function itself returns 0 if it succeeded. */
     cardIdx = -1;
-    snd_ctl_card_info_alloca( &card_info );
+    snd_ctl_card_info_alloca( &cardInfo );
+    snd_pcm_info_alloca( &pcmInfo );
     while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 )
     {
-        const char *cardName;
-        char *alsaDeviceName, *deviceName;
+        char *cardName;
+        char alsaCardName[50];
+        int devIdx = -1;
+        snd_ctl_t *ctl;
 
-        UNLESS( alsaDeviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
-                                                        50 ), paInsufficientMemory );
-        snprintf( alsaDeviceName, 50, "hw:%d", cardIdx );
+        snprintf( alsaCardName, sizeof (alsaCardName), "hw:%d", cardIdx );
 
         /* Acquire name of card */
-        if( snd_ctl_open( &ctl, alsaDeviceName, 0 ) < 0 )
+        if( snd_ctl_open( &ctl, alsaCardName, 0 ) < 0 )
             continue;   /* Unable to open card :( */
-        snd_ctl_card_info( ctl, card_info );
-        snd_ctl_close( ctl );
-        cardName = snd_ctl_card_info_get_name( card_info );
+        snd_ctl_card_info( ctl, cardInfo );
 
-        UNLESS( deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
-                                                        strlen(cardName) + 1 ), paInsufficientMemory );
-        strcpy( deviceName, cardName );
+        ENSURE_PA( PaAlsa_StrDup( alsaApi, &cardName, snd_ctl_card_info_get_name( cardInfo )) );
 
-        ++numDeviceNames;
-        if( !deviceNames || numDeviceNames > maxDeviceNames )
+        while( snd_ctl_pcm_next_device( ctl, &devIdx ) == 0 && devIdx >= 0 )
         {
-            maxDeviceNames *= 2;
-            UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
-                    paInsufficientMemory );
-        }
+            char *alsaDeviceName, *deviceName;
+            size_t len;
+            char buf[50];
+            int err;
+            snprintf( buf, sizeof (buf), "%s:%d,%d", "hw", cardIdx, devIdx );
 
-        deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
-        deviceNames[ numDeviceNames - 1 ].name = deviceName;
-        deviceNames[ numDeviceNames - 1 ].isPlug = 0;
+            /* Obtain info about this particular device */
+            snd_pcm_info_set_device( pcmInfo, devIdx );
+            snd_pcm_info_set_subdevice( pcmInfo, 0 );
+            snd_pcm_info_set_stream( pcmInfo, SND_PCM_STREAM_PLAYBACK );
+            if( (err = snd_ctl_pcm_info( ctl, pcmInfo )) < 0 )
+                continue;   /* Error */
+
+            len = strlen( cardName ) + strlen( snd_pcm_info_get_name( pcmInfo ) ) + 3;
+            UNLESS( deviceName = (char *)PaUtil_GroupAllocateMemory( alsaApi->allocations, len ),
+                    paInsufficientMemory );
+            snprintf( deviceName, len, "%s: %s", cardName, snd_pcm_info_get_name( pcmInfo ) );
+
+            ++numDeviceNames;
+            if( !deviceNames || numDeviceNames > maxDeviceNames )
+            {
+                maxDeviceNames *= 2;
+                UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
+                        paInsufficientMemory );
+            }
+
+            ENSURE_PA( PaAlsa_StrDup( alsaApi, &alsaDeviceName, buf ) );
+
+            deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
+            deviceNames[ numDeviceNames - 1 ].name = deviceName;
+            deviceNames[ numDeviceNames - 1 ].isPlug = 0;
+        }
+        snd_ctl_close( ctl );
     }
 
     /* Iterate over plugin devices */
@@ -858,21 +896,21 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
          * hardware parameter configuration space */
 
         /* Query capture */
-        if( snd_pcm_open( &pcm, deviceNames[ i ].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
+        if( snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &deviceInfo->minInputChannels, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
                         &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
-                    continue;   /* Error */
+                continue;   /* Error */
         }
-                
+
         /* Query playback */
-        if( snd_pcm_open( &pcm, deviceNames[ i ].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
+        if( snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
             if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
                         &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
-                    continue;   /* Error */
+                continue;   /* Error */
         }
 
         commonDeviceInfo->structVersion = 2;
