@@ -299,13 +299,13 @@ extern IASIO* theAsioDriver;
                           );                                                \
 
 
-#define CALL_THISCALL_1_DOUBLE( resultName, thisPtr, funcOffset, addrparam )\
+#define CALL_THISCALL_1_DOUBLE( resultName, thisPtr, funcOffset, param1 )   \
     __asm__ __volatile__ ("pushl 4(%1)\n\t"                                 \
                           "pushl (%1)\n\t"                                  \
                           "movl (%2), %%edx\n\t"                            \
                           "call *"#funcOffset"(%%edx);\n\t"                 \
                           :"=a"(resultName) /* Output Operands */           \
-                          :"a"(addrparam),  /* Input Operands */            \
+                          :"a"(&param1),    /* Input Operands */            \
                            /* Note: Using "r" above instead of "a" fails */ \
                            /* when using GCC 3.3.3, and maybe later versions*/\
                            "c"(thisPtr)                                     \
