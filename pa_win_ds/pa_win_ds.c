@@ -205,7 +205,7 @@ static BOOL CALLBACK Pa_EnumOutputProc(LPGUID lpGUID,
    /********** Output ******************************/
 
     /* Create interfaces for each object. */
-    hr = DirectSoundCreate(  lpGUID, &lpDirectSound,   NULL );
+    hr = dswDSoundEntryPoints.DirectSoundCreate(  lpGUID, &lpDirectSound,   NULL );
     if( hr != DS_OK )
     {
         deviceInfo->maxOutputChannels = 0;
@@ -330,7 +330,7 @@ static BOOL CALLBACK Pa_EnumInputProc(LPGUID lpGUID,
 
     /********** Input ******************************/
 
-    hr = DirectSoundCaptureCreate(  lpGUID, &lpDirectSoundCapture,   NULL );
+    hr = dswDSoundEntryPoints.DirectSoundCaptureCreate(  lpGUID, &lpDirectSoundCapture,   NULL );
     if( hr != DS_OK )
     {
         deviceInfo->maxInputChannels = 0;
@@ -407,6 +407,8 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     PaWinDsHostApiRepresentation *winDsHostApi;
     PaDeviceInfo *deviceInfoArray;
 
+    DSW_InitializeDSoundEntryPoints();
+
     winDsHostApi = (PaWinDsHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinDsHostApiRepresentation) );
     if( !winDsHostApi )
     {
@@ -432,9 +434,9 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     deviceCount = 0;
 /* DSound - enumerate devices to count them. */
-    DirectSoundEnumerate( (LPDSENUMCALLBACK)Pa_CountDevProc, &deviceCount );
-    DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)Pa_CountDevProc, &deviceCount );
-    
+    dswDSoundEntryPoints.DirectSoundEnumerate( (LPDSENUMCALLBACK)Pa_CountDevProc, &deviceCount );
+    dswDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)Pa_CountDevProc, &deviceCount );
+
     if( deviceCount > 0 )
     {
         /* allocate array for pointers to PaDeviceInfo structs */
@@ -475,11 +477,11 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     /* DSound - Enumerate again to fill in structures. */
         winDsHostApi->enumerationError = 0;
-        DirectSoundEnumerate( (LPDSENUMCALLBACK)Pa_EnumOutputProc, (void *)winDsHostApi );
+        dswDSoundEntryPoints.DirectSoundEnumerate( (LPDSENUMCALLBACK)Pa_EnumOutputProc, (void *)winDsHostApi );
         if( winDsHostApi->enumerationError != paNoError ) return winDsHostApi->enumerationError;
 
         winDsHostApi->enumerationError = 0;
-        DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)Pa_EnumInputProc, (void *)winDsHostApi );
+        dswDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)Pa_EnumInputProc, (void *)winDsHostApi );
         if( winDsHostApi->enumerationError != paNoError ) return winDsHostApi->enumerationError;
     }
 
@@ -528,6 +530,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     PaUtil_FreeMemory( winDsHostApi );
+
+    DSW_TerminateDSoundEntryPoints();
 }
 
 
@@ -772,7 +776,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         {
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ outputDevice ];
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputDevice));
-            hr = DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputDevice].lpGUID,
+            hr = dswDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputDevice].lpGUID,
                 &dsw->dsw_pDirectSound,   NULL );
             if( hr != DS_OK )
             {
@@ -795,7 +799,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( (inputDevice >= 0) && (numInputChannels > 0) )
         {
             PaDeviceInfo *deviceInfo = hostApi->deviceInfos[ inputDevice ];
-            hr = DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputDevice].lpGUID,
+            hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputDevice].lpGUID,
                 &dsw->dsw_pDirectSoundCapture,   NULL );
             if( hr != DS_OK )
             {
