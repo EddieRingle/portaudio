@@ -841,7 +841,6 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     long              numChunks;
     HRESULT           hresult;
     short            *nativeBufPtr;
-    PaTimestamp       outTime = 0; /* IMPLEMENT ME */
 
 
     /* How much input data is available? */
@@ -896,8 +895,10 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer, stream->bufferProcessor.framesPerHostBuffer );
 
-            result = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor, nativeBufPtr, nativeBufPtr, outTime );
-            
+            result = PaUtil_ProcessInterleavedBuffers( &stream->bufferProcessor,
+                nativeBufPtr, nativeBufPtr, stream->frameCount );
+            stream->frameCount += stream->bufferProcessor.framesPerHostBuffer;
+
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             if( result != paContinue) break;
@@ -939,7 +940,7 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
             if( stream->bufferProcessor.numOutputChannels > 0 )
             {
                 DSW_ZeroEmptySpace( dsw );
-                /* clear past_IsActive when all sound played */
+                /* clear isActive when all sound played */
                 if( dsw->dsw_FramesPlayed >= stream->frameCount ) /* FIXME */
                 {
                     stream->isActive = 0;
@@ -1001,6 +1002,12 @@ static PaError StartStream( PaStream *s )
         }
     }
 
+    stream->frameCount = 0;
+
+    stream->abortProcessing = 0;
+    stream->stopProcessing = 0;
+    stream->isActive = 1;
+
     if( stream->bufferProcessor.numOutputChannels > 0 )
     {
         /* Give user callback a chance to pre-fill buffer. */
@@ -1015,10 +1022,6 @@ static PaError StartStream( PaStream *s )
         }
     }
 
-    
-    stream->abortProcessing = 0;
-    stream->stopProcessing = 0;
-    stream->isActive = 1;
 
     /* Create timer that will wake us up so we can fill the DSound buffer. */
     {
@@ -1120,10 +1123,9 @@ static PaError IsStreamActive( PaStream *s )
 static PaTimestamp GetStreamTime( PaStream *s )
 {
     PaWinDsStream *stream = (PaWinDsStream*)s;
-
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
+    DSoundWrapper   *dsw;
+    dsw = &stream->directSoundWrapper;
+    return dsw->dsw_FramesPlayed;
 }
 
 
