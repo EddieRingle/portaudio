@@ -679,8 +679,8 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
     return paNoError;
 }
 
-static PaError InitializeStream( PaOSSStream *stream, const char *deviceName, int inputChannelCount, int outputChannelCount, int callback,
-        PaStreamFlags streamFlags )
+static PaError InitializeStream( PaOSSStream *stream, const char *deviceName, int inputChannelCount, int outputChannelCount,
+        PaStreamCallback callback, void *userData, PaStreamFlags streamFlags, PaOSSHostApiRepresentation *hostApi )
 {
     PaError result = paNoError;
     int flags = O_NONBLOCK;
@@ -710,6 +710,17 @@ static PaError InitializeStream( PaOSSStream *stream, const char *deviceName, in
 
     PA_ENSURE( PaUtil_InitializeThreading( &stream->threading ) );
 
+    if( callback != NULL )
+    {
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &hostApi->callbackStreamInterface, callback, userData );
+    }
+    else
+    {
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &hostApi->blockingStreamInterface, callback, userData );
+    }    
+
 error:
     return result;
 }
@@ -728,8 +739,17 @@ static int Pa2OssFormat( PaSampleFormat format )
 static void CleanUpStream( PaOSSStream *stream )
 {
     assert( stream );
+
+    PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
+    PaUtil_TerminateThreading( &stream->threading );
+
     if( stream->deviceHandle >= 0 )
         close( stream->deviceHandle );
+
+    if( stream->inputBuffer )
+        PaUtil_FreeMemory( stream->inputBuffer );
+    if( stream->outputBuffer )
+        PaUtil_FreeMemory( stream->outputBuffer );
 
     PaUtil_FreeMemory( stream );
 }
@@ -759,6 +779,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int inputChannelCount = 0, outputChannelCount = 0, commonChannelCount = 0;
     PaSampleFormat hostSampleFormat, availableFormats, inputSampleFormat, outputSampleFormat;
     const PaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
+    int bpInitialized = 0;
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -801,18 +822,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     
     /* allocate and do basic initialization of the stream structure */
     PA_UNLESS( stream = (PaOSSStream*)PaUtil_AllocateMemory( sizeof(PaOSSStream) ), paInsufficientMemory );
-    InitializeStream( stream, deviceInfo->name, inputChannelCount, outputChannelCount, streamCallback != NULL, streamFlags );    /* Initialize structure */
-
-    if( streamCallback )
-    {
-        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &ossHostApi->callbackStreamInterface, streamCallback, userData );
-    }
-    else
-    {
-        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &ossHostApi->blockingStreamInterface, streamCallback, userData );
-    }    
+    InitializeStream( stream, deviceInfo->name, inputChannelCount, outputChannelCount, streamCallback, userData,
+            streamFlags, ossHostApi );    /* Initialize structure */
 
     hostSampleFormat = outputChannelCount > 0 ? outputParameters->sampleFormat : inputParameters->sampleFormat;
     PA_ENSURE( GetAvailableFormats( stream, inputChannelCount > 0,
@@ -870,6 +881,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
               sampleRate, streamFlags, framesPerBuffer,
               framesPerHostBuffer, paUtilFixedHostBufferSize,
               streamCallback, userData ) );
+    bpInitialized = 1;
 
     stream->framesPerHostCallback = framesPerHostBuffer;
 
@@ -886,6 +898,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     return result;
 
 error:
+    if( bpInitialized )
+        PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     if( stream )
         CleanUpStream( stream );
 
@@ -1009,16 +1023,11 @@ static PaError CloseStream( PaStream* s )
     PaError result = paNoError;
     PaOSSStream *stream = (PaOSSStream*)s;
 
-    close(stream->deviceHandle);
-
-    if ( stream->inputBuffer )
-        PaUtil_FreeMemory( stream->inputBuffer );
-    if ( stream->outputBuffer )
-        PaUtil_FreeMemory( stream->outputBuffer );
+    assert( stream );
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
-    PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
-    PaUtil_FreeMemory( stream );
+
+    CleanUpStream( stream );
 
     return result;
 }

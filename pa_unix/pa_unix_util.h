@@ -49,6 +49,7 @@ typedef struct {
 } PaUtilThreading;
 
 PaError PaUtil_InitializeThreading( PaUtilThreading *threading );
+void PaUtil_TerminateThreading( PaUtilThreading *threading );
 PaError PaUtil_StartThreading( PaUtilThreading *threading, void *(*threadRoutine)(void *), void *data );
 PaError PaUtil_CancelThreading( PaUtilThreading *threading, int wait, PaError *exitResult );
 

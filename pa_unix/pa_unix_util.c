@@ -118,6 +118,10 @@ PaError PaUtil_InitializeThreading( PaUtilThreading *threading )
     return paNoError;
 }
 
+void PaUtil_TerminateThreading( PaUtilThreading *threading )
+{
+}
+
 PaError PaUtil_StartThreading( PaUtilThreading *threading, void *(*threadRoutine)(void *), void *data )
 {
     pthread_create( &threading->callbackThread, NULL, threadRoutine, data );
