@@ -39,6 +39,15 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 
+/*
+    NOTE TO IMPLEMENTORS:
+
+    This file is provided as a starting point for implementing support for
+    a new host API. IMPLEMENT ME comments are used to indicate functionality
+    which much be customised for each implementation.
+*/
+
+
 /* prototypes for functions declared in this file */
 
 PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
@@ -64,6 +73,7 @@ static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
 static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
+static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
 static PaTimestamp GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
@@ -173,11 +183,11 @@ PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiI
     (*hostApi)->OpenStream = OpenStream;
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &skeletonHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -245,6 +255,8 @@ typedef struct PaSkeletonStream
 }
 PaSkeletonStream;
 
+
+/* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -405,10 +417,21 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     */
 
     PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-    
-    if( callbackResult != 0 )
+
+
+    if( callbackResult == paContinue )
     {
-        /* IMPLEMENT ME - stop the stream */
+        /* nothing special to do */
+    }
+    else if( callbackResult == paAbort )
+    {
+        /* IMPLEMENT ME - finish playback immediately  */
+    }
+    else
+    {
+        /* User callback has asked us to stop with paComplete or other non-zero value */
+
+        /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
     }
 }
 
@@ -465,6 +488,16 @@ static PaError AbortStream( PaStream *s )
     /* IMPLEMENT ME, see portaudio.h for required behavior */
 
     return result;
+}
+
+
+static PaError IsStreamStopped( PaStream *s )
+{
+    PaSkeletonStream *stream = (PaSkeletonStream*)s;
+
+    /* IMPLEMENT ME, see portaudio.h for required behavior */
+
+    return 0;
 }
 
 

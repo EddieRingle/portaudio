@@ -37,6 +37,7 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
                                        PaError (*Start)( PaStream* ),
                                        PaError (*Stop)( PaStream* ),
                                        PaError (*Abort)( PaStream* ),
+                                       PaError (*IsStopped)( PaStream* ),
                                        PaError (*IsActive)( PaStream* ),
                                        PaTimestamp (*GetTime)( PaStream* ),
                                        double (*GetCpuLoad)( PaStream* ),
@@ -49,6 +50,7 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     streamInterface->Start = Start;
     streamInterface->Stop = Stop;
     streamInterface->Abort = Abort;
+    streamInterface->IsStopped = IsStopped;
     streamInterface->IsActive = IsActive;
     streamInterface->GetTime = GetTime;
     streamInterface->GetCpuLoad = GetCpuLoad;

@@ -95,7 +95,9 @@ typedef enum {
     paTimedOut,
     paInternalError,
     paDeviceUnavailable,
-    paIncompatibleStreamInfo
+    paIncompatibleStreamInfo,
+    paStreamIsStopped,
+    paStreamIsNotStopped
 } PaErrorNum;
 /**< Error codes returned by PortAudio functions. */
 
@@ -443,6 +445,18 @@ PaHostApiSpecificStreamInfo;
 */
 
 
+typedef enum
+{
+    paContinue=0,
+    paComplete=1,
+    paAbort=2
+}
+PaCallbackResult;
+/**<
+ Possible return values for the PortAudioCallback.
+*/
+
+
 typedef int PortAudioCallback(
     void *input, void *output,
     unsigned long frameCount,
@@ -467,6 +481,7 @@ typedef int PortAudioCallback(
  Pa_OpenStream() intended for storing synthesis data etc.
      
  @return
+ FIXME: document PaCallbackResult here
  The callback can return a non-zero value to stop the stream. This may be
  useful in applications such as soundfile players where a specific duration
  of output is required. However, it is not necessary to utilise this mechanism
@@ -627,6 +642,14 @@ PaError Pa_AbortStream( PaStream *stream );
 */
 
 
+PaError Pa_IsStreamStopped( PaStream *stream );
+/**< @return Returns one (1) when the stream is stopped, zero (0) when
+    the stream is running, or a negative error number if the stream
+    is invalid.
+    FIXME: update this to reflect new state machine
+*/
+
+
 PaError Pa_IsStreamActive( PaStream *stream );
 /**< @return Returns one (1) when the stream is active (ie playing
  or recording audio), zero (0) when not playing, or a negative error number
@@ -638,6 +661,8 @@ PaError Pa_IsStreamActive( PaStream *stream );
  user callback. In the latter case, the stream is considered inactive after
  the last buffer has finished playing.
 
+ FIXME: update this to reflect new state machine
+ 
  @see Pa_StopStream, Pa_AbortStream
 */
 

@@ -51,6 +51,7 @@ typedef struct {
     PaError (*Start)( PaStream *stream );
     PaError (*Stop)( PaStream *stream );
     PaError (*Abort)( PaStream *stream );
+    PaError (*IsStopped)( PaStream *stream );
     PaError (*IsActive)( PaStream *stream );
     PaTimestamp (*GetTime)( PaStream *stream );
     double (*GetCpuLoad)( PaStream* stream );
@@ -66,6 +67,7 @@ void PaUtil_InitializeStreamInterface( PaUtilStreamInterface *streamInterface,
     PaError (*Start)( PaStream* ),
     PaError (*Stop)( PaStream* ),
     PaError (*Abort)( PaStream* ),
+    PaError (*IsStopped)( PaStream* ),
     PaError (*IsActive)( PaStream* ),
     PaTimestamp (*GetTime)( PaStream* ),
     double (*GetCpuLoad)( PaStream* ),

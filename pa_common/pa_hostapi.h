@@ -109,12 +109,6 @@ typedef struct PaUtilHostApiRepresentation {
                 - is not an 'absurd' rate (less than 1000. or greater than 200000.)
                 - sampleRate is NOT validated against device capabilities
 
-            unsigned long framesPerBuffer
-                - NOT validated
-
-            unsigned long numberOfBuffers
-                - NOT validated
-
             PaStreamFlags streamFlags
                 - unused platform neutral flags are zero
 
@@ -146,7 +140,7 @@ typedef struct PaUtilHostApiRepresentation {
 
             - alter sampleRate to a close allowable rate if necessary
 
-            - validate framesPerBuffer and numberOfBuffers
+            - validate inputLatency and outputLatency
 
             - validate any platform specific flags, if flags are supplied they
                 must be valid.

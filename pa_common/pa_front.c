@@ -353,6 +353,8 @@ const char *Pa_GetErrorText( PaError errnum )
     case paInternalError:            msg = "Internal PortAudio error"; break;
     case paDeviceUnavailable:        msg = "Device unavailable"; break;
     case paIncompatibleStreamInfo:   msg = "Incompatible host API specific stream info"; break;
+    case paStreamIsStopped:          msg = "Stream is stopped"; break;
+    case paStreamIsNotStopped:        msg = "Stream is not stopped"; break;
     default:                         msg = "Illegal error number"; break;
     }
     return msg;
@@ -818,12 +820,6 @@ static int SampleFormatIsValid( PaSampleFormat sampleFormat )
         - is not an 'absurd' rate (less than 1000. or greater than 200000.)
         - sampleRate is NOT validated against device capabilities
  
-    unsigned long framesPerBuffer
-        - NOT validated
- 
-    unsigned long numberOfBuffers
-        - NOT validated
- 
     PaStreamFlags streamFlags
         - unused platform neutral flags are zero
 */
@@ -1114,12 +1110,12 @@ PaError Pa_CloseStream( PaStream* stream )
         RemoveOpenStream( stream );
 
         interface = PA_STREAM_INTERFACE(stream);
-        if( interface->IsActive( stream ) )
+        if( !interface->IsStopped( stream ) )
         {
             result = interface->Abort( stream );
         }
 
-        if( result == paNoError )
+        if( result == paNoError )                 /* REVIEW: shouldn't we close anyway? */
             result = interface->Close( stream );
     }
 
@@ -1142,7 +1138,16 @@ PaError Pa_StartStream( PaStream *stream )
 #endif
 
     if( result == paNoError )
-        result = PA_STREAM_INTERFACE(stream)->Start( stream );
+    {
+        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        {
+            result = paStreamIsNotStopped ;
+        }
+        else
+        {
+            result = PA_STREAM_INTERFACE(stream)->Start( stream );
+        }
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_StartStream returned:\n" );
@@ -1163,7 +1168,16 @@ PaError Pa_StopStream( PaStream *stream )
 #endif
 
     if( result == paNoError )
-        result = PA_STREAM_INTERFACE(stream)->Stop( stream );
+    {
+        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        {
+            result = paStreamIsStopped;
+        }
+        else
+        {
+            result = PA_STREAM_INTERFACE(stream)->Stop( stream );
+        }
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_StopStream returned:\n" );
@@ -1184,10 +1198,40 @@ PaError Pa_AbortStream( PaStream *stream )
 #endif
 
     if( result == paNoError )
-        result = PA_STREAM_INTERFACE(stream)->Abort( stream );
+    {
+        if( PA_STREAM_INTERFACE(stream)->IsStopped ( stream ) )
+        {
+            result = paStreamIsStopped;
+        }
+        else
+        {
+            result = PA_STREAM_INTERFACE(stream)->Abort( stream );
+        }
+    }
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_AbortStream returned:\n" );
+    PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+
+    return result;
+}
+
+
+PaError Pa_IsStreamStopped( PaStream *stream )
+{
+    PaError result = ValidateStream( stream );
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_IsStreamStopped called:\n" );
+    PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
+#endif
+
+    if( result == paNoError )
+        result = PA_STREAM_INTERFACE(stream)->IsStopped( stream );
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_IsStreamStopped returned:\n" );
     PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
 #endif
 

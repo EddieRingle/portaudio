@@ -155,6 +155,7 @@ static PaError CloseStream( PaStream* stream );
 static PaError StartStream( PaStream *stream );
 static PaError StopStream( PaStream *stream );
 static PaError AbortStream( PaStream *stream );
+static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
 static PaTimestamp GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
@@ -582,12 +583,13 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
 
+
     PaUtil_InitializeStreamInterface( &winMmeHostApi->callbackStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, GetStreamCpuLoad,
                                       PaUtil_DummyReadWrite, PaUtil_DummyReadWrite, PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &winMmeHostApi->blockingStreamInterface, CloseStream, StartStream,
-                                      StopStream, AbortStream, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive, GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     return result;
@@ -847,18 +849,56 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /*
         IMPLEMENT ME:
             - alter sampleRate to a close allowable rate if possible / necessary
-
-            - validate framesPerBuffer and numberOfBuffers
     */
 
 
     /* validate inputStreamInfo */
     if( inputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    {
+        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->header.size != sizeof( PaWinMmeStreamInfo )
+                || ((PaWinMmeStreamInfo*)inputStreamInfo)->header.version != 1 )
+        {
+            return paIncompatibleStreamInfo;
+        }
+
+        if( ((PaWinMmeStreamInfo*)inputStreamInfo)->flags & PaWinMmeUseLowLevelLatencyParameters )
+        {
+            if( ((PaWinMmeStreamInfo*)inputStreamInfo)->numBuffers <= 0
+                    || ((PaWinMmeStreamInfo*)inputStreamInfo)->framesPerBuffer <= 0 )
+            {
+                return paIncompatibleStreamInfo;
+            }
+
+            numHostInputBuffers = ((PaWinMmeStreamInfo*)inputStreamInfo)->numBuffers;
+            framesPerHostInputBuffer = ((PaWinMmeStreamInfo*)inputStreamInfo)->framesPerBuffer;
+        }
+
+        /* IMPLEMENT ME: validate multidevice fields */
+    }
 
     /* validate outputStreamInfo */
     if( outputStreamInfo )
-        return paIncompatibleStreamInfo; /* this implementation doesn't use custom stream info */
+    {
+        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->header.size != sizeof( PaWinMmeStreamInfo )
+                || ((PaWinMmeStreamInfo*)outputStreamInfo)->header.version != 1 )
+        {
+            return paIncompatibleStreamInfo;
+        }
+
+        if( ((PaWinMmeStreamInfo*)outputStreamInfo)->flags & PaWinMmeUseLowLevelLatencyParameters )
+        {
+            if( ((PaWinMmeStreamInfo*)outputStreamInfo)->numBuffers <= 0
+                    || ((PaWinMmeStreamInfo*)outputStreamInfo)->framesPerBuffer <= 0 )
+            {
+                return paIncompatibleStreamInfo;
+            }
+
+            numHostOutputBuffers = ((PaWinMmeStreamInfo*)outputStreamInfo)->numBuffers;
+            framesPerHostOutputBuffer = ((PaWinMmeStreamInfo*)outputStreamInfo)->framesPerBuffer;
+        }
+
+        /* IMPLEMENT ME: validate multidevice fields */                 
+    }
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -892,28 +932,37 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
 
 
-        
-    /* FIXME: the following is hard wired, but should either be calculated from
-        the generic latency parameters, or the host-specific latency parameters
-        if they are available */
-    framesPerHostInputBuffer = 16384;
-    framesPerHostOutputBuffer = 16384;
-    numHostInputBuffers = 4;
-    numHostOutputBuffers = 4;
+    /* calculate frames per buffer and number of buffers from generic
+        latency parameters if specific values have not been provided */
+    /* FIXME: derive values from latency params */
+
+    if( inputDevice != paNoDevice && numHostInputBuffers == 0 )
+    {
+        framesPerHostInputBuffer = 16384;
+        numHostInputBuffers = 4;
+    }
+
+    if( outputDevice != paNoDevice && numHostOutputBuffers == 0 )
+    {
+        framesPerHostOutputBuffer = 16384;
+        numHostOutputBuffers = 4;
+    }
 
     framesPerBufferProcessorCall = (framesPerHostInputBuffer < framesPerHostOutputBuffer )
             ? framesPerHostInputBuffer : framesPerHostOutputBuffer;
 
-    /*
-        either input and output buffers must be the same size, or the
-        larger one must be an integer multiple of the smaller one.
-    */
-    assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
-    assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
 
+    if( inputDevice != paNoDevice && outputDevice != paNoDevice )
+    {
+        /*
+            either input and output buffers must be the same size, or the
+            larger one must be an integer multiple of the smaller one.
+        */
+        assert( framesPerHostInputBuffer % framesPerBufferProcessorCall == 0 );
+        assert( framesPerHostOutputBuffer % framesPerBufferProcessorCall == 0 );
+    }
 
-
-
+                                  
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
@@ -1238,13 +1287,28 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
                     PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-                    if( callbackResult != 0 )
+                    if( callbackResult == paContinue )
                     {
-                        /* User callback has asked us to stop. */
+                        /* nothing special to do */
+                    }
+                    else if( callbackResult == paAbort )
+                    {
+                        stream->abortProcessing = 1;
+                        done = 1;
+                        /* FIXME: should probably do a reset here */
+                        result = paNoError;
+                    }
+                    else
+                    {
+                        /* User callback has asked us to stop with paComplete or other non-zero value */
                         stream->stopProcessing = 1; /* stop once currently queued audio has finished */
                         result = paNoError;
                     }
 
+                    /*
+                    FIXME: the following code is buggy, because stopProcessing should
+                    still queue the current buffer.
+                    */
                     if( stream->stopProcessing == 0 && stream->abortProcessing == 0 )
                     {
                         if( PA_IS_INPUT_STREAM_(stream) )
@@ -1624,6 +1688,16 @@ static PaError AbortStream( PaStream *s )
     stream->isActive = 0;
 
     return result;
+}
+
+
+static PaError IsStreamStopped( PaStream *s )
+{
+    PaWinMmeStream *stream = (PaWinMmeStream*)s;
+
+    return ( stream->processingThread != NULL );
+
+    return 0;
 }
 
 
