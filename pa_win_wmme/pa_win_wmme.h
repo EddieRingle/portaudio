@@ -41,8 +41,9 @@ extern "C"
 
 #include "portaudio.h"
 
+#define PaWinMmeUseLowLevelLatencyParameters (0x01)
+#define PaWinMmeUseMultipleDevices  (0x02)  /* use mme specific multiple device feature */
 
-#define paWinMmePassMultipleInterleavedBuffers 0x01 /* a flag */
 
 typedef struct{
     PaDeviceIndex device;
@@ -52,9 +53,27 @@ typedef struct{
 
 typedef struct{
     PaHostApiSpecificStreamInfo header;
+
+    unsigned long flags;
+
+    /* low-level latency setting support
+        These settings control the number and size of host buffers in order
+        to set latency. They will be used instead of the generic parameters
+        to Pa_OpenStream() if flags contains the PaWinMmeUseLowLevelLatencyParameters
+        flag.
+    */
+    unsigned long framesPerBuffer;
+    unsigned long numBuffers;  
+
+    /* multiple devices per direction support
+        The total number of channels must agree with the numChannels parameters
+        to OpenStream. If flags contains the PaWinMmeUseMultipleDevices flag,
+        this functionality will be used, otherwise the device parameter to
+        Pa_OpenStream() will be used instead.
+    */
     PaWinMmeDeviceAndNumChannels *devices;
     unsigned long numDevices;
-    unsigned long flags;
+
 }PaWinMmeStreamInfo;
 
 

@@ -353,6 +353,9 @@ typedef struct
     PaHostApiIndex hostApi; /* note this is a host API index, not a type id*/
     int maxInputChannels;
     int maxOutputChannels;
+
+    /* THE FOLLOWING FIELDS WILL BE REMOVED in favour of IsSupported() */
+
     /* Number of discrete rates, or -1 if range supported. */
     int numSampleRates;
     /* Array of supported sample rates, or {min,max} if range supported. */
@@ -482,14 +485,15 @@ PaError Pa_OpenStream( PaStream** stream,
                        PaDeviceIndex inputDevice,
                        int numInputChannels,
                        PaSampleFormat inputSampleFormat,
+                       unsigned long inputLatency,
                        void *inputStreamInfo,
                        PaDeviceIndex outputDevice,
                        int numOutputChannels,
                        PaSampleFormat outputSampleFormat,
+                       unsigned long outputLatency,
                        void *outputStreamInfo,
                        double sampleRate,
-                       unsigned long framesPerBuffer,
-                       unsigned long numberOfBuffers,
+                       unsigned long framesPerCallback,
                        PaStreamFlags streamFlags,
                        PortAudioCallback *callback,
                        void *userData );
@@ -519,7 +523,10 @@ PaError Pa_OpenStream( PaStream** stream,
  inputStreamInfo is never required for correct operation. If not used
  inputStreamInfo should be NULL. If inputStreamInfo is supplied, it's
  size and hostApi fields must be compatible with the input devices host api.
-     
+
+ @param inputLatency The desired number of frames of input latency. A value of
+ zero indicates that the default or known reliable latency value should be used.
+
  @param outputDevice A valid device index in the range 0 to (Pa_CountDevices()-1)
  specifying the device to be used for output. May be paNoDevice to indicate that
  an output device is not required.
@@ -530,7 +537,10 @@ PaError Pa_OpenStream( PaStream** stream,
  @param outputSampleFormat The sample format of the outputBuffer filled by the
  callback function. See the definition of inputSampleFormat above for more
  details.
-     
+
+ @param outputLatency The desired number of frames of input latency. A value of
+ zero indicates that the default or known reliable latency value should be used
+
  @param outputStreamInfo A pointer to an optional host api specific data structure
  containing additional information for device setup or stream processing.
  outputStreamInfo is never required for correct operation. If not used
@@ -540,11 +550,10 @@ PaError Pa_OpenStream( PaStream** stream,
  @param sampleRate The desired sampleRate. For full-duplex streams it is the
  sample rate for both input and output
      
- @param framesPerBuffer The length in sample frames of all internal sample buffers
- used for communication with platform specific audio routines. Wherever
- possible this corresponds to the framesPerBuffer parameter passed to the
- callback function.
-     
+ @param framesPerCallback The number of frams passed to the callback function.
+ When this parameter is 0 it indicates that the callback will recieve an
+ optimal number of frames for the requested latency settings.
+
  @param numberOfBuffers The number of buffers used for multibuffered communication
  with the platform specific audio routines. If you pass zero, then an optimum
  value will be chosen for you internally. This parameter is provided only
@@ -578,8 +587,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
                               int numOutputChannels,
                               PaSampleFormat sampleFormat,
                               double sampleRate,
-                              unsigned long framesPerBuffer,
-                              unsigned long numberOfBuffers,
+                              unsigned long framesPerCallback,
                               PortAudioCallback *callback,
                               void *userData );
 /**< A simplified version of Pa_OpenStream() that opens the default input

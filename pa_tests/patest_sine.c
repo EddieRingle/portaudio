@@ -104,14 +104,15 @@ int main(void)
               paNoDevice,/* default input device */
               0,              /* no input */
               paFloat32,  /* 32 bit floating point input */
+              0, /* default latency */
               NULL,
               Pa_GetDefaultOutputDevice(), /* default output device */
               2,          /* stereo output */
               paFloat32,      /* 32 bit floating point output */
+              0, /* default latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              0,              /* number of buffers, if zero then use default minimum */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );

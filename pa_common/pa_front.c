@@ -837,8 +837,6 @@ static PaError ValidateOpenStreamParameters(
     PaSampleFormat outputSampleFormat,
     void *outputStreamInfo,
     double sampleRate,
-    unsigned long framesPerBuffer,
-    unsigned long numberOfBuffers,
     PaStreamFlags streamFlags,
     PaUtilHostApiRepresentation **hostApi,
     PaDeviceIndex *hostApiInputDevice,
@@ -943,14 +941,15 @@ PaError Pa_OpenStream( PaStream** stream,
                        PaDeviceIndex inputDevice,
                        int numInputChannels,
                        PaSampleFormat inputSampleFormat,
+                       unsigned long inputLatency,
                        void *inputStreamInfo,
                        PaDeviceIndex outputDevice,
                        int numOutputChannels,
                        PaSampleFormat outputSampleFormat,
+                       unsigned long outputLatency,
                        void *outputStreamInfo,
                        double sampleRate,
-                       unsigned long framesPerBuffer,
-                       unsigned long numberOfBuffers,
+                       unsigned long framesPerCallback,
                        PaStreamFlags streamFlags,
                        PortAudioCallback *callback,
                        void *userData )
@@ -965,14 +964,15 @@ PaError Pa_OpenStream( PaStream** stream,
     PaUtil_DebugPrint("\tPaDeviceIndex inputDevice: %d\n", inputDevice );
     PaUtil_DebugPrint("\tint numInputChannels: %d\n", numInputChannels );
     PaUtil_DebugPrint("\tPaSampleFormat inputSampleFormat: %d\n", inputSampleFormat );
+    PaUtil_DebugPrint("\tunsigned long inputLatency: %d\n", inputLatency );
     PaUtil_DebugPrint("\tvoid *inputStreamInfo: 0x%p\n", inputStreamInfo );
     PaUtil_DebugPrint("\tPaDeviceIndex outputDevice: %d\n", outputDevice );
     PaUtil_DebugPrint("\tint numOutputChannels: %d\n", numOutputChannels );
     PaUtil_DebugPrint("\tPaSampleFormat outputSampleFormat: %d\n", outputSampleFormat );
+    PaUtil_DebugPrint("\tunsigned long outputLatency: %d\n", outputLatency );
     PaUtil_DebugPrint("\tvoid *outputStreamInfo: 0x%p\n", outputStreamInfo );
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
-    PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
-    PaUtil_DebugPrint("\tunsigned long numberOfBuffers: %d\n", numberOfBuffers );
+    PaUtil_DebugPrint("\tunsigned long framesPerCallback: %d\n", framesPerCallback );
     PaUtil_DebugPrint("\tPaStreamFlags streamFlags: 0x%x\n", streamFlags );
     PaUtil_DebugPrint("\tPortAudioCallback *callback: 0x%p\n", callback );
     PaUtil_DebugPrint("\tvoid *userData: 0x%p\n", userData );
@@ -1006,7 +1006,7 @@ PaError Pa_OpenStream( PaStream** stream,
 
     result = ValidateOpenStreamParameters( inputDevice, numInputChannels, inputSampleFormat,
                                            inputStreamInfo, outputDevice, numOutputChannels, outputSampleFormat,
-                                           outputStreamInfo, sampleRate, framesPerBuffer, numberOfBuffers,
+                                           outputStreamInfo, sampleRate,
                                            streamFlags, &hostApi, &hostApiInputDevice, &hostApiOutputDevice );
     if( result != paNoError )
     {
@@ -1024,9 +1024,9 @@ PaError Pa_OpenStream( PaStream** stream,
     }
 
     result = hostApi->OpenStream( hostApi, stream,
-                                  hostApiInputDevice, numInputChannels, inputSampleFormat, inputStreamInfo,
-                                  hostApiOutputDevice, numOutputChannels, outputSampleFormat, outputStreamInfo,
-                                  sampleRate, framesPerBuffer, numberOfBuffers, streamFlags, callback, userData );
+                                  hostApiInputDevice, numInputChannels, inputSampleFormat, inputLatency, inputStreamInfo,
+                                  hostApiOutputDevice, numOutputChannels, outputSampleFormat, outputLatency, outputStreamInfo,
+                                  sampleRate, framesPerCallback, streamFlags, callback, userData );
 
     if( result == paNoError )
         AddOpenStream( *stream );
@@ -1047,8 +1047,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
                               int numOutputChannels,
                               PaSampleFormat sampleFormat,
                               double sampleRate,
-                              unsigned long framesPerBuffer,
-                              unsigned long numberOfBuffers,
+                              unsigned long framesPerCallback,
                               PortAudioCallback *callback,
                               void *userData )
 {
@@ -1061,8 +1060,7 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     PaUtil_DebugPrint("\tint numOutputChannels: %d\n", numOutputChannels );
     PaUtil_DebugPrint("\tPaSampleFormat sampleFormat: %d\n", sampleFormat );
     PaUtil_DebugPrint("\tdouble sampleRate: %g\n", sampleRate );
-    PaUtil_DebugPrint("\tunsigned long framesPerBuffer: %d\n", framesPerBuffer );
-    PaUtil_DebugPrint("\tunsigned long numberOfBuffers: %d\n", numberOfBuffers );
+    PaUtil_DebugPrint("\tunsigned long framesPerCallback: %d\n", framesPerCallback );
     PaUtil_DebugPrint("\tPortAudioCallback *callback: 0x%p\n", callback );
     PaUtil_DebugPrint("\tvoid *userData: 0x%p\n", userData );
 #endif
@@ -1070,10 +1068,10 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     result = Pa_OpenStream(
                  stream,
                  ((numInputChannels > 0) ? Pa_GetDefaultInputDevice() : paNoDevice),
-                 numInputChannels, sampleFormat, NULL,
+                 numInputChannels, sampleFormat, 0, NULL,
                  ((numOutputChannels > 0) ? Pa_GetDefaultOutputDevice() : paNoDevice),
-                 numOutputChannels, sampleFormat, NULL,
-                 sampleRate, framesPerBuffer, numberOfBuffers, paNoFlag, callback, userData );
+                 numOutputChannels, sampleFormat, 0, NULL,
+                 sampleRate, framesPerCallback, paNoFlag, callback, userData );
 
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_OpenDefaultStream returned:\n" );

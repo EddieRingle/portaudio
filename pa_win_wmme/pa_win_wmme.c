@@ -59,8 +59,11 @@
 
 /*
 TODO:
-    - implement timecode param to callback
+
     - implement buffer size and number of buffers code
+
+    - implement timecode param to callback
+
     - add default buffer size/number code from old implementation
     - add bufferslip management
     - add multidevice multichannel support
@@ -136,14 +139,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaDeviceIndex inputDevice,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
-                           void *inputDriverInfo,
+                           unsigned long inputLatency,
+                           void *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
-                           void *outputDriverInfo,
+                           unsigned long outputLatency,
+                           void *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerBuffer,
-                           unsigned long numberOfBuffers,
+                           unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData );
@@ -798,14 +802,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaDeviceIndex inputDevice,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
+                           unsigned long inputLatency,
                            void *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
+                           unsigned long outputLatency,
                            void *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerBuffer,
-                           unsigned long numberOfBuffers,
+                           unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData )
@@ -912,7 +917,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer, framesPerBufferProcessorCall,
+              sampleRate, streamFlags, framesPerCallback, framesPerBufferProcessorCall,
               callback, userData );
     if( result != paNoError )
         goto error;

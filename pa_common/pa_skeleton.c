@@ -44,18 +44,19 @@
 PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
-                           PaStream** stream,
+                           PaStream** s,
                            PaDeviceIndex inputDevice,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
-                           void *inputDriverInfo,
+                           unsigned long inputLatency,
+                           void *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
-                           void *outputDriverInfo,
+                           unsigned long outputLatency,
+                           void *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerBuffer,
-                           unsigned long numberOfBuffers,
+                           unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData );
@@ -250,14 +251,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaDeviceIndex inputDevice,
                            int numInputChannels,
                            PaSampleFormat inputSampleFormat,
+                           unsigned long inputLatency,
                            void *inputStreamInfo,
                            PaDeviceIndex outputDevice,
                            int numOutputChannels,
                            PaSampleFormat outputSampleFormat,
+                           unsigned long outputLatency,
                            void *outputStreamInfo,
                            double sampleRate,
-                           unsigned long framesPerBuffer,
-                           unsigned long numberOfBuffers,
+                           unsigned long framesPerCallback,
                            PaStreamFlags streamFlags,
                            PortAudioCallback *callback,
                            void *userData )
@@ -265,7 +267,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaSkeletonHostApiRepresentation *skeletonHostApi = (PaSkeletonHostApiRepresentation*)hostApi;
     PaSkeletonStream *stream = 0;
-    unsigned long framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
+    unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
     /*
@@ -291,7 +293,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
             - alter sampleRate to a close allowable rate if possible / necessary
 
-            - validate framesPerBuffer and numberOfBuffers
+            - validate inputLatency and outputLatency parameters,
+                use default values where necessary
     */
 
 
@@ -342,7 +345,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
               numInputChannels, inputSampleFormat, hostInputSampleFormat,
               numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
+              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
               callback, userData );
     if( result != paNoError )
         goto error;
