@@ -801,7 +801,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
 
         /* Zero fields */
+        /*
         PaUtil_InitializeDeviceInfo( commonDeviceInfo );
+        */
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
