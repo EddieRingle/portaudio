@@ -1181,6 +1181,7 @@ struct PaWinMmeStream
     int processingThreadPriority;
     int highThreadPriority;
     int throttledThreadPriority;
+    unsigned long throttledSleepMsecs;
 
     volatile int isActive;
     volatile int stopProcessing; /* stop thread once existing buffers have been returned */
@@ -1501,6 +1502,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     streamCallback, userData );
     if( result != paNoError )
         goto error;
+
+
+    /* time to sleep when throttling due to >100% cpu usage.
+        -a quater of a buffer's duration */
+    stream->throttledSleepMsecs =
+            (unsigned long)(stream->bufferProcessor.framesPerHostBuffer *
+             stream->bufferProcessor.samplePeriod * .25);
 
     stream->isActive = 0;
 
@@ -1913,13 +1921,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     int numEvents = 0;
     DWORD result = paNoError;
     DWORD waitResult;
-/** @todo:
-Gordon Gidluck:
-> function: ProcessingThreadProc()
-> line #1665 DWORD timeout = stream->allBuffersDurationMs * 0.5;
-> conversion from 'double ' to 'unsigned long ', possible loss of data
-*/
-    DWORD timeout = stream->allBuffersDurationMs * 0.5;
+    DWORD timeout = (unsigned long)(stream->allBuffersDurationMs * 0.5);
     DWORD numTimeouts = 0;
     int hostBuffersAvailable;
     signed int hostInputBufferIndex, hostOutputBufferIndex;
@@ -2202,17 +2204,8 @@ Gordon Gidluck:
                                     stream->processingThreadPriority = stream->throttledThreadPriority;
                                 }
 
-/** @todo:
-Gordon Gidluck:
-> function: ProcessingThreadProc()
-> line #1947/1948 Sleep( stream->bufferProcessor.framesPerHostBuffer *
->                   stream->bufferProcessor.samplePeriod * .25 );
-> conversion from 'double ' to 'unsigned long ', possible loss of data
-> integral size mismatch in argument; conversion supplied
-*/
-                                /* sleep for a quater of a buffer's duration to give other processes a go */
-                                Sleep( stream->bufferProcessor.framesPerHostBuffer *
-                                        stream->bufferProcessor.samplePeriod * .25 );
+                                /* sleep to give other processes a go */
+                                Sleep( stream->throttledSleepMsecs );
                             }
                             else
                             {
