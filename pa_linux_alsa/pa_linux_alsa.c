@@ -1533,6 +1533,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAlsaStreamInfo *inputStreamInfo = NULL, *outputStreamInfo = NULL;
     PaTime inputLatency, outputLatency;
     unsigned long framesPerHostBuffer = framesPerBuffer;
+    PaUtilHostBufferSizeMode hostBufferSizeMode = paUtilUnknownHostBufferSize;
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -1664,12 +1665,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             stream->alignFrames = 1;
     }
 
+    if( !stream->useBlockAdaption )
+        hostBufferSizeMode = paUtilFixedHostBufferSize;
+    else if( framesPerHostBuffer >= framesPerBuffer )   /* This mode will skip buffers smaller than framesPerUserBuffer */
+        hostBufferSizeMode = paUtilVariableHostBufferSizePartialUsageAllowed;
+
+    if( hostBufferSizeMode == paUtilUnknownHostBufferSize )
+        PA_DEBUG(( "OK Unknown\n" ));
+
     ENSURE_PA( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
-                    stream->useBlockAdaption ? paUtilVariableHostBufferSizePartialUsageAllowed : paUtilFixedHostBufferSize,
-                    callback, userData ) );
+                    hostBufferSizeMode, callback, userData ) );
 
     /* Ok, buffer processor is initialized, now we can deduce it's latency */
     if( numInputChannels > 0 )
@@ -2673,7 +2681,7 @@ static void *CallbackThreadFunc( void *userData )
              * consumption of the host buffer (paUtilVariableHostBufferSizePartialUsageAllowed) */
             if( framesProcessed != framesGot )
             {
-                PA_DEBUG(( "framesProcessed differs from framesGot: %lu\n", framesGot - framesProcessed ));
+                /*PA_DEBUG(( "framesProcessed differs from framesGot: %lu\n", framesGot - framesProcessed ));*/
 
                 /* framesProcessed can never exceed framesGot */
                 stream->capture.framesAvail = MIN( stream->capture.framesAvail, framesProcessed );
