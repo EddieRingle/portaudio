@@ -1037,59 +1037,43 @@ static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
-    int tries = 4;
 
     /* Ready the processor */
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
 
-    /* A: I've decided to try starting playback in main thread, at least we know pcm will be started
-       before we spawn. Otherwise we may exit with an appropriate error code */
-
     if( stream->callback_mode )
     {
-        ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ), paInternalError );
-    }
-    else
-    {
-        /*
-        if( stream->pcm_playback )
-            snd_pcm_start( stream->pcm_playback );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            snd_pcm_start( stream->pcm_capture );
-        */
-    }
+        int res = 0;
 
-    /* On my machine, the pcm stream will not transition to the RUNNING
-     * state for a while after snd_pcm_start is called.  The PortAudio
-     * client needs to be able to depend on Pa_IsStreamActive() returning
-     * true the moment after this function returns.  So I sleep briefly here.
-     *
-     * I don't like this one bit.
-     */
-    while( !IsStreamActive( stream ) && tries-- )
-    {
-        PA_DEBUG(( "Waiting for stream to start\n" ));
-        Pa_Sleep( 25 );
-    }
-    if( !IsStreamActive( stream ) )
-    {
-        if( stream->callback_mode )
+        pthread_mutex_lock( &stream->startMtx );
+        ENSURE( pthread_create( &stream->callback_thread, NULL, &CallbackThread, stream ), paInternalError );
+
+        /*! Wait for stream to be started */
+        PaTime pt = PaUtil_GetTime();
+        struct timespec ts;
+        ts.tv_sec = (__time_t) pt + 1;
+        ts.tv_nsec = (long) pt * 1000000000;
+
+        while( !IsStreamActive( stream ) && res != ETIMEDOUT )
+            res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
+        pthread_mutex_unlock( &stream->startMtx );
+        PA_DEBUG(( "Waited for %g seconds for stream to start\n", PaUtil_GetTime() - pt ));
+
+        if( res == ETIMEDOUT )
         {
             pthread_cancel( stream->callback_thread );
             pthread_join( stream->callback_thread, NULL );
+            PA_ENSURE( paTimedOut );
         }
-
-        result = paTimedOut;
-        goto error;
     }
+    else
+        PA_ENSURE( AlsaStart( stream, 0 ) );
 
 end:
     return result;
-
 error:
-    goto end;   /* No particular action */
+    goto end;
 }
-
 
 static PaError RealStop( PaStream *s, int abort )
 {
@@ -1139,20 +1123,17 @@ error:
     goto end;
 }
 
-
 static PaError StopStream( PaStream *s )
 {
     ((PaAlsaStream *) s)->callbackAbort = 0;    /* In case abort has been called earlier */
     return RealStop( s, 0);
 }
 
-
 static PaError AbortStream( PaStream *s )
 {
     ((PaAlsaStream *) s)->callbackAbort = 1;
     return RealStop( s, 1);
 }
-
 
 static PaError IsStreamStopped( PaStream *s )
 {
@@ -1165,19 +1146,18 @@ static PaError IsStreamStopped( PaStream *s )
     return res;
 }
 
-
 static PaError IsStreamActive( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
     PaError result = 0;
 
-    pthread_mutex_lock( &stream->mtx );
+    pthread_mutex_lock( &stream->stateMtx ); /* Synchronize access to stream state */
     if( stream->pcm_capture )
     {
         snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
 
-        if( capture_state == SND_PCM_STATE_RUNNING /*||
-            capture_state == SND_PCM_STATE_PREPARED*/ )
+        if( capture_state == SND_PCM_STATE_RUNNING || capture_state == SND_PCM_STATE_XRUN
+                || capture_state == SND_PCM_STATE_DRAINING )
         {
             result = 1;
             goto end;
@@ -1188,8 +1168,8 @@ static PaError IsStreamActive( PaStream *s )
     {
         snd_pcm_state_t playback_state = snd_pcm_state( stream->pcm_playback );
 
-        if( playback_state == SND_PCM_STATE_RUNNING /*||
-            playback_state == SND_PCM_STATE_PREPARED*/ )
+        if( playback_state == SND_PCM_STATE_RUNNING || playback_state == SND_PCM_STATE_XRUN
+                || playback_state == SND_PCM_STATE_DRAINING )
         {
             result = 1;
             goto end;
@@ -1197,7 +1177,7 @@ static PaError IsStreamActive( PaStream *s )
     }
 
 end:
-    pthread_mutex_unlock( &stream->mtx );
+    pthread_mutex_unlock( &stream->stateMtx );
     return result;
 }
 
@@ -1252,7 +1232,9 @@ void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamF
     stream->pcmsSynced = 0;
     stream->callbackAbort = 0;
     stream->startThreshold = 0;
-    pthread_mutex_init( &stream->mtx, NULL );
+    pthread_mutex_init( &stream->stateMtx, NULL );
+    pthread_mutex_init( &stream->startMtx, NULL );
+    pthread_cond_init( &stream->startCond, NULL );
     stream->neverDropInput = 0;
 }
 
@@ -1275,7 +1257,9 @@ void CleanUpStream( PaAlsaStream *stream )
     }
     if ( stream->pfds )
         PaUtil_FreeMemory( stream->pfds );
-    pthread_mutex_destroy( &stream->mtx );
+    pthread_mutex_destroy( &stream->stateMtx );
+    pthread_mutex_destroy( &stream->startMtx );
+    pthread_cond_destroy( &stream->startCond );
 
     PaUtil_FreeMemory( stream );
 }
@@ -1324,7 +1308,6 @@ static void SilenceBuffer( PaAlsaStream *stream )
     const snd_pcm_channel_area_t *areas;
     snd_pcm_sframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
 
-
     snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
     snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
     snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames );
@@ -1334,6 +1317,7 @@ PaError AlsaStart( PaAlsaStream *stream, int priming )
 {
     PaError result = paNoError;
 
+    pthread_mutex_lock( &stream->startMtx );
     if( stream->pcm_playback )
     {
         /* We're not priming buffer, so prepare and silence */
@@ -1351,6 +1335,7 @@ PaError AlsaStart( PaAlsaStream *stream, int priming )
     }
 
 end:
+    pthread_mutex_unlock( &stream->startMtx );
     return result;
 error:
     goto end;

@@ -14,14 +14,14 @@ static PaError AlsaRestart( PaAlsaStream *stream )
 
     PA_DEBUG(( "Restarting audio\n" ));
 
-    pthread_mutex_lock( &stream->mtx );
+    pthread_mutex_lock( &stream->stateMtx );
     PA_ENSURE( AlsaStop( stream, 0 ) );
     PA_ENSURE( AlsaStart( stream, 0 ) );
 
     PA_DEBUG(( "Restarted audio\n" ));
 
 end:
-    pthread_mutex_unlock( &stream->mtx );
+    pthread_mutex_unlock( &stream->stateMtx );
     return result;
 error:
    goto end;
@@ -129,6 +129,7 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *o
                 /* No need to keep polling on playback fd(s) */
                 /*totalFds -= stream->playback_nfds;*/
             }
+            else
                 PA_DEBUG(("Poll timed out for the %dst time\n\n", cnt ));
         }
     }
@@ -306,8 +307,18 @@ void *CallbackThread( void *userData )
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
 
-    if( stream->startThreshold <= 0 )   /* Just fill buffer with silence before start */
-        PA_ENSURE( AlsaStart( stream, 0 ) );
+    if( stream->startThreshold <= 0 )
+    {
+        PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
+        pthread_cond_signal( &stream->startCond );
+    }
+    else /* Priming output? Prepare first */
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+    }
 
     while(1)
     {
@@ -380,6 +391,7 @@ void *CallbackThread( void *userData )
             PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
         */
 
+        /* Set callback flags *after* one of these has been detected */
         if( underrun != 0.0 )
             cbFlags |= paOutputUnderflow;
         if( overrun != 0.0 )
@@ -453,7 +465,10 @@ void *CallbackThread( void *userData )
             if( stream->startThreshold > 0 )
             {
                 if( (stream->startThreshold -= framesGot) <= 0 )
-                    PA_ENSURE( AlsaStart( stream, 1 ) );
+                {
+                    PA_ENSURE( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
+                    pthread_cond_signal( &stream->startCond );
+                }
             }
 
             if( callbackResult != paContinue )

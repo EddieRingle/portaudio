@@ -86,10 +86,12 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t capture_offset;
     snd_pcm_uframes_t playback_offset;
 
-    int pcmsSynced;	        /* Have we successfully synced pcms */
-    int callbackAbort;		/* Drop frames? */
+    int pcmsSynced;	            /* Have we successfully synced pcms */
+    int callbackAbort;		    /* Drop frames? */
     snd_pcm_uframes_t startThreshold;
-    pthread_mutex_t mtx;        /* Used to synchronize access to stream state */
+    pthread_mutex_t stateMtx;      /* Used to synchronize access to stream state */
+    pthread_mutex_t startMtx;      /* Used to synchronize stream start */
+    pthread_cond_t startCond;      /* Wait untill audio is started in callback thread */
 
     /* Used by callback thread for underflow/overflow handling */
     snd_pcm_sframes_t playbackAvail;
