@@ -66,10 +66,6 @@ TODO:
     - add bufferslip management
     - add multidevice multichannel support
     - add thread throttling on overload
-    - consider not using isActive for both the thread alive flag and the
-        result of IsStreamActive() - for example, isActive should be set to
-        false when the thread exists - i don't thin it should be used to indicate that the
-        thread should exit.
 */
 
 #include <stdio.h>
@@ -753,37 +749,38 @@ typedef struct PaWinMmeStream
     PaUtilCpuLoadMeasurer cpuLoadTracker;
     PaUtilBufferProcessor bufferProcessor;
 
-    int isActive;
     CRITICAL_SECTION lock;
 
-/* Input -------------- */
-HWAVEIN hWaveIn;
-unsigned int numInputChannels;
-WAVEHDR *inputBuffers;
-unsigned int numInputBuffers;
-unsigned int currentInputBufferIndex;
+    /* Input -------------- */
+    HWAVEIN hWaveIn;
+    unsigned int numInputChannels;
+    WAVEHDR *inputBuffers;
+    unsigned int numInputBuffers;
+    unsigned int currentInputBufferIndex;
 
-/* Output -------------- */
-HWAVEOUT hWaveOut;
-unsigned int numOutputChannels;
-WAVEHDR *outputBuffers;
-unsigned int numOutputBuffers;
-unsigned int currentOutputBufferIndex;
+    /* Output -------------- */
+    HWAVEOUT hWaveOut;
+    unsigned int numOutputChannels;
+    WAVEHDR *outputBuffers;
+    unsigned int numOutputBuffers;
+    unsigned int currentOutputBufferIndex;
 
-/* Processing thread management -------------- */
-HANDLE abortEvent;
-HANDLE bufferEvent;
-HANDLE processingThread;
-DWORD processingThreadId;
-volatile int stopProcessing; /* stop thread once existing buffers have been returned */
-volatile int abortProcessing; /* stop thread immediately */
+    /* Processing thread management -------------- */
+    HANDLE abortEvent;
+    HANDLE bufferEvent;
+    HANDLE processingThread;
+    DWORD processingThreadId;
 
-DWORD allBuffersDurationMs; /* used to calculate timeouts */
+    volatile int isActive;
+    volatile int stopProcessing; /* stop thread once existing buffers have been returned */
+    volatile int abortProcessing; /* stop thread immediately */
 
-/* GetStreamTime() support ------------- */
+    DWORD allBuffersDurationMs; /* used to calculate timeouts */
 
-PaTimestamp streamPosition;
-long previousStreamPosition;                /* used to track frames played. */
+    /* GetStreamTime() support ------------- */
+
+    PaTimestamp streamPosition;
+    long previousStreamPosition;                /* used to track frames played. */
 }
 PaWinMmeStream;
 
@@ -1113,13 +1110,14 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     int hostBuffersAvailable;
     void *hostInputBuffer, *hostOutputBuffer;
     int callbackResult;
-
+    int done = 0;
+    
     /* prepare event array for call to WaitForMultipleObjects() */
     events[numEvents++] = stream->bufferEvent;
     events[numEvents++] = stream->abortEvent;
 
-    /* loop until isActive is set to 0 */
-    while( stream->isActive )
+    /* loop until something causes us to stop */
+    while( !done )
     {
         /* wait for MME to signal that a buffer is available, or for
             the PA abort event to be signaled */
@@ -1128,7 +1126,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         {
             PaUtil_SetHostError( GetLastError() );
             result = paHostError;
-            stream->isActive = 0;
+            done = 1;
         }
         else if( waitResult == WAIT_TIMEOUT )
         {
@@ -1139,7 +1137,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
         if( stream->abortProcessing )
         {
             /* Pa_AbortStream() has been called, stop processing immediately */
-            stream->isActive = 0;
+            done = 1;
         }
         else if( stream->stopProcessing )
         {
@@ -1151,7 +1149,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
 
             if( CountQueuedOuputBuffers( stream ) == 0 )
             {
-                stream->isActive = 0; /* Will cause thread to return. */
+                done = 1; /* Will cause thread to return. */
             }
         }
         else
@@ -1201,14 +1199,14 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         {
                             result = AdvanceToNextInputBuffer( stream );
                             if( result != paNoError )
-                                stream->isActive = 0;
+                                done = 1;
                         }
 
                         if( PA_IS_OUTPUT_STREAM_(stream) )
                         {
                             result = AdvanceToNextOutputBuffer( stream );
                             if( result != paNoError )
-                                stream->isActive = 0;
+                                done = 1;
                         }
                     }
                 }
@@ -1220,12 +1218,14 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
             while( hostBuffersAvailable &&
                     stream->stopProcessing == 0 &&
                     stream->abortProcessing == 0 &&
-                    stream->isActive );
+                    !done );
         }
 
         UpdateStreamTime( stream );
     }
 
+    stream->isActive = 0;
+    
     return result;
 }
 
