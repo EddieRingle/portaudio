@@ -51,6 +51,10 @@ AC_ARG_WITH(oss,
             [  --with-oss (default=yes)],
             with_oss=$withval, with_oss="yes")
 
+AC_ARG_WITH(host_os, 
+            [  --with-host_os (no default)],
+            host_os=$withval)
+
 AC_ARG_WITH(winapi,
             [  --with-winapi ((wmme/directx/asio) default=wmme)],
             with_winapi=$withval, with_winapi="wmme")

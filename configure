@@ -801,6 +801,7 @@ Optional Packages:
   --with-alsa (default=auto)
   --with-jack (default=auto)
   --with-oss (default=yes)
+  --with-host_os (no default)
   --with-winapi ((wmme/directx/asio) default=wmme)
   --with-asiodir (default=/usr/local/asiosdk2)
   --with-calliasiodir (default=./calliasio)
@@ -2716,6 +2717,13 @@ if test "${with_oss+set}" = set; then
   with_oss=$withval
 else
   with_oss="yes"
+fi;
+
+
+# Check whether --with-host_os or --without-host_os was given.
+if test "${with_host_os+set}" = set; then
+  withval="$with_host_os"
+  host_os=$withval
 fi;
 
 
