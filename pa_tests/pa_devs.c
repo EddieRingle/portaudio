@@ -73,10 +73,30 @@ int main(void)
             printf(" Default %s Output", hostInfo->name );
         }
 
-        printf("\nName         = %s\n", deviceInfo->name );
-        printf("Host API     = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
-        printf("Max Inputs   = %d", deviceInfo->maxInputChannels  );
+        printf("\nName                        = %s\n", deviceInfo->name );
+        printf("Host API                    = %s\n",  Pa_GetHostApiInfo( deviceInfo->hostApi )->name );
+        printf("Max Inputs = %d", deviceInfo->maxInputChannels  );
         printf(", Max Outputs = %d\n", deviceInfo->maxOutputChannels  );
+
+        printf("Default Low Input Latency   = %8.3f\n", deviceInfo->defaultLowInputLatency  );
+        printf("Default Low Output Latency  = %8.3f\n", deviceInfo->defaultLowOutputLatency  );
+        printf("Default High Input Latency  = %8.3f\n", deviceInfo->defaultHighInputLatency  );
+        printf("Default High Output Latency = %8.3f\n", deviceInfo->defaultHighOutputLatency  );
+
+        printf("Default Sample Rate         = %8.2f\n", deviceInfo->defaultSampleRate  );
+
+        
+        /* FIXME: could list available sample rates here by polling
+            Pa_IsFormatConverted()
+
+        here's some sampling rates to check for
+
+        static double possibleSampleRates_[]
+        = {8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0, 44100.0, 48000.0, 88200.0, 96000.0};
+
+        */
+
+        /*
         if( deviceInfo->numSampleRates == -1 )
         {
             printf("Sample Rate Range = %f to %f\n", deviceInfo->sampleRates[0], deviceInfo->sampleRates[1] );
@@ -90,13 +110,8 @@ int main(void)
             }
             printf("\n");
         }
-        printf("Native Sample Formats = ");
-        if( deviceInfo->nativeSampleFormats & paInt8 )        printf("paInt8, ");
-        if( deviceInfo->nativeSampleFormats & paUInt8 )       printf("paUInt8, ");
-        if( deviceInfo->nativeSampleFormats & paInt16 )       printf("paInt16, ");
-        if( deviceInfo->nativeSampleFormats & paInt32 )       printf("paInt32, ");
-        if( deviceInfo->nativeSampleFormats & paFloat32 )     printf("paFloat32, ");
-        if( deviceInfo->nativeSampleFormats & paInt24 )       printf("paInt24, ");
+        */
+       
         printf("\n");
     }
     Pa_Terminate();
