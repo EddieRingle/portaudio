@@ -426,18 +426,26 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
      * opened in, it may have more channels available for capture than playback and vice versa. Therefore
      * we will open the device in both read- and write-only mode to determine the supported number.
      */
+    PA_DEBUG(( "Querying device in capture mode\n" ));
     if( (tmpRes = QueryDirection( deviceName, StreamMode_In, &sampleRate, &maxInputChannels, &defaultLowInputLatency,
                 &defaultHighInputLatency )) != paNoError )
     {
         if( tmpRes != paDeviceUnavailable )
-            PA_ENSURE( tmpRes );
+        {
+            PA_DEBUG(( "%s: Querying device %s for capture failed!\n", __FUNCTION__, deviceName ));
+            /* PA_ENSURE( tmpRes ); */
+        }
         busy = 1;
     }
+    PA_DEBUG(( "Querying device in playback mode\n" ));
     if( (tmpRes = QueryDirection( deviceName, StreamMode_Out, &sampleRate, &maxOutputChannels, &defaultLowOutputLatency,
                 &defaultHighOutputLatency )) != paNoError )
     {
         if( tmpRes != paDeviceUnavailable )
-            PA_ENSURE( tmpRes );
+        {
+            PA_DEBUG(( "%s: Querying device %s for playback failed!\n", __FUNCTION__, deviceName ));
+            /* PA_ENSURE( tmpRes ); */
+        }
         result = paDeviceUnavailable;
         goto error;
     }
