@@ -45,6 +45,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <signal.h>
+#include <time.h>
 #include <sys/mman.h>
 
 #include "portaudio.h"
@@ -1708,17 +1709,20 @@ static PaError StartStream( PaStream *s )
         streamStarted = 1;
 
         /* Wait for stream to be started */
-        ts.tv_sec = (__time_t) pt + 1;
-        ts.tv_nsec = (long) pt * 1000000000;
+        ts.tv_sec = (time_t) floor( pt + 1 );
+        ts.tv_nsec = (long) ((pt - floor( pt )) * 1000000000);
 
         /* Since we'll be holding a lock on the startMtx (when not waiting on the condition), IsRunning won't be checking
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
         UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
         while( !IsRunning( stream ) && res != ETIMEDOUT && IsStreamActive( s ) )
+        {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
+            UNLESS( !res || res == ETIMEDOUT, paInternalError );
+        }
         UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
-        PA_DEBUG(( "StartStream: Waited for %g seconds for stream to start\n", PaUtil_GetTime() - pt ));
+        PA_DEBUG(( "%s: Waited for %g seconds for stream to start\n", __FUNCTION__, PaUtil_GetTime() - pt ));
 
         if( res == ETIMEDOUT )
         {
@@ -1839,7 +1843,6 @@ static PaError IsStreamStopped( PaStream *s )
 static PaError IsStreamActive( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream*)s;
-
     return stream->isActive;
 }
 
@@ -2302,6 +2305,8 @@ static void OnExit( void *data )
 
     assert( data );
 
+    PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
+
     stream->callback_finished = 1;  /* Let the outside world know stream was stopped in callback */
     AlsaStop( stream, stream->callbackAbort );
     stream->callbackAbort = 0;      /* Clear state */
@@ -2335,8 +2340,6 @@ static void *CallbackThreadFunc( void *userData )
     snd_pcm_status_alloca( &playback_status );
 
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
-
-    PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
 
     if( startThreshold <= 0 )
     {
