@@ -4,6 +4,8 @@
  * Latest Version at: http://www.portaudio.com
  * JACK Implementation by Joshua Haberman
  *
+ * Copyright (c) 2004 Stefan Westerfeld <stefan@space.twc.de>
+ * Copyright (c) 2004 Arve Knudsen <aknuds-1@broadpark.no>
  * Copyright (c) 2002 Joshua Haberman <joshua@haberman.com>
  *
  * Based on the Open Source API proposed by Ross Bencina
@@ -43,6 +45,7 @@
 #include <errno.h>  /* EBUSY */
 #include <signal.h> /* sig_atomic_t */
 #include <math.h>
+#include <semaphore.h>
 
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -53,6 +56,7 @@
 #include "pa_process.h"
 #include "pa_allocation.h"
 #include "pa_cpuload.h"
+#include "../pablio/ringbuffer.c"
 
 static int aErr_;
 static PaError paErr_;     /* For use with ENSURE_PA */
@@ -137,10 +141,12 @@ typedef struct
 {
     PaUtilHostApiRepresentation commonHostApiRep;
     PaUtilStreamInterface callbackStreamInterface;
+    PaUtilStreamInterface blockingStreamInterface;
 
     PaUtilAllocationGroup *deviceInfoMemory;
 
     jack_client_t *jack_client;
+    int jack_buffer_size;
     PaHostApiIndex hostApiIndex;
 
     pthread_mutex_t mtx;
@@ -195,11 +201,20 @@ typedef struct PaJackStream
     int isSilenced;
     int xrun;
 
+    /* These are useful for the blocking API */
+
+    int                     isBlockingStream;
+    RingBuffer              inFIFO;
+    RingBuffer              outFIFO;
+    volatile sig_atomic_t   data_available;
+    sem_t                   data_semaphore;
+    int                     bytesPerFrame;
+    int                     samplesPerFrame;
+
     struct PaJackStream *next;
 }
 PaJackStream;
 
-#define MAX_CLIENTS 100
 #define TRUE 1
 #define FALSE 0
 
@@ -216,6 +231,200 @@ static int JackCallback( jack_nframes_t frames, void *userData );
  *
  */
 
+/* ---- blocking emulation layer ---- */
+
+/* Allocate buffer. */
+static PaError BlockingInitFIFO( RingBuffer *rbuf, long numFrames, long bytesPerFrame )
+{
+    long numBytes = numFrames * bytesPerFrame;
+    char *buffer = (char *) malloc( numBytes );
+    if( buffer == NULL ) return paInsufficientMemory;
+    memset( buffer, 0, numBytes );
+    return (PaError) RingBuffer_Init( rbuf, numBytes, buffer );
+}
+
+/* Free buffer. */
+static PaError BlockingTermFIFO( RingBuffer *rbuf )
+{
+    if( rbuf->buffer ) free( rbuf->buffer );
+    rbuf->buffer = NULL;
+    return paNoError;
+}
+
+static int
+BlockingCallback( const void                      *inputBuffer,
+                  void                            *outputBuffer,
+		  unsigned long                    framesPerBuffer,
+		  const PaStreamCallbackTimeInfo*  timeInfo,
+		  PaStreamCallbackFlags            statusFlags,
+		  void                             *userData )
+{
+    struct PaJackStream *stream = (PaJackStream *)userData;
+    long numBytes = stream->bytesPerFrame * framesPerBuffer;
+
+    /* This may get called with NULL inputBuffer during initial setup. */
+    if( inputBuffer != NULL )
+    {
+        RingBuffer_Write( &stream->inFIFO, inputBuffer, numBytes );
+    }
+    if( outputBuffer != NULL )
+    {
+        int numRead = RingBuffer_Read( &stream->outFIFO, outputBuffer, numBytes );
+        /* Zero out remainder of buffer if we run out of data. */
+        memset( (char *)outputBuffer + numRead, 0, numBytes - numRead );
+    }
+
+    if( !stream->data_available )
+    {
+        stream->data_available = 1;
+        sem_post( &stream->data_semaphore );
+    }
+    return paContinue;
+}
+
+static PaError
+BlockingBegin( PaJackStream *stream, int minimum_buffer_size )
+{
+    long    doRead = 0;
+    long    doWrite = 0;
+    PaError result = paNoError;
+    long    numFrames;
+
+    /* <FIXME> */
+    doRead = 1;
+    doWrite = 1;
+    stream->samplesPerFrame = 2;
+    stream->bytesPerFrame = sizeof(float) * stream->samplesPerFrame;
+    /* </FIXME> */
+    numFrames = 32;
+    while (numFrames < minimum_buffer_size)
+        numFrames *= 2;
+
+    if( doRead )
+    {
+        ENSURE_PA( BlockingInitFIFO( &stream->inFIFO, numFrames, stream->bytesPerFrame ) );
+    }
+    if( doWrite )
+    {
+        long numBytes;
+
+        ENSURE_PA( BlockingInitFIFO( &stream->outFIFO, numFrames, stream->bytesPerFrame ) );
+
+        /* Make Write FIFO appear full initially. */
+        numBytes = RingBuffer_GetWriteAvailable( &stream->outFIFO );
+        RingBuffer_AdvanceWriteIndex( &stream->outFIFO, numBytes );
+    }
+
+    stream->data_available = 0;
+    sem_init( &stream->data_semaphore, 0, 0 );
+
+error:
+    return result;
+}
+
+static void
+BlockingEnd( PaJackStream *stream )
+{
+    BlockingTermFIFO( &stream->inFIFO );
+    BlockingTermFIFO( &stream->outFIFO );
+
+    sem_destroy( &stream->data_semaphore );
+}
+
+static PaError
+BlockingReadStream( PaStream* s, void *data, unsigned long numFrames )
+{
+    PaJackStream *stream = (PaJackStream *)s;
+
+    long bytesRead;
+    char *p = (char *) data;
+    long numBytes = stream->bytesPerFrame * numFrames;
+    while( numBytes > 0 )
+    {
+        bytesRead = RingBuffer_Read( &stream->inFIFO, p, numBytes );
+        numBytes -= bytesRead;
+        p += bytesRead;
+        if( numBytes > 0 )
+        {
+            /* see write for an explanation */
+            if( stream->data_available )
+                stream->data_available = 0;
+            else
+                sem_wait( &stream->data_semaphore );
+        }
+    }
+    return numFrames;
+}
+
+static PaError
+BlockingWriteStream( PaStream* s, const void *data, unsigned long numFrames )
+{
+    PaJackStream *stream = (PaJackStream *)s;
+    long bytesWritten;
+    char *p = (char *) data;
+    long numBytes = stream->bytesPerFrame * numFrames;
+    while( numBytes > 0 )
+    {
+        bytesWritten = RingBuffer_Write( &stream->outFIFO, p, numBytes );
+        numBytes -= bytesWritten;
+        p += bytesWritten;
+        if( numBytes > 0 ) 
+        {
+            /* we use the following algorithm: 
+             *   (1) write data
+             *   (2) if some data didn't fit into the ringbuffer, set data_available to 0
+             *       to indicate to the audio that if space becomes available, we want to know
+             *   (3) retry to write data (because it might be that between (1) and (2)
+             *       new space in the buffer became available)
+             *   (4) if this failed, we are sure that the buffer is really empty and
+             *       we will definitely receive a notification when it becomes available
+             *       thus we can safely sleep
+             *
+             * if the algorithm bailed out in step (3) before, it leaks a count of 1
+             * on the semaphore; however, it doesn't matter, because if we block in (4),
+             * we also do it in a loop
+             */
+            if( stream->data_available )
+                stream->data_available = 0;
+            else
+                sem_wait( &stream->data_semaphore );
+        }
+    }
+    return 0;
+}
+
+static signed long
+BlockingGetStreamReadAvailable( PaStream* s )
+{
+    PaJackStream *stream = (PaJackStream *)s;
+
+    int bytesFull = RingBuffer_GetReadAvailable( &stream->inFIFO );
+    return bytesFull / stream->bytesPerFrame;
+}
+
+static signed long
+BlockingGetStreamWriteAvailable( PaStream* s )
+{
+    PaJackStream *stream = (PaJackStream *)s;
+
+    int bytesEmpty = RingBuffer_GetWriteAvailable( &stream->outFIFO );
+    return bytesEmpty / stream->bytesPerFrame;
+}
+
+static PaError
+BlockingWaitEmpty( PaStream *s )
+{
+    PaJackStream *stream = (PaJackStream *)s;
+
+    while( RingBuffer_GetReadAvailable( &stream->outFIFO ) > 0 )
+    {
+        stream->data_available = 0;
+        sem_wait( &stream->data_semaphore );
+    }
+    return 0;
+}
+
+/* ---- jack driver ---- */
 
 /* BuildDeviceList():
  *
@@ -537,6 +746,12 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
                                       PaUtil_DummyGetReadAvailable,
                                       PaUtil_DummyGetWriteAvailable );
 
+    PaUtil_InitializeStreamInterface( &jackHostApi->blockingStreamInterface, CloseStream, StartStream,
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      BlockingReadStream, BlockingWriteStream,
+                                      BlockingGetStreamReadAvailable, BlockingGetStreamWriteAvailable );
+
     jackHostApi->inputBase = jackHostApi->outputBase = 0;
     jackHostApi->xrun = 0;
     jackHostApi->toAdd = jackHostApi->toRemove = NULL;
@@ -545,6 +760,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
 
     jack_on_shutdown( jackHostApi->jack_client, JackOnShutdown, jackHostApi );
     jack_set_error_function( JackErrorCallback );
+    jackHostApi->jack_buffer_size = jack_get_buffer_size ( jackHostApi->jack_client );
     UNLESS( !jack_set_sample_rate_callback( jackHostApi->jack_client, JackSrCb, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_set_xrun_callback( jackHostApi->jack_client, JackXRunCb, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_set_process_callback( jackHostApi->jack_client, JackCallback, jackHostApi ), paUnanticipatedHostError );
@@ -736,6 +952,9 @@ static void CleanUpStream( PaJackStream *stream, int terminateStreamRepresentati
     int i;
     assert( stream );
 
+    if( stream->isBlockingStream )
+        BlockingEnd( stream );
+
     for( i = 0; i < stream->num_incoming_connections; ++i )
     {
         if( stream->local_input_ports[i] )
@@ -850,16 +1069,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int bpInitialized = 0, srInitialized = 0;   /* Initialized buffer processor and stream representation? */
     unsigned long ofs;
 
-    if( !streamCallback )
-    {
-        /* we do not support blocking I/O */
-        return paNullCallback;      /* A: Is this correct? */
-    }
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
         return paInvalidFlag; /* unexpected platform specific flag */
     if( (streamFlags & paPrimeOutputBuffersUsingStreamCallback) != 0 )
-        return paInvalidFlag;   /* This implementation does not support buffer priming */
+    {
+        streamFlags &= ~paPrimeOutputBuffersUsingStreamCallback;
+        /*return paInvalidFlag;*/   /* This implementation does not support buffer priming */
+    }
 
     if( framesPerBuffer != paFramesPerBufferUnspecified )
     {
@@ -928,8 +1145,40 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     UNLESS( stream = (PaJackStream*)PaUtil_AllocateMemory( sizeof(PaJackStream) ), paInsufficientMemory );
     ENSURE_PA( InitializeStream( stream, jackHostApi, inputChannelCount, outputChannelCount ) );
 
-    PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-            &jackHostApi->callbackStreamInterface, streamCallback, userData );
+    /* the blocking emulation, if necessary */
+    stream->isBlockingStream = !streamCallback;
+    if( stream->isBlockingStream )
+    {
+        float latency = 0.001; /* 1ms is the absolute minimum we support */
+        int   minimum_buffer_frames = 0;
+
+        if( inputParameters && inputParameters->suggestedLatency > latency )
+            latency = inputParameters->suggestedLatency;
+        if( outputParameters->suggestedLatency > latency )
+            latency = outputParameters->suggestedLatency;
+
+        /* the latency the user asked for indicates the minimum buffer size in frames */
+        minimum_buffer_frames = (int) (latency * jack_get_sample_rate( jackHostApi->jack_client ));
+
+        /* we also need to be able to store at least three full jack buffers to avoid dropouts */
+        if( jackHostApi->jack_buffer_size * 3 > minimum_buffer_frames )
+            minimum_buffer_frames = jackHostApi->jack_buffer_size * 3;
+
+        /* setup blocking API data structures (FIXME: can fail) */
+	BlockingBegin( stream, minimum_buffer_frames );
+
+        /* install our own callback for the blocking API */
+        streamCallback = BlockingCallback;
+        userData = stream;
+
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &jackHostApi->blockingStreamInterface, streamCallback, userData );
+    }
+    else
+    {
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &jackHostApi->callbackStreamInterface, streamCallback, userData );
+    }
     srInitialized = 1;
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, jackSr );
 
@@ -1029,11 +1278,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     bpInitialized = 1;
 
     if( stream->num_incoming_connections > 0 )
-        stream->streamRepresentation.streamInfo.inputLatency = jack_port_get_latency( stream->remote_output_ports[0] )
-            + PaUtil_GetBufferProcessorInputLatency( &stream->bufferProcessor );
+        stream->streamRepresentation.streamInfo.inputLatency = (jack_port_get_latency( stream->remote_output_ports[0] )
+                - jack_get_buffer_size( jackHostApi->jack_client )  /* One buffer is not counted as latency */
+            + PaUtil_GetBufferProcessorInputLatency( &stream->bufferProcessor )) / sampleRate;
     if( stream->num_outgoing_connections > 0 )
-        stream->streamRepresentation.streamInfo.outputLatency = jack_port_get_latency( stream->remote_input_ports[0] )
-            + PaUtil_GetBufferProcessorOutputLatency( &stream->bufferProcessor );
+        stream->streamRepresentation.streamInfo.outputLatency = (jack_port_get_latency( stream->remote_input_ports[0] )
+                - jack_get_buffer_size( jackHostApi->jack_client )  /* One buffer is not counted as latency */
+            + PaUtil_GetBufferProcessorOutputLatency( &stream->bufferProcessor )) / sampleRate;
 
     stream->streamRepresentation.streamInfo.sampleRate = jackSr;
     stream->t0 = jack_frame_time( jackHostApi->jack_client );   /* A: Time should run from Pa_OpenStream */
@@ -1065,7 +1316,6 @@ static PaError CloseStream( PaStream* s )
 
 error:
     CleanUpStream( stream, 1, 1 );
-
     return result;
 }
 
@@ -1139,6 +1389,7 @@ static PaError RealProcess( PaJackStream *stream, jack_nframes_t frames )
 
     framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
             &stream->callbackResult );
+    /* We've specified a host buffer size mode where every frame should be consumed by the buffer processor */
     assert( framesProcessed == frames );
 
     PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
@@ -1378,6 +1629,9 @@ static PaError RealStop( PaJackStream *stream, int abort )
 {
     PaError result = paNoError;
     int i;
+
+    if( stream->isBlockingStream )
+        BlockingWaitEmpty ( stream );
 
     ASSERT_CALL( pthread_mutex_lock( &stream->hostApi->mtx ), 0 );
     if( abort )
