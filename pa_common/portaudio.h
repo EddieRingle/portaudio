@@ -55,7 +55,7 @@ const char* Pa_GetVersionText( void );
 /** Error codes returned by PortAudio functions. */
 
 typedef int PaError;
-typedef enum PaErrorNum
+typedef enum PaErrorCode
 {
     paNoError = 0,
 
@@ -162,6 +162,28 @@ typedef int PaDeviceIndex;
 typedef int PaHostApiIndex;
 
 
+/** Retrieve the number of available host APIs. Even if a host API is
+ available it may have no devices available.
+
+ @return A non-negative value indicating the number of available host APIs.
+ Returns a negative PaErrorCode if PortAudio is not initialized or an error
+ is encountered.
+
+ @see PaHostApiIndex
+*/
+PaHostApiIndex Pa_CountHostApis( void );
+
+
+/** Retrieve the index of the default host API. The default host API will be
+ the lowest common denominator host API on the current platform and is
+ unlikely to provide the best performance.
+
+ @return A non-negative value indicating the default host API index. Returns a
+ negative PaErrorCode if PortAudio is not initialized or an error is encountered.
+*/
+PaHostApiIndex Pa_GetDefaultHostApi( void );
+
+
 /** Unchanging unique identifiers for each supported host API. This type
     is used in the PaHostApiInfo structure. The values are guaranteed to be
     unique and to never change, thus allowing code to be written that
@@ -188,49 +210,36 @@ typedef enum PaHostApiTypeId
 } PaHostApiTypeId;
 
 
-/** Convert a static host API unique identifier, into a runtime
- host API index.
-
- @param type A unique host API identifier belonging to the PaHostApiTypeId
- enumeration.
-
- @return A valid PaHostApiIndex ranging from 0 to (Pa_CountHostApis()-1), or
- -1 if the host API specified by the type parameter is not available.
- 
- @see PaHostApiTypeId
-*/
-PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
-
-
-/** Retrieve the number of available host APIs. Even if a host API is
- available it may have no devices available.
-
- @return The number of available host APIs. May return 0 if PortAudio is
- not initialized or an error has occured.
-
- @see PaHostApiIndex
-*/
-PaHostApiIndex Pa_CountHostApis( void );
-
-
-/** Retrieve the index of the defualt hostAPI. The default host API will be
- the lowest common denominator host API on the current platform and is
- unlikely to provide the best performance.
-
- @return The default host API index.
-*/
-PaHostApiIndex Pa_GetDefaultHostApi( void );
-
-
 /** A structure containing information about a particular host API. */
 
 typedef struct PaHostApiInfo
 {
+    /** this is struct version 1 */
     int structVersion;
     /** The well known unique identifier of this host API @see PaHostApiTypeId */
     PaHostApiTypeId type;
-    /** a textual description of the host API for display on user interfaces */
+    /** A textual description of the host API for display on user interfaces. */
     const char *name;
+
+    /**  The number of devices belonging to this host API. This field may be
+     used in conjunction with Pa_HostApiDeviceIndexToDeviceIndex() to enumerate
+     all devices for this host API.
+     @see Pa_HostApiDeviceIndexToDeviceIndex
+    */
+    int deviceCount;
+
+    /** The the default input device for this host API. The value will be a
+     device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+     if no default input device is available.
+    */
+    PaDeviceIndex defaultInputDevice;
+
+    /** The the default output device for this host API. The value will be a
+     device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
+     if no default output device is available.
+    */
+    PaDeviceIndex defaultOutputDevice;
+    
 } PaHostApiInfo;
 
 
@@ -250,37 +259,18 @@ typedef struct PaHostApiInfo
 const PaHostApiInfo * Pa_GetHostApiInfo( PaHostApiIndex hostApi );
 
 
-/** Retrieve the default input device for the specified host API
+/** Convert a static host API unique identifier, into a runtime
+ host API index.
 
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
+ @param type A unique host API identifier belonging to the PaHostApiTypeId
+ enumeration.
 
- @return A device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
- if there is no default input device available for the specified host API.
+ @return A valid PaHostApiIndex ranging from 0 to (Pa_CountHostApis()-1), or
+ -1 if the host API specified by the type parameter is not available.
+
+ @see PaHostApiTypeId
 */
-PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi );
-
-
-/** Retrieve the default output device for the specified host API
-
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
-
- @return A device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
- if there is no default output device available for the specified host API.
-*/
-PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi );
-
-
-/** Retrieve the number of devices belonging to a specific host API.
- This function may be used in conjunction with Pa_HostApiDeviceIndexToDeviceIndex()
- to enumerate all devices for a specific host API.
-
- @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
-
- @return The number of devices belonging to the specified host API.
-
- @see Pa_HostApiDeviceIndexToDeviceIndex
-*/
-int Pa_HostApiCountDevices( PaHostApiIndex hostApi );
+PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
 
 
 /** Convert a host-API-specific device index to standard PortAudio device index.
@@ -309,7 +299,7 @@ typedef struct PaHostErrorInfo{
 
 
 /** Return information about the last host error encountered. The error
- information returned by Pa_GetLastHostError() will never be modified
+ information returned by Pa_GetLastHostErrorInfo() will never be modified
  asyncronously by errors occurring in other PortAudio owned threads
  (such as the thread that manages the stream callback.)
 
@@ -321,7 +311,7 @@ typedef struct PaHostErrorInfo{
  PortAudio function has previously returned the paUnanticipatedHostError
  error code.
 */
-const PaHostErrorInfo* Pa_GetLastHostError( void );
+const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void );
 
 
 
@@ -338,7 +328,7 @@ PaDeviceIndex Pa_CountDevices( void );
  used in the inputDevice parameter to Pa_OpenStream().
 
  @return The default input device index for the defualt host API, or paNoDevice
- if not input device is available.
+ if no default input device is available or an error was encountered.
 */
 PaDeviceIndex Pa_GetDefaultInputDevice( void );
 
@@ -347,7 +337,7 @@ PaDeviceIndex Pa_GetDefaultInputDevice( void );
  used in the outputDevice parameter to Pa_OpenStream().
 
  @return The default output device index for the defualt host API, or paNoDevice
- if not output device is available.
+ if no default output device is available or an error was encountered.
 
  @note
  On the PC, the user can specify a default device by
@@ -393,15 +383,15 @@ typedef double PaTime;
 typedef unsigned long PaSampleFormat;
 
 
-#define paFloat32      ((PaSampleFormat) (1<<0)) /**< @see PaSampleFormat */
-#define paInt32        ((PaSampleFormat) (1<<1)) /**< @see PaSampleFormat */
-#define paInt24        ((PaSampleFormat) (1<<2)) /**< Packed 24 bit format. @see PaSampleFormat */
-#define paInt16        ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
-#define paInt8         ((PaSampleFormat) (1<<4)) /**< @see PaSampleFormat */
-#define paUInt8        ((PaSampleFormat) (1<<5)) /**< @see PaSampleFormat */
-#define paCustomFormat ((PaSampleFormat) (1<<16))/**< @see PaSampleFormat */
+#define paFloat32        ((PaSampleFormat) 0x00000001) /**< @see PaSampleFormat */
+#define paInt32          ((PaSampleFormat) 0x00000002) /**< @see PaSampleFormat */
+#define paInt24          ((PaSampleFormat) 0x00000004) /**< Packed 24 bit format. @see PaSampleFormat */
+#define paInt16          ((PaSampleFormat) 0x00000008) /**< @see PaSampleFormat */
+#define paInt8           ((PaSampleFormat) 0x00000010) /**< @see PaSampleFormat */
+#define paUInt8          ((PaSampleFormat) 0x00000020) /**< @see PaSampleFormat */
+#define paCustomFormat   ((PaSampleFormat) 0x00010000)/**< @see PaSampleFormat */
 
-#define paNonInterleaved ((PaSampleFormat) (1<<31))
+#define paNonInterleaved ((PaSampleFormat) 0x80000000)
 
 /** A structure providing information and capabilities of PortAudio devices.
  Devices may support input, output or both input and output.
@@ -459,7 +449,7 @@ typedef struct PaStreamParameters
      It can range from 1 to the value of maxInputChannels in the
      PaDeviceInfo record for the device specified by the device parameter.
     */
-    int numberOfChannels;
+    int channelCount;
 
     /** The sample format of the buffer provided to the stream callback,
      a_ReadStream() or Pa_WriteStream(). It may be any of the formats described
@@ -561,11 +551,10 @@ typedef void PaStream;
 */
 typedef unsigned long PaStreamFlags;
 
-#define   paNoFlag      ((PaStreamFlags) (0))      /**< @see PaStreamFlags */
-#define   paClipOff     ((PaStreamFlags) (1<<0))   /**< Disable default clipping of out of range samples. @see PaStreamFlags */
-#define   paDitherOff   ((PaStreamFlags) (1<<1))   /**< Disable default dithering. @see PaStreamFlags */
-#define   paNeverDropInput ((PaStreamFlags) (1<<2))/**< A full duplex stream will not discard overflowed input samples without calling the stream callback, this flag is ignored for blocking read/write streams */
-
+#define   paNoFlag          ((PaStreamFlags) 0)      /**< @see PaStreamFlags */
+#define   paClipOff         ((PaStreamFlags) 0x00000001)   /**< Disable default clipping of out of range samples. @see PaStreamFlags */
+#define   paDitherOff       ((PaStreamFlags) 0x00000002)   /**< Disable default dithering. @see PaStreamFlags */
+#define   paNeverDropInput  ((PaStreamFlags) 0x00000004)/**< A full duplex stream will not discard overflowed input samples without calling the stream callback, this flag is ignored for blocking read/write streams */
 
 #define   paPlatformSpecificFlags ((PaStreamFlags)0xFFFF0000) /**< A mask specifying the platform specific bits. @see PaStreamFlags */
 
@@ -583,10 +572,12 @@ typedef struct PaStreamCallbackTimeInfo{
 /**
  Flag bit constants for the statusFlags to PaStreamCallback.
 */
-#define paInputUnderflow   (1<<0) /**< Input data is all zeros because no real data is available. */
-#define paInputOverflow    (1<<1) /**< Input data was discarded by PortAudio */
-#define paOutputUnderflow  (1<<2) /**< Output data was inserted by PortAudio because the stream callback is using too much CPU */
-#define paOutputOverflow   (1<<3) /**< Output data will be discarded because no room is available. */
+typedef unsigned long PaStreamCallbackFlags;
+
+#define paInputUnderflow   ((PaStreamCallbackFlags) 0x00000001) /**< Input data is all zeros because no real data is available. */
+#define paInputOverflow    ((PaStreamCallbackFlags) 0x00000002) /**< Input data was discarded by PortAudio */
+#define paOutputUnderflow  ((PaStreamCallbackFlags) 0x00000004) /**< Output data was inserted by PortAudio because the stream callback is using too much CPU */
+#define paOutputOverflow   ((PaStreamCallbackFlags) 0x00000008) /**< Output data will be discarded because no room is available. */
 
 
 /**
@@ -649,7 +640,7 @@ typedef int PaStreamCallback(
     void *input, void *output,
     unsigned long frameCount,
     const PaStreamCallbackTimeInfo* timeInfo,
-    unsigned long statusFlags,
+    PaStreamCallbackFlags statusFlags,
     void *userData );
 
 
