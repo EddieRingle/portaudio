@@ -1048,7 +1048,7 @@ static PaError ValidateOpenStreamParameters(
 
             if( outputParameters->hostApiSpecificStreamInfo != NULL )
             {
-                if( ((PaUtilHostApiSpecificStreamInfoHeader*)inputParameters->hostApiSpecificStreamInfo)->hostApiType
+                if( ((PaUtilHostApiSpecificStreamInfoHeader*)outputParameters->hostApiSpecificStreamInfo)->hostApiType
                         != (*hostApi)->info.type )
                     return paIncompatibleHostApiSpecificStreamInfo;
             }
