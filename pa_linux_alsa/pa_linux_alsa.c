@@ -265,6 +265,7 @@ error:
 
         PaUtil_FreeMemory( alsaHostApi );
     }
+
     return result;
 }
 
@@ -282,19 +283,25 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     PaError result = paNoError;
     snd_pcm_hw_params_t *hwParams;
     snd_pcm_uframes_t lowLatency = 1024, highLatency = 16384;
+    unsigned int uchans;
 
     assert( pcm );
+
+    ENSURE( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
+
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
 
-    if( *defaultSampleRate == 0 )           /* Default sample rate not set */
+    if( *defaultSampleRate == 0. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
         ENSURE( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, 0 ), paUnanticipatedHostError );
         ENSURE( GetExactSampleRate( hwParams, defaultSampleRate ), paUnanticipatedHostError );
     }
 
-    ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, (unsigned int *) channels ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, &uchans ), paUnanticipatedHostError );
+    assert( uchans <= INT_MAX );
+    *channels = (int) uchans;
     assert( *channels > 0 );    /* Weird linking issue could cause wrong version of ALSA symbols to be called,
                                    resulting in zeroed values */
 
@@ -427,7 +434,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         /* Query capture */
         if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
-            if( snd_pcm_nonblock( pcm, 0 ) < 0 || GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
+            if( GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
                         &commonDeviceInfo->defaultSampleRate ) != paNoError )
                 continue;   /* Error */
@@ -436,7 +443,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         /* Query playback */
         if( snd_pcm_open( &pcm, alsaDeviceName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
-            if( snd_pcm_nonblock( pcm, 0 ) < 0 || GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
+            if( GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
                         &commonDeviceInfo->defaultSampleRate ) != paNoError )
                 continue;   /* Error */
@@ -472,10 +479,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaAlsaHostApiRepresentation *alsaHostApi = (PaAlsaHostApiRepresentation*)hostApi;
 
     assert( hostApi );
-    /*
-        IMPLEMENT ME:
-            - clean up any resourced not handled by the allocation group
-    */
 
     if( alsaHostApi->allocations )
     {
@@ -509,8 +512,8 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
     {
         if( streamInfo )
             return paNoError;   /* Skip further checking */
-        else
-            return paInvalidDevice;
+
+        return paInvalidDevice;
     }
 
     maxChans = (io == validateIn ? deviceInfo->commonDeviceInfo.maxInputChannels :
@@ -1218,12 +1221,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* Should be exact now */
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
-    if ( (result = PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
+    PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
-                    paUtilFixedHostBufferSize, callback, userData )) != paNoError )
-        goto error;
+                    paUtilFixedHostBufferSize, callback, userData ) );
 
     /* this will cause the two streams to automatically start/stop/prepare in sync.
      * We only need to execute these operations on one of the pair.
@@ -1234,12 +1236,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             stream->pcmsSynced = 1;
 
     UNLESS( stream->pfds = (struct pollfd*)PaUtil_AllocateMemory( (stream->capture_nfds +
-                    stream->playback_nfds + 1) * sizeof(struct pollfd) ), paInsufficientMemory );
+                    stream->playback_nfds) * sizeof(struct pollfd) ), paInsufficientMemory );
 
     stream->frames_per_period = framesPerHostBuffer;
     stream->capture_channels = numInputChannels;
     stream->playback_channels = numOutputChannels;
-    stream->pollTimeout = (int) ceil( 1000 * stream->frames_per_period / sampleRate );    /* Period in msecs, rounded up */
+    stream->pollTimeout = (int) ceil( 1000 * stream->frames_per_period/sampleRate );    /* Period in msecs, rounded up */
 
     *s = (PaStream*)stream;
 
@@ -1509,7 +1511,7 @@ static PaError AbortStream( PaStream *s )
  */
 static PaError IsStreamStopped( PaStream *s )
 {
-    PaAlsaStream *stream = (PaAlsaStream*)s;
+    PaAlsaStream *stream = (PaAlsaStream *)s;
     PaError res;
 
     /* callback_finished indicates we need to join callback thread (ie. in Abort/StopStream) */
@@ -1525,7 +1527,6 @@ static PaError IsStreamActive( PaStream *s )
     return stream->isActive;
 
 }
-
 
 static PaTime GetStreamTime( PaStream *s )
 {
@@ -1553,7 +1554,7 @@ static PaTime GetStreamTime( PaStream *s )
     snd_pcm_status_get_tstamp( status, &timestamp );
     PA_DEBUG(( "Time in secs: %d\n", timestamp.tv_sec ));
 
-    return (PaTime) timestamp.tv_sec + (PaTime) timestamp.tv_usec/1000000;
+    return timestamp.tv_sec + (PaTime) timestamp.tv_usec/1000000;
 }
 
 
@@ -2032,72 +2033,59 @@ void *CallbackThread( void *userData )
             ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
     }
 
-    while(1)
+    while( 1 )
     {
         PaError callbackResult;
 	PaStreamCallbackTimeInfo timeInfo = {0,0,0};
         PaStreamCallbackFlags cbFlags = 0;
 
         pthread_testcancel();
+
         {
             /* calculate time info */
-            snd_timestamp_t capture_timestamp;
-            snd_timestamp_t playback_timestamp;
+            snd_timestamp_t capture_timestamp, playback_timestamp;
+            PaTime capture_time, playback_time;
 
             if( stream->pcm_capture )
             {
+                snd_pcm_sframes_t capture_delay;
+
                 snd_pcm_status( stream->pcm_capture, capture_status );
                 snd_pcm_status_get_tstamp( capture_status, &capture_timestamp );
-            }
-            if( stream->pcm_playback )
-            {
-                snd_pcm_status( stream->pcm_playback, playback_status );
-                snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
-            }
 
-            /* Hmm, we potentially have both a playback and a capture timestamp.
-             * Hopefully they are the same... */
-            if( stream->pcm_capture && stream->pcm_playback )
-            {
-                PaTime capture_time = capture_timestamp.tv_sec +
+                capture_time = capture_timestamp.tv_sec +
                                      ((PaTime)capture_timestamp.tv_usec/1000000);
-                PaTime playback_time= playback_timestamp.tv_sec +
-                                     ((PaTime)playback_timestamp.tv_usec/1000000);
-                if( fabsf(capture_time-playback_time) > 0.01 )
-                    PA_DEBUG(("Capture time and playback time differ by %f\n", fabsf(capture_time-playback_time)));
                 timeInfo.currentTime = capture_time;
-            }
-            else
-            {
-                if( stream->pcm_playback )
-                {
-                    timeInfo.currentTime = (PaTime)playback_timestamp.tv_sec +
-                                           (PaTime)playback_timestamp.tv_usec/1000000;
-                }
-                else
-                    timeInfo.currentTime = (PaTime)capture_timestamp.tv_sec +
-                                           (PaTime)capture_timestamp.tv_usec/1000000;
-            }
-            if( stream->pcm_capture )
-            {
-                snd_pcm_sframes_t capture_delay = snd_pcm_status_get_delay( capture_status );
+
+                capture_delay = snd_pcm_status_get_delay( capture_status );
                 timeInfo.inputBufferAdcTime = timeInfo.currentTime -
                     (PaTime)capture_delay / stream->streamRepresentation.streamInfo.sampleRate;
             }
-
             if( stream->pcm_playback )
             {
-                snd_pcm_sframes_t playback_delay = snd_pcm_status_get_delay( playback_status );
+                snd_pcm_sframes_t playback_delay;
+
+                snd_pcm_status( stream->pcm_playback, playback_status );
+                snd_pcm_status_get_tstamp( playback_status, &playback_timestamp );
+
+                playback_time = playback_timestamp.tv_sec +
+                                     ((PaTime)playback_timestamp.tv_usec/1000000);
+
+                if( stream->pcm_capture ) /* Full duplex */
+                {
+                    /* Hmm, we have both a playback and a capture timestamp.
+                     * Hopefully they are the same... */
+                    if( fabs( capture_time - playback_time ) > 0.01 )
+                        PA_DEBUG(("Capture time and playback time differ by %f\n", fabs(capture_time-playback_time)));
+                }
+                else
+                    timeInfo.currentTime = playback_time;
+
+                playback_delay = snd_pcm_status_get_delay( playback_status );
                 timeInfo.outputBufferDacTime = timeInfo.currentTime +
                     (PaTime)playback_delay / stream->streamRepresentation.streamInfo.sampleRate;
             }
         }
-
-        /*
-            depending on whether the host buffers are interleaved, non-interleaved
-            or a mixture, you will want to call PaUtil_ProcessInterleavedBuffers(),
-            PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
-        */
 
         /* Set callback flags *after* one of these has been detected */
         if( stream->underrun != 0.0 )
