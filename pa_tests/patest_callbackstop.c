@@ -37,8 +37,6 @@
 #include <math.h>
 #include "portaudio.h"
 
-#define OUTPUT_DEVICE (16) /* Pa_GetDefaultOutputDevice() */
-
 #define NUM_SECONDS   (5)
 #define NUM_LOOPS     (4)
 #define SAMPLE_RATE   (44100)
@@ -130,10 +128,10 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-    outputParameters.device = OUTPUT_DEVICE;
-    outputParameters.channelCount = 2;       /* stereo output */
-    outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
-    outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+    outputParameters.device                    = Pa_GetDefaultOutputDevice();
+    outputParameters.channelCount              = 2;               /* stereo output */
+    outputParameters.sampleFormat              = paFloat32;       /* 32 bit floating point output */
+    outputParameters.suggestedLatency          = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
     outputParameters.hostApiSpecificStreamInfo = NULL;
 
     err = Pa_OpenStream(
