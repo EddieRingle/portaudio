@@ -1359,7 +1359,8 @@ unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, int *stream
     unsigned long framesToProcess, framesToGo;
     unsigned long framesProcessed = 0;
     
-    if( bp->inputChannelCount != 0 && bp->outputChannelCount != 0 )
+    if( bp->inputChannelCount != 0 && bp->outputChannelCount != 0
+            && bp->hostInputChannels[0][0].data /* input was supplied (see PaUtil_SetNoInput) */ )
     {
         assert( (bp->hostInputFrameCount[0] + bp->hostInputFrameCount[1]) ==
                 (bp->hostOutputFrameCount[0] + bp->hostOutputFrameCount[1]) );
@@ -1376,16 +1377,26 @@ unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, int *stream
             /* full duplex non-adapting process, splice buffers if they are
                 different lengths */
 
-            framesToGo = bp->hostInputFrameCount[0] + bp->hostInputFrameCount[1]; /* relies on assert above for input/output equivalence */
+            framesToGo = bp->hostOutputFrameCount[0] + bp->hostOutputFrameCount[1]; /* relies on assert above for input/output equivalence */
 
             do{
+                unsigned long noInputInputFrameCount;
                 unsigned long *hostInputFrameCount;
                 PaUtilChannelDescriptor *hostInputChannels;
                 unsigned long *hostOutputFrameCount;
                 PaUtilChannelDescriptor *hostOutputChannels;
                 unsigned long framesProcessedThisIteration;
-                
-                if( bp->hostInputFrameCount[0] != 0 )
+
+                if( !bp->hostInputChannels[0][0].data )
+                {
+                    /* no input was supplied (see PaUtil_SetNoInput)
+                        NonAdaptingProcess knows how to deal with this
+                    */
+                    noInputInputFrameCount = framesToGo;
+                    hostInputFrameCount = &noInputInputFrameCount;
+                    hostInputChannels = 0;
+                }
+                else if( bp->hostInputFrameCount[0] != 0 )
                 {
                     hostInputFrameCount = &bp->hostInputFrameCount[0];
                     hostInputChannels = bp->hostInputChannels[0];
