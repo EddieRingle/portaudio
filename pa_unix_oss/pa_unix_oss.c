@@ -154,7 +154,7 @@ PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
     PaUtil_InitializeStreamInterface( &ossHostApi->callbackStreamInterface, CloseStream, StartStream,
                                       StopStream, AbortStream, IsStreamStopped, IsStreamActive,
                                       GetStreamTime, GetStreamCpuLoad,
-                                      PaUtil_DummyReadWrite, PaUtil_DummyReadWrite,
+                                      PaUtil_DummyRead, PaUtil_DummyWrite,
                                       PaUtil_DummyGetAvailable, PaUtil_DummyGetAvailable );
 
     PaUtil_InitializeStreamInterface( &ossHostApi->blockingStreamInterface, CloseStream, StartStream,
