@@ -364,6 +364,31 @@ static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type)
     }
 }
 
+void AsioSampleTypeLOG(ASIOSampleType type)
+{
+    switch (type) {
+        case ASIOSTInt16MSB:  PA_DEBUG(("ASIOSTInt16MSB\n"));  break;
+        case ASIOSTInt16LSB:  PA_DEBUG(("ASIOSTInt16LSB\n"));  break;
+        case ASIOSTFloat32MSB:PA_DEBUG(("ASIOSTFloat32MSB\n"));break;
+        case ASIOSTFloat32LSB:PA_DEBUG(("ASIOSTFloat32LSB\n"));break;
+        case ASIOSTFloat64MSB:PA_DEBUG(("ASIOSTFloat64MSB\n"));break;
+        case ASIOSTFloat64LSB:PA_DEBUG(("ASIOSTFloat64LSB\n"));break;
+        case ASIOSTInt32MSB:  PA_DEBUG(("ASIOSTInt32MSB\n"));  break;
+        case ASIOSTInt32LSB:  PA_DEBUG(("ASIOSTInt32LSB\n"));  break;
+        case ASIOSTInt32MSB16:PA_DEBUG(("ASIOSTInt32MSB16\n"));break;
+        case ASIOSTInt32LSB16:PA_DEBUG(("ASIOSTInt32LSB16\n"));break;
+        case ASIOSTInt32MSB18:PA_DEBUG(("ASIOSTInt32MSB18\n"));break;
+        case ASIOSTInt32MSB20:PA_DEBUG(("ASIOSTInt32MSB20\n"));break;
+        case ASIOSTInt32MSB24:PA_DEBUG(("ASIOSTInt32MSB24\n"));break;
+        case ASIOSTInt32LSB18:PA_DEBUG(("ASIOSTInt32LSB18\n"));break;
+        case ASIOSTInt32LSB20:PA_DEBUG(("ASIOSTInt32LSB20\n"));break;
+        case ASIOSTInt32LSB24:PA_DEBUG(("ASIOSTInt32LSB24\n"));break;
+        case ASIOSTInt24MSB:  PA_DEBUG(("ASIOSTInt24MSB\n"));  break;
+        case ASIOSTInt24LSB:  PA_DEBUG(("ASIOSTInt24LSB\n"));  break;
+        default:              PA_DEBUG(("Custom Format%d\n",type));break;
+
+    }
+}
 
 static int BytesPerAsioSample( ASIOSampleType sampleType )
 {
@@ -1485,7 +1510,7 @@ static unsigned long SelectHostBufferSize( unsigned long suggestedLatencyFrames,
                 result = 2;
 
                 while( result < suggestedLatencyFrames )
-                    result *= result;
+                    result *= 2;
 
                 if( result < (unsigned long)driverInfo->bufferMinSize )
                     result = driverInfo->bufferMinSize;
@@ -1616,7 +1641,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
-        suggestedInputLatencyFrames = (unsigned long)(inputParameters->suggestedLatency * sampleRate);
+        suggestedInputLatencyFrames = (unsigned long)((inputParameters->suggestedLatency * sampleRate)+0.5f);
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -1646,7 +1671,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        suggestedOutputLatencyFrames = (unsigned long)(outputParameters->suggestedLatency * sampleRate);
+        suggestedOutputLatencyFrames = (unsigned long)((outputParameters->suggestedLatency * sampleRate)+0.5f);
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
@@ -1709,10 +1734,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     PA_DEBUG(("before ASIOSetSampleRate(%f)\n",sampleRate));
+    asioError = ASIOSetSampleRate( sampleRate );
     /* Set sample rate */
-    if( ASIOSetSampleRate( sampleRate ) != ASE_OK )
+    if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
+        PA_DEBUG(("ERROR: ASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
     PA_DEBUG(("after ASIOSetSampleRate(%f)\n",sampleRate));
@@ -1826,6 +1853,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( asioError != ASE_OK
             && framesPerHostBuffer != (unsigned long)driverInfo->bufferPreferredSize )
     {
+        PA_DEBUG(("ERROR: ASIOCreateBuffers: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         /*
             Some buggy drivers (like the Hoontech DSP24) give incorrect
             [min, preferred, max] values They should work with the preferred size
@@ -1925,6 +1953,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* FIXME: assume all channels use the same type for now */
         ASIOSampleType inputType = stream->asioChannelInfos[0].type;
 
+        PA_DEBUG(("ASIO Input  type:%d",inputType));
+        AsioSampleTypeLOG(inputType);
         hostInputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( inputType );
 
         SelectAsioToPaConverter( inputType, &stream->inputBufferConverter, &stream->inputShift );
@@ -1940,6 +1970,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* FIXME: assume all channels use the same type for now */
         ASIOSampleType outputType = stream->asioChannelInfos[inputChannelCount].type;
 
+        PA_DEBUG(("ASIO Output type:%d",outputType));
+        AsioSampleTypeLOG(outputType);
         hostOutputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( outputType );
 
         SelectPaToAsioConverter( outputType, &stream->outputBufferConverter, &stream->outputShift );
@@ -1973,13 +2005,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     // the code below prints the ASIO latency which doesn't include the
-    // buffer processor latency.
-    PA_DEBUG(("PaAsio : ASIO InputLatency = %ld latency = %ld msec \n",
+    // buffer processor latency. it reports the added latency separately
+    PA_DEBUG(("PaAsio : ASIO InputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
             stream->inputLatency,
-            (long)((stream->inputLatency*1000)/ sampleRate)));
-    PA_DEBUG(("PaAsio : ASIO OuputLatency = %ld latency = %ld msec \n",
+            (long)((stream->inputLatency*1000)/ sampleRate),  
+            PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor),
+            (long)((PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor)*1000)/ sampleRate)
+            ));
+
+    PA_DEBUG(("PaAsio : ASIO OuputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
             stream->outputLatency,
-            (long)((stream->outputLatency*1000)/ sampleRate)));
+            (long)((stream->outputLatency*1000)/ sampleRate), 
+            PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor),
+            (long)((PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor)*1000)/ sampleRate)
+            ));
 
     stream->asioHostApi = asioHostApi;
     stream->framesPerHostCallback = framesPerHostBuffer;
