@@ -263,13 +263,14 @@ int TestStopMode( paTestData *data )
 
     if( data->stopMode == MODE_FINISH )
     {
-        while( Pa_IsStreamActive( stream ) )
+        while( ( err = Pa_IsStreamActive( stream ) ) == 1 )
         {
             /*printf("outTime = %g, note# = %d, repeat# = %d\n", data->outTime,
              data->noteCounter, data->repeatCounter  );
             fflush(stdout); */
             Pa_Sleep( SLEEP_DUR );
         }
+        if( err < 0 ) goto error;
     }
     else
     {
