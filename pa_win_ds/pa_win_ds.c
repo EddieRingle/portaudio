@@ -71,6 +71,12 @@
 
 #include "dsound_wrapper.h"
 
+#if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
+#pragma comment( lib, "dsound.lib" )
+#pragma comment( lib, "winmm.lib" )
+#endif
+
+
 #define PRINT(x) /* { printf x; fflush(stdout); } */
 #define ERR_RPT(x) PRINT(x)
 #define DBUG(x)  /* PRINT(x) */
