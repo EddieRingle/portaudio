@@ -47,6 +47,7 @@
 #include <signal.h>
 #include <time.h>
 #include <sys/mman.h>
+#include <signal.h> /* For sig_atomic_t */
 
 #include "portaudio.h"
 #include "pa_util.h"
@@ -62,43 +63,42 @@
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 #define MAX(x,y) ( (x) > (y) ? (x) : (y) )
 
-#define STRINGIZE_HELPER(exp) #exp
-#define STRINGIZE(exp) STRINGIZE_HELPER(exp)
+#define STRINGIZE_HELPER(expr) #expr
+#define STRINGIZE(expr) STRINGIZE_HELPER(expr)
 
 /* Check return value of ALSA function, and map it to PaError */
-#define ENSURE(exp, code) \
-    if( (aErr_ = (exp)) < 0 ) \
+#define ENSURE(expr, code) \
+    if( (aErr_ = (expr)) < 0 ) \
     { \
         /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
         if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
         { \
             PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
         } \
-        PaUtil_DebugPrint(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
         goto error; \
     }
 
 /* Check PaError */
-#define PA_ENSURE(exp) \
-    if( (paErr_ = (exp)) < paNoError ) \
+#define PA_ENSURE(expr) \
+    if( (paErr_ = (expr)) < paNoError ) \
     { \
-        PaUtil_DebugPrint(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = paErr_; \
         goto error; \
     }
 
-#define UNLESS(exp, code) \
-    if( (exp) == 0 ) \
+#define UNLESS(expr, code) \
+    if( (expr) == 0 ) \
     { \
-        PaUtil_DebugPrint(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+        PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
         goto error; \
     }
 
 static int aErr_;               /* Used with ENSURE */
 static PaError paErr_;          /* Used with PA_ENSURE */
-static int rtPrio_ = -1;
 static pthread_t mainThread_;
 
 typedef enum
@@ -114,6 +114,7 @@ typedef struct PaAlsaThreading
     pthread_t callbackThread;
     int watchdogRunning;
     int rtSched;
+    int rtPrio;
     int useWatchdog;
     unsigned long throttledSleepTime;
     volatile PaTime callbackTime;
@@ -136,6 +137,7 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t playbackBufferSize;
     snd_pcm_uframes_t captureBufferSize;
     snd_pcm_format_t playbackNativeFormat;
+    snd_pcm_uframes_t startThreshold;
 
     int capture_channels;
     int playback_channels;
@@ -143,8 +145,8 @@ typedef struct PaAlsaStream
     int capture_interleaved;    /* bool: is capture interleaved? */
     int playback_interleaved;   /* bool: is playback interleaved? */
 
-    int callback_mode;          /* bool: are we running in callback mode? */
-    int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
+    int callback_mode;              /* bool: are we running in callback mode? */
+    int pcmsSynced;	            /* Have we successfully synced pcms */
 
     /* the callback thread uses these to poll the sound device(s), waiting
      * for data to be ready/available */
@@ -157,13 +159,13 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t capture_offset;
     snd_pcm_uframes_t playback_offset;
 
-    int pcmsSynced;	            /* Have we successfully synced pcms */
-    int callbackAbort;		    /* Drop frames? */
-    int isActive;                   /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
-    snd_pcm_uframes_t startThreshold;
-    pthread_mutex_t stateMtx;      /* Used to synchronize access to stream state */
-    pthread_mutex_t startMtx;      /* Used to synchronize stream start in callback mode */
-    pthread_cond_t startCond;      /* Wait untill audio is started in callback thread */
+    /* Used in communication between threads */
+    sig_atomic_t callback_finished; /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
+    sig_atomic_t callbackAbort;     /* Drop frames? */
+    sig_atomic_t isActive;          /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
+    pthread_mutex_t stateMtx;       /* Used to synchronize access to stream state */
+    pthread_mutex_t startMtx;       /* Used to synchronize stream start in callback mode */
+    pthread_cond_t startCond;       /* Wait untill audio is started in callback thread */
 
     /* Used by callback thread for underflow/overflow handling */
     snd_pcm_sframes_t playbackAvail;
@@ -203,14 +205,15 @@ static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm
 {
     th->watchdogRunning = 0;
     th->rtSched = 0;
+    th->rtPrio = -1;
     th->callbackTime = 0;
     th->callbackCpuTime = 0;
     th->useWatchdog = 1;
     th->throttledSleepTime = 0;
     th->cpuLoadMeasurer = clm;
 
-    if (rtPrio_ < 0) {
-        rtPrio_ = (sched_get_priority_max( SCHED_FIFO ) - sched_get_priority_min( SCHED_FIFO )) / 2
+    if (th->rtPrio < 0) {
+        th->rtPrio = (sched_get_priority_max( SCHED_FIFO ) - sched_get_priority_min( SCHED_FIFO )) / 2
             + sched_get_priority_min( SCHED_FIFO );
     }
 }
@@ -268,7 +271,7 @@ static PaError BoostPriority( PaAlsaThreading *th )
 {
     PaError result = paNoError;
     struct sched_param spm = { 0 };
-    spm.sched_priority = rtPrio_;
+    spm.sched_priority = th->rtPrio;
 
     assert( th );
 
@@ -438,7 +441,7 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*CallbackThread
             int err;
             struct sched_param wdSpm = { 0 };
             /* Launch watchdog, watchdog sets callback thread priority */
-            wdSpm.sched_priority = MIN( rtPrio_ + 4, sched_get_priority_max( SCHED_FIFO ) );
+            wdSpm.sched_priority = MIN( th->rtPrio + 4, sched_get_priority_max( SCHED_FIFO ) );
 
             UNLESS( !pthread_attr_init( &attr ), paInternalError );
             UNLESS( !pthread_attr_setinheritsched( &attr, PTHREAD_EXPLICIT_SCHED ), paInternalError );
@@ -584,6 +587,8 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     snd_pcm_hw_params_t *hwParams;
     snd_pcm_uframes_t lowLatency = 1024, highLatency = 16384;
     unsigned int uchans;
+    int chans;
+    double defaultSr = *defaultSampleRate;
 
     assert( pcm );
 
@@ -592,31 +597,31 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
 
-    if (*defaultSampleRate != 0.)
+    if( defaultSr != -1. )
     {
         /* Could be that the device opened in one mode supports samplerates that the other mode wont have,
          * so try again .. */
-        if( SetApproximateSampleRate( pcm, hwParams, *defaultSampleRate ) < 0 )
+        if( SetApproximateSampleRate( pcm, hwParams, defaultSr ) < 0 )
         {
-            *defaultSampleRate = 0.;
+            defaultSr = -1.;
             PA_DEBUG(( "%s: Original default samplerate failed, trying again ..\n", __FUNCTION__ ));
         }
     }
 
-    if( *defaultSampleRate == 0. )           /* Default sample rate not set */
+    if( defaultSr == -1. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
         ENSURE( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, NULL ), paUnanticipatedHostError );
-        ENSURE( GetExactSampleRate( hwParams, defaultSampleRate ), paUnanticipatedHostError );
+        ENSURE( GetExactSampleRate( hwParams, &defaultSr ), paUnanticipatedHostError );
     }
 
     ENSURE( snd_pcm_hw_params_get_channels_max( hwParams, &uchans ), paUnanticipatedHostError );
     assert( uchans <= INT_MAX );
     assert( uchans > 0 );    /* Weird linking issue could cause wrong version of ALSA symbols to be called,
                                    resulting in zeroed values */
-    *channels = isPlug ? 128 : uchans;   /* XXX: Limit to sensible number (ALSA plugins accept a crazy amount of channels)? */
+    chans = isPlug ? 128 : uchans;   /* XXX: Limit to sensible number (ALSA plugins accept a crazy amount of channels)? */
     if( isPlug )
-        PA_DEBUG(( "%s: Limiting number of plugin channels to %d\n", __FUNCTION__, *channels ));
+        PA_DEBUG(( "%s: Limiting number of plugin channels to %d\n", __FUNCTION__, chans ));
 
     /* TWEAKME:
      *
@@ -643,6 +648,8 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *channels, double *defaultLowLat
     ENSURE( snd_pcm_hw_params_any( pcm, hwParams ), paUnanticipatedHostError ); 
     ENSURE( snd_pcm_hw_params_set_buffer_size_near( pcm, hwParams, &highLatency ), paUnanticipatedHostError );
 
+    *channels = chans;
+    *defaultSampleRate = defaultSr;
     *defaultLowLatency = (double) lowLatency / *defaultSampleRate;
     *defaultHighLatency = (double) highLatency / *defaultSampleRate;
 
@@ -651,7 +658,6 @@ end:
     return result;
 
 error:
-    *channels = 0;
     goto end;
 }
 
@@ -795,7 +801,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
 
         /* Zero fields */
-        memset( commonDeviceInfo, 0, sizeof (PaDeviceInfo) );
+        PaUtil_InitializeDeviceInfo( commonDeviceInfo );
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
@@ -806,7 +812,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             if( GropeDevice( pcm, &commonDeviceInfo->maxInputChannels,
                         &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
                         &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
-                continue;   /* Error */
+                    continue;   /* Error */
         }
                 
         /* Query playback */
@@ -815,7 +821,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             if( GropeDevice( pcm, &commonDeviceInfo->maxOutputChannels,
                         &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
                         &commonDeviceInfo->defaultSampleRate, deviceNames[ i ].isPlug ) != paNoError )
-                continue;   /* Error */
+                    continue;   /* Error */
         }
 
         commonDeviceInfo->structVersion = 2;
@@ -827,12 +833,12 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
          * Should now be safe to add device info, unless the device supports neither capture nor playback
          */
-        if( commonDeviceInfo->maxInputChannels || commonDeviceInfo->maxOutputChannels )
+        if( commonDeviceInfo->maxInputChannels > 0 || commonDeviceInfo->maxOutputChannels > 0 )
         {
-            if( commonApi->info.defaultInputDevice == paNoDevice )
+            if( commonDeviceInfo->maxInputChannels > 0 && commonApi->info.defaultInputDevice == paNoDevice )
                 commonApi->info.defaultInputDevice = devIdx;
 
-            if( commonApi->info.defaultOutputDevice == paNoDevice )
+            if( commonDeviceInfo->maxOutputChannels > 0 && commonApi->info.defaultOutputDevice == paNoDevice )
                 commonApi->info.defaultOutputDevice = devIdx;
 
             commonApi->deviceInfos[ devIdx++ ] = (PaDeviceInfo *) deviceInfo;
@@ -1324,7 +1330,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* allocate and do basic initialization of the stream structure */
 
     UNLESS( stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) ), paInsufficientMemory );
-    InitializeStream( stream, (int) callback, streamFlags );    /* Initialize structure */
+    InitializeStream( stream, callback != NULL, streamFlags );    /* Initialize structure */
 
     if( callback )
     {
@@ -1338,7 +1344,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                                &alsaHostApi->blockingStreamInterface,
                                                callback, userData );
     }
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
     /* open the devices now, so we can obtain info about the available formats */
@@ -1346,9 +1351,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numInputChannels > 0 )
     {
         PA_ENSURE( AlsaOpen( &stream->pcm_capture, inputDeviceInfo, inputStreamInfo, SND_PCM_STREAM_CAPTURE ) );
-
         stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
-
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_capture ),
                                                  inputSampleFormat );
@@ -1357,13 +1360,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( numOutputChannels > 0 )
     {
         PA_ENSURE( AlsaOpen( &stream->pcm_playback, outputDeviceInfo, outputStreamInfo, SND_PCM_STREAM_PLAYBACK ) );
-
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
-
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_playback ),
                                                  outputSampleFormat );
-        stream->playbackNativeFormat = Pa2AlsaFormat( hostOutputSampleFormat );
+        stream->playbackNativeFormat = Pa2AlsaFormat( hostOutputSampleFormat ); /* Used when silencing buffer */
     }
 
     /* If the number of frames per buffer is unspecified, we have to come up with
@@ -1536,10 +1537,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         framesPerHostBuffer = framesPerBuffer;
     }
-
-    /* Will fill in correct values later */
-    stream->streamRepresentation.streamInfo.inputLatency = 0.;
-    stream->streamRepresentation.streamInfo.outputLatency = 0.;
 
     if( numInputChannels > 0 )
     {
@@ -1895,7 +1892,7 @@ static PaTime GetStreamTime( PaStream *s )
     /* TODO: what if we have both?  does it really matter? */
 
     /* TODO: if running in callback mode, this will mean
-     * libasound routines are being called form multiple threads.
+     * libasound routines are being called from multiple threads.
      * need to verify that libasound is thread-safe. */
 
     if( stream->pcm_capture )
@@ -1908,8 +1905,6 @@ static PaTime GetStreamTime( PaStream *s )
     }
 
     snd_pcm_status_get_tstamp( status, &timestamp );
-    PA_DEBUG(( "Time in secs: %d\n", timestamp.tv_sec ));
-
     return timestamp.tv_sec + (PaTime) timestamp.tv_usec/1000000;
 }
 
@@ -2504,9 +2499,9 @@ static void *CallbackThreadFunc( void *userData )
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-            callbackResult = paContinue;
-
             CallbackUpdate( &stream->threading );   /* Report to watchdog */
+
+            callbackResult = paContinue;
             /* this calls the callback */
             framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult );
