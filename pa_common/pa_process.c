@@ -1680,3 +1680,30 @@ unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bp,
     
     return framesToCopy;
 }
+
+
+unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bp )
+{
+    PaUtilChannelDescriptor *hostOutputChannels;
+    unsigned int framesToZero;
+    unsigned int i;
+
+    hostOutputChannels = bp->hostOutputChannels[0];
+    framesToZero = bp->hostOutputFrameCount[0];
+
+    for( i=0; i<bp->outputChannelCount; ++i )
+    {
+        bp->outputZeroer(   hostOutputChannels[i].data,
+                            hostOutputChannels[i].stride,
+                            framesToZero );
+
+
+        /* advance dest ptr for next iteration */
+        hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                framesToZero * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
+    }
+
+    bp->hostOutputFrameCount[0] += framesToZero;
+    
+    return framesToZero;
+}

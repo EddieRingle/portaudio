@@ -676,7 +676,7 @@ unsigned long PaUtil_CopyInput( PaUtilBufferProcessor* bufferProcessor,
         void **buffer, unsigned long frameCount );
 
 
-/* Copy samples from a user supplied buffer to host input channels set up by
+/* Copy samples from a user supplied buffer to host output channels set up by
  the PaUtil_Set*OutputChannels functions. This function is intended for use with
  blocking read/write streams. Copies the minimum of the number of
  user frames (specified by the frameCount parameter) and the number of
@@ -699,6 +699,19 @@ unsigned long PaUtil_CopyInput( PaUtilBufferProcessor* bufferProcessor,
 */
 unsigned long PaUtil_CopyOutput( PaUtilBufferProcessor* bufferProcessor,
         const void ** buffer, unsigned long frameCount );
+
+
+/* Zero samples in host output channels set up by the PaUtil_Set*OutputChannels
+ functions. This function is useful for flushing blocking write streams.
+ Zeros the number of host frames specified in a previous call to
+ SetOutputFrameCount().
+
+ @param bufferProcessor The buffer processor.
+
+ @return The number of frames zeroed.
+*/
+unsigned long PaUtil_ZeroOutput( PaUtilBufferProcessor* bufferProcessor );
+
 
 /*@}*/
 
