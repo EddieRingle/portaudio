@@ -101,6 +101,8 @@ static double GetStreamCpuLoad( PaStream* stream );
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *hostApi );
 void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags streamFlags );
 void CleanUpStream( PaAlsaStream *stream );
+int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate );
+int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate );
 
 /* blocking calls are in blocking_calls.c */
 extern PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
@@ -454,7 +456,7 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *stream )
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
 static PaError ConfigureStream( snd_pcm_t *stream, int channels,
-                                int interleaved, unsigned long rate,
+                                int interleaved, double *rate,
                                 PaSampleFormat pa_format, int framesPerBuffer,
                                 float latency)
 {
@@ -474,9 +476,9 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     if( getenv("PA_NUMPERIODS") != NULL )
         numPeriods = atoi( getenv("PA_NUMPERIODS") );
     else
-        numPeriods = ( (latency*rate) / framesPerBuffer ) + 1;
+        numPeriods = ( (latency * *rate) / framesPerBuffer ) + 1;
 
-    PA_DEBUG(("latency: %f, rate: %ld, framesPerBuffer: %d\n", latency, rate, framesPerBuffer));
+    PA_DEBUG(("latency: %f, rate: %ld, framesPerBuffer: %d\n", latency, *rate, framesPerBuffer));
     if( numPeriods <= 1 )
         numPeriods = 2;
 
@@ -539,7 +541,8 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     ENSURE( snd_pcm_hw_params_set_format( stream, hw_params, alsa_format ) );
 
     /* ... set the sample rate */
-    ENSURE( snd_pcm_hw_params_set_rate( stream, hw_params, rate, 0 ) );
+    ENSURE( SetApproximateSampleRate( stream, hw_params, *rate ) );
+    ENSURE( GetExactSampleRate( hw_params, rate ) );
 
     /* ... set the number of channels */
     PA_DEBUG(("channels: %d\n", channels));
@@ -816,7 +819,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
                     PA_DEBUG(("trying periodSize=%d, numPeriods=%d, sampleRate=%f, channels=%d\n", periodSize, numPeriods, sampleRate, channels));
                     ENSURE( snd_pcm_hw_params_any( pcm_handle, hw_params ) );
-                    ENSURE( snd_pcm_hw_params_set_rate( pcm_handle, hw_params, sampleRate, 0 ) );
+                    ENSURE( SetApproximateSampleRate( pcm_handle, hw_params, sampleRate ) );
                     ENSURE( snd_pcm_hw_params_set_channels( pcm_handle, hw_params, channels ) );
                     ENSURE( snd_pcm_hw_params_set_period_size( pcm_handle, hw_params, periodSize, 0 ) );
                     ENSURE( snd_pcm_hw_params_set_periods( pcm_handle, hw_params, numPeriods, 0 ) );
@@ -855,7 +858,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* configure the streams */
     stream->streamRepresentation.streamInfo.inputLatency = 0.;
     stream->streamRepresentation.streamInfo.outputLatency = 0.;
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     if( numInputChannels > 0 )
     {
@@ -868,7 +870,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             interleaved = 1;
 
         if( ConfigureStream( stream->pcm_capture, numInputChannels, interleaved,
-                             sampleRate, plain_format, framesPerHostBuffer,
+                             &sampleRate, plain_format, framesPerHostBuffer,
                              inputParameters->suggestedLatency) != 0 )
         {
             result = paBadIODeviceCombination;
@@ -889,7 +891,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             interleaved = 1;
 
         if( ConfigureStream( stream->pcm_playback, numOutputChannels, interleaved,
-                             sampleRate, plain_format, framesPerHostBuffer,
+                             &sampleRate, plain_format, framesPerHostBuffer,
                              outputParameters->suggestedLatency) != 0 )
         {
             result = paBadIODeviceCombination;
@@ -898,6 +900,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         stream->playback_interleaved = interleaved;
     }
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     /* this will cause the two streams to automatically start/stop/prepare in sync.
      * We only need to execute these operations on one of the pair. */
@@ -1223,3 +1226,38 @@ void CleanUpStream( PaAlsaStream *stream )
     PaUtil_FreeMemory( stream );
 }
 
+int SetApproximateSampleRate( snd_pcm_t *pcm, snd_pcm_hw_params_t *hwParams, double sampleRate )
+{
+    assert( hwParams );
+
+    unsigned long approx = (unsigned long) sampleRate;
+    int dir;
+    double fraction = sampleRate - approx;
+
+    if( fraction > 0.0 )
+    {
+        if( fraction > 0.5 )
+        {
+            ++approx;
+            dir = -1;
+        }
+        else
+            dir = 1;
+    }
+    else
+        dir = 0;
+
+    return snd_pcm_hw_params_set_rate( pcm, hwParams, approx, dir );
+}
+
+// Return exact sample rate in param sampleRate
+int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
+{
+    assert( hwParams );
+
+    unsigned int num, den;
+    int err = snd_pcm_hw_params_get_rate_numden( hwParams, &num, &den );
+    *sampleRate = (double) num / den;
+
+    return err;
+}
