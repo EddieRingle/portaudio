@@ -29,7 +29,7 @@ x- patest_record.c
 x- patest_ringmix.c
 o- patest_saw.c
 x- patest_sine.c
-o- patest_sine8.c
+x- patest_sine8.c
 x- patest_sine_formats.c
 o- patest_sine_time.c
 x- patest_start_stop.c
