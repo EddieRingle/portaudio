@@ -342,10 +342,10 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paInDevelopment;
     (*hostApi)->info.name = "JACK Audio Connection Kit";
-    (*hostApi)->info.defaultInputDevice = paNoDevice;  /* IMPLEMENT ME */
-    (*hostApi)->info.defaultOutputDevice = paNoDevice; /* IMPLEMENT ME */
+    (*hostApi)->info.defaultInputDevice = paNoDevice;  /* set in BuildDeviceList() */
+    (*hostApi)->info.defaultOutputDevice = paNoDevice; /* set in BuildDeviceList() */
 
-    (*hostApi)->info.deviceCount = 0;
+    (*hostApi)->info.deviceCount = 0; /* set in BuildDeviceList() */
 
     /* Build a device list by querying the JACK server */
 
