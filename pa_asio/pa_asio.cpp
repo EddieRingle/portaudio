@@ -57,21 +57,18 @@
         12-04-02 Add Mac includes for <Devices.h> and <Timer.h> : Phil Burk
         13-04-02 Removes another compiler warning : Stephane Letz
         30-04-02 Pa_ASIO_QueryDeviceInfo bug correction, memory allocation checking, better error handling : D Viens, P Burk, S Letz
-        12-05-02 Rehashed into new multi-api infrastructure : Ross Bencina
+        12-05-02 Rehashed into new multi-api infrastructure, added support for all ASIO sample formats : Ross Bencina
 
         TO DO :
-
-
-        - implement bit shifting & byte swapping for input and output types which
-            are not directly mapped to port audio types.
-
-
-        - implement IsStreamActive
+        - select buffer size based on latency parameters
+            - use greater of input and output latency
+            
         - implement GetStreamTime
         - implement block adaption        
         - work out how to implement stream stoppage from callback
+        - implement IsStreamActive
+        
 
-        - need to in-place convert float64 data
 
         - rigorously check asio return codes and convert to pa error codes
         - Check Pa_StopSteam and Pa_AbortStream
@@ -232,23 +229,23 @@ error:
 }
 
 
-static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type) 
+static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type)
 {
     switch (type) {
         case ASIOSTInt16MSB:
         case ASIOSTInt16LSB:
-        case ASIOSTInt32MSB16:
-        case ASIOSTInt32LSB16:
                 return paInt16;
-                
+
         case ASIOSTFloat32MSB:
         case ASIOSTFloat32LSB:
         case ASIOSTFloat64MSB:
         case ASIOSTFloat64LSB:
                 return paFloat32;
-                
+
         case ASIOSTInt32MSB:
         case ASIOSTInt32LSB:
+        case ASIOSTInt32MSB16:
+        case ASIOSTInt32LSB16:
         case ASIOSTInt32MSB18:          
         case ASIOSTInt32MSB20:          
         case ASIOSTInt32MSB24:          
@@ -302,6 +299,464 @@ static int BytesPerAsioSample( ASIOSampleType sampleType )
 }
 
 
+static void Swap16( void *buffer, long shift, long count )
+{
+    unsigned short *p = (unsigned short*)buffer;
+    unsigned short temp;
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+    {
+        temp = *p;
+        *p++ = (temp<<8) | (temp>>8);
+    }
+}
+
+static void Swap24( void *buffer, long shift, long count )
+{
+    unsigned char *p = (unsigned char*)buffer;
+    unsigned char temp;
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+    {
+        temp = *p;
+        *p = *(p+2);
+        *(p+2) = temp;
+        p += 3;
+    }
+}
+
+#define PA_SWAP32_( x ) ((x>>24) | ((x>>8)&0xFF00) | ((x<<8)&0xFF0000) | (x<<24));
+
+static void Swap32( void *buffer, long shift, long count )
+{
+    unsigned long *p = (unsigned long*)buffer;
+    unsigned long temp;
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+    {
+        temp = *p;
+        *p++ = PA_SWAP32_( temp);
+    }
+}
+
+static void SwapShiftLeft32( void *buffer, long shift, long count )
+{
+    unsigned long *p = (unsigned long*)buffer;
+    unsigned long temp;
+
+    while( count-- )
+    {
+        temp = *p;
+        temp = PA_SWAP32_( temp);
+        *p++ = temp << shift;
+    }
+}
+
+static void ShiftRightSwap32( void *buffer, long shift, long count )
+{
+    unsigned long *p = (unsigned long*)buffer;
+    unsigned long temp;
+
+    while( count-- )
+    {
+        temp = *p >> shift;
+        *p++ = PA_SWAP32_( temp);
+    }
+}
+
+static void ShiftLeft32( void *buffer, long shift, long count )
+{
+    unsigned long *p = (unsigned long*)buffer;
+    unsigned long temp;
+
+    while( count-- )
+    {
+        temp = *p;
+        *p++ = temp << shift;
+    }
+}
+
+static void ShiftRight32( void *buffer, long shift, long count )
+{
+    unsigned long *p = (unsigned long*)buffer;
+    unsigned long temp;
+
+    while( count-- )
+    {
+        temp = *p;
+        *p++ = temp >> shift;
+    }
+}
+
+#define PA_SWAP_( x, y ) temp=x; x = y; y = temp;
+
+static void Swap64ConvertFloat64ToFloat32( void *buffer, long shift, long count )
+{
+    double *in = (double*)buffer;
+    float *out = (float*)buffer;
+    unsigned char *p;
+    unsigned char temp;
+    (void) shift; /* unused parameter */
+    
+    while( count-- )
+    {
+        p = (unsigned char*)in;
+        PA_SWAP_( p[0], p[7] );
+        PA_SWAP_( p[1], p[6] );
+        PA_SWAP_( p[2], p[5] );
+        PA_SWAP_( p[3], p[4] );
+        
+        *out++ = *in++;
+    }
+}
+
+static void ConvertFloat64ToFloat32( void *buffer, long shift, long count )
+{
+    double *in = (double*)buffer;
+    float *out = (float*)buffer;
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+        *out++ = *in++;
+}
+
+static void ConvertFloat32ToFloat64Swap64( void *buffer, long shift, long count )
+{
+    float *in = ((float*)buffer) + (count-1);
+    double *out = ((double*)buffer) + (count-1);
+    unsigned char *p;
+    unsigned char temp;
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+    {
+        *out = *in--;
+        
+        p = (unsigned char*)out;
+        PA_SWAP_( p[0], p[7] );
+        PA_SWAP_( p[1], p[6] );
+        PA_SWAP_( p[2], p[5] );
+        PA_SWAP_( p[3], p[4] );
+        
+        out--;
+    }
+}
+
+static void ConvertFloat32ToFloat64( void *buffer, long shift, long count )
+{
+    float *in = ((float*)buffer) + (count-1);
+    double *out = ((double*)buffer) + (count-1);
+    (void) shift; /* unused parameter */
+
+    while( count-- )
+        *out-- = *in--;
+}
+
+#ifdef MAC
+#define PA_MSB_IS_NATIVE_
+#undef PA_LSB_IS_NATIVE_
+#endif
+
+#ifdef WINDOWS
+#undef PA_MSB_IS_NATIVE_
+#define PA_LSB_IS_NATIVE_
+#endif
+
+typedef void PaAsioBufferConverter( void *, long, long );
+
+static void SelectAsioToPaConverter( ASIOSampleType type, PaAsioBufferConverter **converter, long *shift ) 
+{
+    *shift = 0;
+    *converter = 0;
+    
+    switch (type) {
+        case ASIOSTInt16MSB:
+            /* dest: paInt16, no conversion necessary, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_ 
+                *converter = Swap16;
+            #endif
+            break;
+        case ASIOSTInt16LSB:
+            /* dest: paInt16, no conversion necessary, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap16;
+            #endif
+            break;
+        case ASIOSTFloat32MSB:
+            /* dest: paFloat32, no conversion necessary, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTFloat32LSB:
+            /* dest: paFloat32, no conversion necessary, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTFloat64MSB:
+            /* dest: paFloat32, in-place conversion to/from float32, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap64ConvertFloat64ToFloat32;
+            #else
+                *converter = ConvertFloat64ToFloat32;
+            #endif
+            break;
+        case ASIOSTFloat64LSB:
+            /* dest: paFloat32, in-place conversion to/from float32, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap64ConvertFloat64ToFloat32;
+            #else
+                *converter = ConvertFloat64ToFloat32;
+            #endif
+            break;
+        case ASIOSTInt32MSB:
+            /* dest: paInt32, no conversion necessary, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTInt32LSB:
+            /* dest: paInt32, no conversion necessary, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTInt32MSB16:
+            /* dest: paInt32, 16 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 16;
+            break;
+        case ASIOSTInt32MSB18:
+            /* dest: paInt32, 14 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 14;
+            break;
+        case ASIOSTInt32MSB20:
+            /* dest: paInt32, 12 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_ )
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 12;
+            break;
+        case ASIOSTInt32MSB24:
+            /* dest: paInt32, 8 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 8;
+            break;
+        case ASIOSTInt32LSB16:
+            /* dest: paInt32, 16 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 16;
+            break;
+        case ASIOSTInt32LSB18:
+            /* dest: paInt32, 14 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 14;
+            break;
+        case ASIOSTInt32LSB20:
+            /* dest: paInt32, 12 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 12;
+            break;
+        case ASIOSTInt32LSB24:
+            /* dest: paInt32, 8 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = SwapShiftLeft32;
+            #else
+                *converter = ShiftLeft32;
+            #endif
+            *shift = 8;
+            break;
+        case ASIOSTInt24MSB:
+            /* dest: paInt24, no conversion necessary, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap24;
+            #endif
+            break;
+        case ASIOSTInt24LSB:
+            /* dest: paInt24, no conversion necessary, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap24;
+            #endif
+            break;
+    }
+}
+
+
+static void SelectPaToAsioConverter( ASIOSampleType type, PaAsioBufferConverter **converter, long *shift )
+{
+    *shift = 0;
+    *converter = 0;
+    
+    switch (type) {
+        case ASIOSTInt16MSB:
+            /* src: paInt16, no conversion necessary, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap16;
+            #endif
+            break;
+        case ASIOSTInt16LSB:
+            /* src: paInt16, no conversion necessary, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap16;
+            #endif
+            break;
+        case ASIOSTFloat32MSB:
+            /* src: paFloat32, no conversion necessary, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTFloat32LSB:
+            /* src: paFloat32, no conversion necessary, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTFloat64MSB:
+            /* src: paFloat32, in-place conversion to/from float32, possible byte swap*/
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = ConvertFloat32ToFloat64Swap64;
+            #else
+                *converter = ConvertFloat32ToFloat64;
+            #endif
+            break;
+        case ASIOSTFloat64LSB:
+            /* src: paFloat32, in-place conversion to/from float32, possible byte swap*/
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = ConvertFloat32ToFloat64Swap64;
+            #else
+                *converter = ConvertFloat32ToFloat64;
+            #endif
+            break;
+        case ASIOSTInt32MSB:
+            /* src: paInt32, no conversion necessary, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTInt32LSB:
+            /* src: paInt32, no conversion necessary, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap32;
+            #endif
+            break;
+        case ASIOSTInt32MSB16:
+            /* src: paInt32, 16 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 16;
+            break;
+        case ASIOSTInt32MSB18:
+            /* src: paInt32, 14 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 14;
+            break;
+        case ASIOSTInt32MSB20:
+            /* src: paInt32, 12 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 12;
+            break;
+        case ASIOSTInt32MSB24:
+            /* src: paInt32, 8 bit shift, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 8;
+            break;
+        case ASIOSTInt32LSB16:
+            /* src: paInt32, 16 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 16;
+            break;
+        case ASIOSTInt32LSB18:
+            /* src: paInt32, 14 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 14;
+            break;
+        case ASIOSTInt32LSB20:
+            /* src: paInt32, 12 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 12;
+            break;
+        case ASIOSTInt32LSB24:
+            /* src: paInt32, 8 bit shift, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = ShiftRightSwap32;
+            #else
+                *converter = ShiftRight32;
+            #endif
+            *shift = 8;
+            break;
+        case ASIOSTInt24MSB:
+            /* src: paInt24, no conversion necessary, possible byte swap */
+            #ifdef PA_LSB_IS_NATIVE_
+                *converter = Swap24;
+            #endif
+            break;
+        case ASIOSTInt24LSB:
+            /* src: paInt24, no conversion necessary, possible byte swap */
+            #ifdef PA_MSB_IS_NATIVE_
+                *converter = Swap24;
+            #endif
+            break;
+    }
+}
 
 
 #define PA_NUM_POSSIBLESAMPLINGRATES_     12   /* must be the same number of elements as in the array below */
@@ -575,6 +1030,11 @@ typedef struct PaAsioStream
     void **inputBufferPtrs[2];
     void **outputBufferPtrs[2];
 
+    PaAsioBufferConverter *inputBufferConverter;
+    long inputShift;
+    PaAsioBufferConverter *outputBufferConverter;
+    long outputShift;
+
     volatile int stopProcessing; /* stop thread once existing buffers have been returned */
     volatile int abortProcessing; /* stop thread immediately */
 }
@@ -804,28 +1264,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
     
-    /* IMPLEMENT ME - establish which host formats are available */
-    hostInputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
-
-    /* IMPLEMENT ME - establish which host formats are available */
-    hostOutputSampleFormat =
-        PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
-        
-
-    result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              numInputChannels, inputSampleFormat, hostInputSampleFormat,
-              numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
-              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
-              callback, userData );
-    if( result != paNoError )
-        goto error;
-
-    /*
-        IMPLEMENT ME:
-            - additional stream setup + opening
-    */
-
     stream->asioBufferInfos = (ASIOBufferInfo*)PaUtil_AllocateMemory(
             sizeof(ASIOBufferInfo) * (numInputChannels + numOutputChannels) );
     if( !stream->asioBufferInfos )
@@ -936,6 +1374,34 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             stream->outputLatency,
             (long)((stream->outputLatency*1000)/ sampleRate)));
 
+
+    if( numInputChannels > 0 )
+    {
+        /* FIXME: assume all channels use the same type for now */
+        ASIOSampleType inputType = stream->asioChannelInfos[0].type;
+
+        hostInputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( inputType );
+
+        SelectAsioToPaConverter( inputType, &stream->inputBufferConverter, &stream->inputShift );
+    }
+
+    if( numOutputChannels > 0 )
+    {
+        /* FIXME: assume all channels use the same type for now */
+        ASIOSampleType outputType = stream->asioChannelInfos[numInputChannels].type;
+        
+        hostOutputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( outputType );
+
+        SelectPaToAsioConverter( outputType, &stream->outputBufferConverter, &stream->outputShift );
+    }
+
+    result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
+              numInputChannels, inputSampleFormat, hostInputSampleFormat,
+              numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+              sampleRate, streamFlags, framesPerCallback, framesPerHostBuffer,
+              callback, userData );
+    if( result != paNoError )
+        goto error;
 
     stream->asioHostApi = asioHostApi;
     stream->framesPerHostCallback = framesPerHostBuffer;
@@ -1092,17 +1558,32 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     {
         PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, theAsioStream->framesPerHostCallback );
 
-        // FIXME: byte swap and shift input
 
         PaTimestamp outTime = 0; /* FIXME */
 
-        //int callbackResult = paContinue;
+        if( theAsioStream->numInputChannels > 0 && theAsioStream->inputBufferConverter )
+        {
+            for( int i=0; i<theAsioStream->numInputChannels; i++ )
+            {
+                theAsioStream->inputBufferConverter( theAsioStream->inputBufferPtrs[index][i],
+                        theAsioStream->inputShift, theAsioStream->framesPerHostCallback );
+            }
+        }
+
 
         int callbackResult = PaUtil_ProcessNonInterleavedBuffers( &theAsioStream->bufferProcessor,
             theAsioStream->inputBufferPtrs[index], theAsioStream->outputBufferPtrs[index], outTime );
 
-        
-        // FIXME: byte swap and shift output
+
+        if( theAsioStream->numOutputChannels > 0 && theAsioStream->outputBufferConverter )
+        {
+            for( int i=0; i<theAsioStream->numOutputChannels; i++ )
+            {
+                theAsioStream->outputBufferConverter( theAsioStream->outputBufferPtrs[index][i],
+                        theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
+            }
+        }
+
 
         PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
 
