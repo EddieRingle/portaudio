@@ -1064,24 +1064,63 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 deviceInfo->maxInputChannels  = paAsioDriverInfo.numInputChannels;
                 deviceInfo->maxOutputChannels = paAsioDriverInfo.numOutputChannels;
 
-                PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels = %d\n",  i,paAsioDriverInfo.numInputChannels ));
-                PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels = %d\n", i,paAsioDriverInfo.numOutputChannels));
-
-
-                deviceInfo->defaultLowInputLatency = 0.;  /** @todo IMPLEMENT ME */
-                deviceInfo->defaultLowOutputLatency = 0.;  /** @todo IMPLEMENT ME */
-                deviceInfo->defaultHighInputLatency = 0.;  /** @todo IMPLEMENT ME */
-                deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
+                PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels = %d\n", i, paAsioDriverInfo.numInputChannels));
+                PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels = %d\n", i, paAsioDriverInfo.numOutputChannels));
 
                 deviceInfo->defaultSampleRate = 0.;
+                bool foundDefaultSampleRate = false;
                 for( int j=0; j < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++j )
                 {
                     ASIOError asioError = ASIOCanSampleRate( defaultSampleRateSearchOrder_[j] );
                     if( asioError != ASE_NoClock && asioError != ASE_NotPresent ){
                         deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[j];
+                        foundDefaultSampleRate = true;
                         break;
                     }
                 }
+
+                PA_DEBUG(("PaAsio_Initialize: drv:%d defaultSampleRate = %f\n", i, deviceInfo->defaultSampleRate));
+
+                if( foundDefaultSampleRate ){
+
+                    /* calculate default latency values from bufferPreferredSize
+                        for default low latency, and bufferPreferredSize * 3
+                        for default high latency.
+                        use the default sample rate to convert from samples to
+                        seconds. Without knowing what sample rate the user will
+                        use this is the best we can do.
+                    */
+
+                    double defaultLowLatency =
+                            deviceInfo->defaultSampleRate / paAsioDriverInfo.bufferPreferredSize;
+
+                    deviceInfo->defaultLowInputLatency = defaultLowLatency;
+                    deviceInfo->defaultLowOutputLatency = defaultLowLatency;
+
+                    unsigned long defaultHighLatencyBufferSize =
+                            paAsioDriverInfo.bufferPreferredSize * 3;
+
+                    if( defaultHighLatencyBufferSize > paAsioDriverInfo.bufferMaxSize )
+                        defaultHighLatencyBufferSize = paAsioDriverInfo.bufferMaxSize;
+
+                    double defaultHighLatency =
+                            deviceInfo->defaultSampleRate / defaultHighLatencyBufferSize;
+                            
+                    deviceInfo->defaultHighInputLatency = defaultHighLatency;
+                    deviceInfo->defaultHighOutputLatency = defaultHighLatency;
+                    
+                }else{
+
+                    deviceInfo->defaultLowInputLatency = 0.;
+                    deviceInfo->defaultLowOutputLatency = 0.;
+                    deviceInfo->defaultHighInputLatency = 0.;
+                    deviceInfo->defaultHighOutputLatency = 0.;
+                }
+
+                PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowInputLatency = %f\n", i, deviceInfo->defaultLowInputLatency));
+                PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowOutputLatency = %f\n", i, deviceInfo->defaultLowOutputLatency));
+                PA_DEBUG(("PaAsio_Initialize: drv:%d defaultHighInputLatency = %f\n", i, deviceInfo->defaultHighInputLatency));
+                PA_DEBUG(("PaAsio_Initialize: drv:%d defaultHighOutputLatency = %f\n", i, deviceInfo->defaultHighOutputLatency));
 
                 asioDeviceInfo->minBufferSize = paAsioDriverInfo.bufferMinSize;
                 asioDeviceInfo->maxBufferSize = paAsioDriverInfo.bufferMaxSize;
