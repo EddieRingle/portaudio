@@ -1562,7 +1562,7 @@ unsigned long PaUtil_EndBufferProcessing( PaUtilBufferProcessor* bp, int *stream
 }
 
 
-int PaUtil_IsBufferProcessorOuputEmpty( PaUtilBufferProcessor* bp )
+int PaUtil_IsBufferProcessorOutputEmpty( PaUtilBufferProcessor* bp )
 {
     return (bp->framesInTempOutputBuffer) ? 0 : 1;
 } 
