@@ -53,8 +53,8 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 # configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = ./pa_common ./pa_win_wmme
-FILE_PATTERNS          = *.h
+INPUT                  = ./pa_common ./pa_win_wmme ./pa_asio ./pa_win_ds
+FILE_PATTERNS          = *.h *.c
 RECURSIVE              = YES
 EXCLUDE                = 
 EXCLUDE_SYMLINKS       = NO
