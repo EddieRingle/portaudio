@@ -326,7 +326,7 @@ error:
         PaUtil_FreeMemory( bp->tempInputBufferPtrs );
 
     if( bp->hostInputChannels[0] )
-        PaUtil_FreeMemory( bp->hostInputChannels );
+        PaUtil_FreeMemory( bp->hostInputChannels[0] );
 
     if( bp->tempOutputBuffer )
         PaUtil_FreeMemory( bp->tempOutputBuffer );
@@ -335,7 +335,7 @@ error:
         PaUtil_FreeMemory( bp->tempOutputBufferPtrs );
 
     if( bp->hostOutputChannels[0] )
-        PaUtil_FreeMemory( bp->hostOutputChannels );
+        PaUtil_FreeMemory( bp->hostOutputChannels[0] );
 
     return result;
 }
