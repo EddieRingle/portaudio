@@ -1,6 +1,6 @@
 /** @file patest_sine_time.c
 	@brief Play a sine wave for several seconds, pausing in the middle.
-	Uses the Pa_GetStreamTime() and Pa_IsStreamActive() calls.
+	Uses the Pa_GetStreamTime() call.
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>
 */
