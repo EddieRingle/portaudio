@@ -1,5 +1,5 @@
 dnl
-dnl PortAudio configure.in script
+dnl portaudio V19 configure.in script
 dnl
 dnl Dominic Mazzoni
 dnl
@@ -11,32 +11,51 @@ dnl Init autoconf and make sure configure is being called
 dnl from the right directory
 AC_INIT([pa_common/portaudio.h])
 
-dnl Checks for programs
+dnl Checks for programs.
 AC_PROG_CC
 AC_PROG_RANLIB
 AC_PROG_INSTALL
 AC_PATH_PROG(AR, ar, no)
 if [[ $AR = "no" ]] ; then
-   AC_MSG_ERROR("Could not find ar - needed to create a library");
+    AC_MSG_ERROR("Could not find ar - needed to create a library");
 fi
 
-dnl Extra variables we want to substitute
+dnl extra variables
 AC_SUBST(OTHER_OBJS)
 AC_SUBST(PADLL)
 AC_SUBST(SHARED_FLAGS)
 AC_SUBST(DLL_LIBS)
 
-dnl Determine the host operating system / platform
-AC_CANONICAL_HOST
+dnl checks for various host APIs and arguments to configure that
+dnl turn them on or off
+
+AC_CHECK_LIB(libasound, snd_pcm_open, have_alsa=yes, have_alsa=no)
+
+PKG_CHECK_MODULES(JACK, jack, have_jack=true, have_jack=false)
+
+AC_ARG_WITH(alsa, 
+            [  --with-alsa (default=auto)],
+            with_alsa=$withval, with_alsa="yes")
+
+AC_ARG_WITH(jack, 
+            [  --with-jack (default=auto)],
+            with_jack=$withval, with_jack="yes")
+
+AC_ARG_WITH(oss, 
+            [  --with-oss (default=yes)],
+            with_oss=$withval, with_oss="yes")
+
+CFLAGS="-g -O2 -Wall"
 
 case "${host_os}" in
   darwin* )
 	dnl Mac OS X configuration
 
 	OTHER_OBJS="pa_mac_core/pa_mac_core.o";
-	LIBS="-framework CoreAudio -lm";
+	LIBS="-framework AudioUnit -framework AudioToolbox -framework CoreAudio";
 	PADLL="libportaudio.dylib";
-	SHARED_FLAGS="-framework CoreAudio -dynamiclib";
+	SHARED_FLAGS="-framework AudioUnit -framework AudioToolbox";
+	SHARED_FLAGS="$SHARED_FLAGS -framework CoreAudio -dynamiclib";
 	;;
 
   mingw* )
@@ -66,16 +85,23 @@ case "${host_os}" in
                 ,
                 AC_MSG_ERROR([libpthread not found!]))
 
-	OTHER_OBJS="pa_unix_oss/pa_unix_oss.o";
+	if [[ $have_alsa = "yes" ] && [ $with_alsa != "no" ]] ; then
+   	LIBS="$LIBS -lasound"
+		OTHER_OBJS="$OPTOBJS pa_alsa/pa_alsa.o"
+	fi
+
+	if [[ $have_jack = "yes" ] && [ $with_jack != "no" ]] ; then
+   	LIBS="$LIBS $JACK_LIBS"
+		CFLAGS="$CFLAGS $JACK_CFLAGS"
+		OTHER_OBJS="$OPTOBJS pa_jack/pa_jack.o"
+	fi
+
+	if [[ $with_oss != "no" ]] ; then
+		OTHER_OBJS="$OPTOBJS pa_unix_oss/pa_unix_oss.o"
+	fi
 	LIBS="-lm -lpthread";
 	PADLL="libportaudio.so";
 	SHARED_FLAGS="-shared";
 esac
 
 AC_OUTPUT([Makefile])
-
-echo ""
-echo "Finished configure."
-
-echo ""
-echo "Type 'make' to build PortAudio and examples."
