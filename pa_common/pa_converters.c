@@ -254,9 +254,11 @@ PaUtilConverterTable paConverters = {
     { val = ((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)); }
 
 
-static const float const_1_div_128_ = 1.0f / 128.0f;
+static const float const_1_div_128_ = 1.0f / 128.0f;  /* 8 bit multiplier */
 
-static const float const_1_div_32768_ = 1.0f / 32768.f;
+static const float const_1_div_32768_ = 1.0f / 32768.f; /* 16 bit multiplier */
+
+static const double const_1_div_2147483648_ = 1.0 / 2147483648.0; /* 32 bit multiplier */
 
 /* -------------------------------------------------------------------------- */
 
@@ -312,7 +314,8 @@ static void Float32_Int32_Clip(
 {
     float *src = (float*)sourceBuffer;
     signed long *dest =  (signed long*)destinationBuffer;
-
+    (void) ditherGenerator; /* unused parameter */
+    
     while( count-- )
     {
         /* REVIEW */
@@ -457,7 +460,6 @@ static void Float32_Int8(
 
     while( count-- )
     {
-
         signed char samp = (signed char) (*src * (127.0f));
         *dest = samp;
 
@@ -479,7 +481,6 @@ static void Float32_Int8_Dither(
 
     while( count-- )
     {
-
         float dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
         /* use smaller scaler to prevent overflow when we add the dither */
         float dithered = (*src * (126.0f)) + dither;
@@ -504,7 +505,6 @@ static void Float32_Int8_Clip(
 
     while( count-- )
     {
-
         signed long samp = (signed long)(*src * (127.0f));
         PA_CLIP_( samp, -0x80, 0x7F );
         *dest = (signed char) samp;
@@ -527,7 +527,6 @@ static void Float32_Int8_DitherClip(
 
     while( count-- )
     {
-
         float dither  = PaUtil_GenerateFloatTriangularDither( ditherGenerator );
         /* use smaller scaler to prevent overflow when we add the dither */
         float dithered = (*src * (126.0f)) + dither;
@@ -553,7 +552,6 @@ static void Float32_UInt8(
 
     while( count-- )
     {
-
         unsigned char samp = (unsigned char)(128 + ((unsigned char) (*src * (127.0f))));
         *dest = samp;
 
@@ -638,8 +636,7 @@ static void Int32_Float32(
 
     while( count-- )
     {
-
-        /* IMPLEMENT ME */
+        *dest = (double)*src * const_1_div_2147483648_;
 
         src += sourceStride;
         dest += destinationStride;
@@ -785,7 +782,6 @@ static void Int16_Float32(
 
     while( count-- )
     {
-
         float samp = *src * const_1_div_32768_; /* FIXME: i'm concerned about this being asymetrical with float->int16 -rb */
         *dest = samp;
 
@@ -912,7 +908,6 @@ static void Int8_Float32(
 
     while( count-- )
     {
-
         float samp = *src * const_1_div_128_;
         *dest = samp;
 
