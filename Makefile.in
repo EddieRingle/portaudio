@@ -55,6 +55,7 @@ TESTS = \
 	bin/patest_start_stop \
 	bin/patest_stop \
 	bin/patest_sync \
+	bin/patest_toomanysines \
 	bin/patest_underflow \
 	bin/patest_wire \
 	bin/patest_write_sine \
