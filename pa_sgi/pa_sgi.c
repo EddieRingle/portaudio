@@ -53,9 +53,10 @@
         - paqa_devs              ok, but at a certain point digital i/o fails:
                                      TestAdvance: INPUT, device = 2, rate = 32000, numChannels = 1, format = 1
                                      Possibly, this is an illegal sr or number of channels for digital i/o.
+        - paqa_errs              13 of the tests run ok, but 5 of the tests give weird results.
         + patest1                ok.
         + patest_buffer          ok.
-      --- patest_callbackstop    COREDUMPS !!!!!
+        + patest_callbackstop    ok now (no coredumps any longer).
         - patest_clip            ok, but hear no difference between dithering turned OFF and ON.
         + patest_latency         ok.
         + patest_leftright       ok.
@@ -69,8 +70,9 @@
         + patest_sine            ok.
         + patest_sine8           ok.
         - patest_sine_formats    ok, FLOAT32 + INT16 + INT18 are OK, but UINT8 IS NOT OK!
+        + patest_sine_time       ok, reported latencies seem to match the suggested (max) latency.
         + patest_start_stop      ok, but under/overflow errors of course in the AL queue monitor.
-        + patest_stop            ok now! (Mon Dec 15 22:48:27 CET 2003).
+        + patest_stop            ok.
         - patest_sync            ok?
         + patest_toomanysines    ok, CPU load measurement works fine!
         - patest_underflow       ok? (stopping after SleepTime = 91: err=Stream is stopped)
@@ -80,9 +82,9 @@
         + pa_fuzz                ok.
         - pa_minlat              ok.
         
- Todo: Debug queue sizes and latencies. Debug blocking reads.
-       MOST IMPORTANT: do prefilling with silence, and let outputbuffers drain. 
-
+ Todo: - Prefilling with silence, only when requested (it now always prefills).
+       - Underrun and overflow flags.
+       - Make a complete new version to support 'sproc'-applications.
 */
 
 #include <string.h>         /* strlen() */
@@ -167,7 +169,6 @@ typedef struct
  /* PaHostApiIndex                hostApiIndex;        Hu? As in the linux and oss files? */
 }
 PaSGIHostApiRepresentation;
-
 
 /*
     Initialises sgiDeviceIDs array.
@@ -733,19 +734,32 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     PaError                     result = paNoError;
     PaSGIHostApiRepresentation* SGIHostApi = (PaSGIHostApiRepresentation*)hostApi;
     PaSGIStream*                stream = 0;
-    unsigned long               framesPerHostBuffer = framesPerBuffer; /* these may not be equivalent for all implementations */
+    unsigned long               framesPerHostBuffer = framesPerBuffer; /* These may not be equivalent for all implementations! */
     int                         inputChannelCount, outputChannelCount, qf_in, qf_out;
-    PaSampleFormat              inputSampleFormat, outputSampleFormat;
-    PaSampleFormat              hostInputSampleFormat, hostOutputSampleFormat;
+    PaSampleFormat              inputSampleFormat, outputSampleFormat,
+                                hostInputSampleFormat, hostOutputSampleFormat;
     double                      sr_in, sr_out;
     static const PaSampleFormat irixFormats = (paInt8 | paInt16 | paInt24 | paFloat32);
-                                /* Constant used by PaUtil_SelectClosestAvailableFormat(). Because
-                                   IRIX AL does not provide a way to query for possible formats
-                                   for a given device, interface or port. I'll just add together the formats 
-                                   I know that are supported in general by IRIX AL at the year 2003:
-        AL_SAMPFMT_TWOSCOMP with AL_SAMPLE_8(=paInt8), AL_SAMPLE_16(=paInt16) or AL_SAMPLE_24(=paInt24);
-        AL_SAMPFMT_FLOAT(=paFloat32); AL_SAMPFMT_DOUBLE(=paFloat64); IRIX misses unsigned 8 and 32 bit signed ints.
-                                */
+    /* Constant used by PaUtil_SelectClosestAvailableFormat(). Because IRIX AL does not
+       provide a way to query for possible formats for a given device, interface or port,
+       just add together the formats we know that are supported in general by IRIX AL 
+       (at the end of the year 2003): AL_SAMPFMT_TWOSCOMP with AL_SAMPLE_8(=paInt8),
+       AL_SAMPLE_16(=paInt16) or AL_SAMPLE_24(=paInt24); AL_SAMPFMT_FLOAT(=paFloat32); 
+       AL_SAMPFMT_DOUBLE(=paFloat64); IRIX misses unsigned 8 and 32 bit signed ints.
+    */
+#if (1)
+    DBUG(("OpenStream() started.\n"));
+    if (inputParameters && ((inputParameters->channelCount == 0) || (inputParameters->device == paNoDevice)))
+        {
+        DBUG(("inputParameters set to NULL.\n"));
+        inputParameters = NULL;
+        }
+    if (outputParameters && ((outputParameters->channelCount == 0) || (outputParameters->device == paNoDevice)))
+        {
+        DBUG(("outputParameters set to NULL.\n"));
+        outputParameters = NULL;
+        }
+#endif
     if (inputParameters)
         {
         inputChannelCount = inputParameters->channelCount;
@@ -840,6 +854,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffIn);   /* Receive ALport and input host buffer. */
     if (result != paNoError)
         goto cleanup;
+    DBUG(("INPUT CONFIGURED.\n"));
     /*----------------------------------------------------------------------------*/
     result = set_sgi_device(SGIHostApi->sgiDeviceIDs,
                             outputParameters,
@@ -852,12 +867,11 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                             &stream->hostPortBuffOut);  /* ALWAYS PREFILLS. */
     if (result != paNoError)
         goto cleanup;
-
+    DBUG(("OUTPUT CONFIGURED.\n"));
     /* Pre-fill with silence (not necessarily 0) to realise the requested output latency.
     if (stream->hostPortBuffOut.port)            // Should never block. Always returns 0.
         alZeroFrames(stream->hostPortBuffOut.port, qf_out - framesPerHostBuffer);
      */
-
     /* Wait for the input buffer to fill to realise the requested input latency.
     if (stream->hostPortBuffIn.port)
         while (alGetFilled(stream->hostPortBuffIn.port) < (qf_in - framesPerHostBuffer))
@@ -1032,7 +1046,7 @@ static PaError CloseStream(PaStream* s)
     PaError       result = paNoError;
     PaSGIStream*  stream = (PaSGIStream*)s;
 
-    /* DBUG(("SGI CloseStream() started.\n")); */
+    DBUG(("SGI CloseStream() started.\n"));
     streamCleanupAndClose(stream); /* Releases i/o buffers and closes AL ports. */
     PaUtil_TerminateBufferProcessor(&stream->bufferProcessor);
     PaUtil_TerminateStreamRepresentation(&stream->streamRepresentation);
@@ -1073,7 +1087,7 @@ static PaError StopStream( PaStream *s )
     PaError         result = paNoError;
     PaSGIStream*    stream = (PaSGIStream*)s;
     
-    /* DBUG(("SGI StopStream() started.\n")); */
+    DBUG(("SGI StopStream() started.\n"));
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_STOP_;   /* Signal and wait for the thread to drain output buffers. */
@@ -1097,7 +1111,7 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-    /* DBUG(("SGI AbortStream() started.\n")); */
+    DBUG(("SGI AbortStream() started.\n"));
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         stream->stopAbort = PA_SGI_REQ_ABORT_;
