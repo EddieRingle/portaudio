@@ -372,7 +372,7 @@ static void Float32_Int16_Dither(
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
 {
     float *src = (float*)sourceBuffer;
-    signed short *dest =  (signed short*)destinationBuffer;
+    signed short *dest = (signed short*)destinationBuffer;
     (void)ditherGenerator; /* unused parameter */
 
     while( count-- )
