@@ -49,7 +49,7 @@
         + patest_many            ok.
         + patest_sine            ok (after tweaking Pa_sleep() in pa_unix_util.c 
                                      for usleeps above 999999 microseconds).
-        + patest_prime           seems ok.
+        + patest_prime           ok (in the sense it shows no errors or coredumps).
         + patest_leftright       ok.
         + patest_record          ok.
         - patest_sine_formats    FLOAT32=ok INT16=ok INT18=ok, but UINT8 IS NOT OK!
@@ -62,13 +62,16 @@
         - patest_read_record     COREDUMPS !!!!!  
 
  Todo: Debug queue sizes and latencies. Debug blocking reads. CPU-measurements.
+
 */
 
 #include <string.h>         /* strlen() */
 #include <stdio.h>          /* printf() */
 #include <math.h>           /* fabs()   */
 
-#include <dmedia/audio.h>   /* IRIX AL (audio library). */
+#include <dmedia/audio.h>   /* IRIX AL (audio library). Link with -laudio. */
+#include <dmedia/dmedia.h>  /* IRIX DL (digital media library), solely for */
+                            /* function dmGetUST(). Link with -ldmedia.    */
 #include <errno.h>          /* To catch 'oserror' after AL-calls. */
 #include <pthread.h>        /* POSIX threads. */
 #include <unistd.h>
@@ -481,7 +484,7 @@ typedef struct PaSGIStream
                                 hostPortBuffOut;
                                 /** Stream state may be 0, 1 or 2, but never 3! */
     unsigned char               state;
-                                /** Request to stop (by parent or child itself). */
+                                /** Request to stop (by parent or by child itself). */
     unsigned char               stop;
     pthread_t                   thread;
 }
@@ -842,6 +845,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
     stream->framesPerHostCallback = framesPerHostBuffer;
     stream->state = PA_SGI_STREAM_FLAG_STOPPED_;  /* After opening the stream is in the Stopped state. */
     stream->stop  = 0;
+    
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
     if (result != paNoError)    /* Always set result when jumping to cleanup after failure. */
@@ -860,18 +864,51 @@ cleanup:
 */
 static void* PaSGIpthread(void *userData)
 {
-    PaSGIStream* stream = (PaSGIStream*)userData;
-    int          callbackResult = paContinue;
+    PaSGIStream*  stream = (PaSGIStream*)userData;
+    int           callbackResult = paContinue;
+    double        nanosec_per_frame = 
+                  1000000000.0 / stream->streamRepresentation.streamInfo.sampleRate;
 
     stream->state = PA_SGI_STREAM_FLAG_ACTIVE_;  /* Parent thread also sets active, but we make no assumption */
     while (!stream->stop)                        /* about who does it first (probably the parent thread).     */
         {
-        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
-        unsigned long framesProcessed;
+        PaStreamCallbackTimeInfo  timeInfo;
+        unsigned long             framesProcessed;
+        stamp_t                   fn, t, fnd, td;   /* Unsigned 64 bit. */
         
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-        /* IMPLEMENT ME: - generate timing information
-                         - handle buffer slips      */
+        /* IMPLEMENT ME: - handle buffer slips. */
+        
+        if (stream->hostPortBuffIn.port)
+            {
+            /*  Get device sample frame number associated with next audio sample frame
+                we're going to read or write from this port. */
+            alGetFrameNumber(stream->hostPortBuffIn.port, &fn);
+            /*  Get some recent pair of (frame number, time) from the audio device to 
+                which our port is connected. time is 'UST' which is given in nanoseconds 
+                and shared with the other audio devices and with other media. */
+            alGetFrameTime(stream->hostPortBuffIn.port, &fnd, &td);
+            /*  Calculate UST associated with fn, the next sample frame we're going to read or
+                write. Because this is signed arithmetic, code works for both inputs and outputs. */
+            t = td + (stamp_t) ((double)(fn - fnd) * nanosec_per_frame);
+            /*  If port is not in underflow or overflow state, we can alReadFrames() or 
+                alWriteFrames() here and know that t is the time associated with the first 
+                sample frame of the buffer we read or write. */
+            timeInfo.inputBufferAdcTime = ((PaTime)t) / 1000000000.0;
+            
+            /* Read interleaved samples from ALport (alReadFrames() may block the first time?). */
+            alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback);
+            }
+        if (stream->hostPortBuffOut.port)
+            {
+            alGetFrameNumber(stream->hostPortBuffOut.port, &fn);
+            alGetFrameTime(stream->hostPortBuffOut.port, &fnd, &td);
+            t = td + (stamp_t) ((double)(fn - fnd) * nanosec_per_frame);
+            timeInfo.outputBufferDacTime = ((PaTime)t) / 1000000000.0;
+            }
+        dmGetUST((unsigned long long*)(&t));                /* Receive time in nanoseconds in t. */
+        timeInfo.currentTime = ((PaTime)t) / 1000000000.0;
+
         /* If you need to byte swap or shift inputBuffer to convert it into a pa format, do it here. */
         PaUtil_BeginBufferProcessing(&stream->bufferProcessor, &timeInfo,
                                      0 /* IMPLEMENT ME: pass underflow/overflow flags when necessary */);
@@ -883,8 +920,8 @@ static void* PaSGIpthread(void *userData)
                     0, /* first channel of inputBuffer is channel 0 */
                     stream->hostPortBuffIn.buffer,
                     0 ); /* 0 - use inputChannelCount passed to init buffer processor */
-            /* Read interleaved samples from ALport (alReadFrames() may block the first time?). */
-            alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback);
+            /* Read interleaved samples from ALport (alReadFrames() may block the first time?).   MOVED UP ^^^^^
+               alReadFrames(stream->hostPortBuffIn.port, stream->hostPortBuffIn.buffer, stream->framesPerHostCallback); */
             }
         if (stream->hostPortBuffOut.port)
             {
@@ -967,7 +1004,9 @@ static PaError StartStream(PaStream *s)
             result = paUnanticipatedHostError;
             }
         else
+            {
             stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Set active before returning from this function. */
+            }
         }
     else
         stream->state = PA_SGI_STREAM_FLAG_ACTIVE_; /* Apparently, setting active for blocking i/o is */
@@ -1039,14 +1078,11 @@ static PaError IsStreamActive( PaStream *s )
 
 static PaTime GetStreamTime( PaStream *s )
 {
-    PaSGIStream *stream = (PaSGIStream*)s;
-
-    /* suppress unused variable warnings */
-    (void) stream;
+    stamp_t       t;
     
-    /* IMPLEMENT ME, see portaudio.h for required behavior*/
-
-    return 0;
+    (void) s; /* Suppress unused argument warning. */
+    dmGetUST((unsigned long long*)(&t)); /* Receive time in nanoseconds in t. */
+    return ((PaTime)t) / 1000000000.0;
 }
 
 
