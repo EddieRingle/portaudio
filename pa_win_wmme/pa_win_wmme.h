@@ -45,13 +45,13 @@ extern "C"
 #define PaWinMmeUseMultipleDevices  (0x02)  /* use mme specific multiple device feature */
 
 
-typedef struct{
+typedef struct PaWinMmeDeviceAndNumChannels{
     PaDeviceIndex device;
     int numChannels;
 }PaWinMmeDeviceAndNumChannels;
 
 
-typedef struct{
+typedef struct PaWinMmeStreamInfo{
     PaHostApiSpecificStreamInfo header;
 
     unsigned long flags;
