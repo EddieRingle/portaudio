@@ -822,7 +822,13 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
         {
             PaAsioDeviceInfo *asioDeviceInfo =
                     (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
-
+/*
+// Hoontech values, for a test:
+asioDeviceInfo->minBufferSize = 64;
+asioDeviceInfo->maxBufferSize = 2730;
+asioDeviceInfo->preferredBufferSize = 1536;
+asioDeviceInfo->bufferGranularity = 4;
+*/
             *minLatency = asioDeviceInfo->minBufferSize;
             *maxLatency = asioDeviceInfo->maxBufferSize;
             *preferredLatency = asioDeviceInfo->preferredBufferSize;
@@ -1293,11 +1299,21 @@ static unsigned long SelectHostBufferSize( unsigned long suggestedLatencyFrames,
             {
                 /* modulo granularity */
 
-                result = suggestedLatencyFrames +
-                        (driverInfo->bufferGranularity -
-                                (suggestedLatencyFrames % driverInfo->bufferGranularity));
-                if( result > (unsigned long)driverInfo->bufferMaxSize )
-                    result = driverInfo->bufferMaxSize;
+                unsigned long remainder =
+                        suggestedLatencyFrames % driverInfo->bufferGranularity;
+
+                if( remainder == 0 )
+                {
+                    result = suggestedLatencyFrames;
+                }
+                else
+                {
+                    result = suggestedLatencyFrames
+                            + (driverInfo->bufferGranularity - remainder);
+
+                    if( result > (unsigned long)driverInfo->bufferMaxSize )
+                        result = driverInfo->bufferMaxSize;
+                }
             }
         }
     }
@@ -1368,7 +1384,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        suggestedOutputLatencyFrames = outputParameters->suggestedLatency;
+        suggestedOutputLatencyFrames = outputParameters->suggestedLatency * sampleRate;
 
         driverName = asioHostApi->inheritedHostApiRep.deviceInfos[ outputParameters->device ]->name;
 
@@ -1433,6 +1449,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         result = paInvalidSampleRate;
         goto error;
     }
+
+/*
+// Hoontech values, for a test:
+driverInfo.bufferMinSize = 64;
+driverInfo.bufferMaxSize = 2730;
+driverInfo.bufferPreferredSize = 1536;
+driverInfo.bufferGranularity = 4;
+*/
 
     framesPerHostBuffer = SelectHostBufferSize(
             (( suggestedInputLatencyFrames > suggestedOutputLatencyFrames )
