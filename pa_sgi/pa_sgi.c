@@ -34,13 +34,19 @@
 /** @file
  @brief SGI IRIX AL implementation (according to V19 API version 2.0).
 
- @note This file started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
- Nothing to do with the old V18 version: using the newer AL calls now and 
- pthreads instead of sproc.
+ @note Started as a copy of pa_skeleton.c (v 1.1.2.35 2003/09/20).
+ Nothing to do with the old V18 pa_sgi version: using the newer AL calls now and 
+ pthreads instead of sproc. A fresh start.
  
- Todo: - Find out why Pa_sleep doesn't work (probably us > 1000000).
-       - Set queue sizes and latencies.
-       - Implement blocking i/o properly.
+ Tested: - pa_devs                ok, but where does that list of samplerates come from?
+         - pa_fuzz                ok
+         - patest_sine            test has to be adapted: (usleep > 1000000)?
+         - patest_leftright       ok
+         - patest_sine_formats    ok
+ 
+ Todo:  - Find out why Pa_sleep doesn't work (probably us > 1000000).
+        - Set queue sizes and latencies.
+        - Implement blocking i/o properly.
 */
 
 #include <string.h>         /* strlen() */
@@ -449,11 +455,10 @@ typedef struct PaSGIStream      /* Stream data structure specifically for this i
 
 
 /*
-    Only used in this file. Called by OpenStream() once or twice.
-    Argument alc should point to an already allocated AL configuration structure.
-    First, the number of channels and the sampleformat is configured.
+    Called by OpenStream() once or twice. Argument alc should point to an already allocated 
+    AL configuration structure. First, the number of channels and the sampleformat is configured.
     The configuration is then bound to the specified AL device. Then an AL port is opened.
-    Finally, the samplerate of the device is altered.
+    Finally, the samplerate of the device is altered (or at least set again).
 */
 static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
                               const PaStreamParameters* pa_params,      /* read device and channels. */                             
@@ -571,9 +576,6 @@ static PaError set_sgi_device(ALvalue*                  sgiDeviceIDs,
     return paNoError;
 }
 
-
-
-
 /*
     Called by OpenStream() if it fails and by CloseStream. Only used here, in this file.
     Fields MUST be set to NULL or to a valid value, prior to call.
@@ -587,7 +589,7 @@ static void streamCleanupAndClose(PaSGIStream* stream)
 }
 
 
-/* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
+/* See pa_hostapi.h for a list of validity guarantees made about OpenStream parameters. */
 
 static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
                           PaStream**                          s,
@@ -657,20 +659,18 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         IMPLEMENT ME:
         (Following two checks are taken care of by PaUtil_InitializeBufferProcessor() FIXME - checks needed?)
 
-            - check that input device can support inputSampleFormat, or that
+            + check that input device can support inputSampleFormat, or that
                 we have the capability to convert from outputSampleFormat to
                 a native format
 
-            - check that output device can support outputSampleFormat, or that
+            + check that output device can support outputSampleFormat, or that
                 we have the capability to convert from outputSampleFormat to
                 a native format
 
             - if a full duplex stream is requested, check that the combination
-                of input and output parameters is supported
+                of input and output parameters is supported (not an issue on IRIX? we'll notice when we open port?...)
 
-            - check that the device supports sampleRate
-
-            - alter sampleRate to a close allowable rate if possible / necessary
+            - check that the device supports sampleRate (we'll notice when we try to set, or earlier, at config)
 
             - validate suggestedInputLatency and suggestedOutputLatency parameters,
                 use default values where necessary
@@ -727,7 +727,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
         result = paUnanticipatedHostError;
         goto cleanup;
         }
-    sampleRate = sr_in;             /* == sr_out. */
+    sampleRate = sr_in;             /* == sr_out.      Overwrite argument with actual sample rate. */
                                     /* Following fields should contain estimated or actual values: */
     stream->streamRepresentation.streamInfo.inputLatency  = 0.;
     stream->streamRepresentation.streamInfo.outputLatency = 0.;
@@ -751,7 +751,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation* hostApi,
 
     stream->framesPerHostCallback = framesPerHostBuffer;
     stream->isActive = 0;
-    stream->stopSoon = 0; /* Really needed here? */
+    stream->stopSoon = 0;
     stream->stopNow  = 0;
     *s = (PaStream*)stream;     /* Pass object to caller. */
 cleanup:
@@ -769,17 +769,19 @@ cleanup:
 }
 
 /*
-    POSIX thread that performs the i/o and calls client's callback, spawned by StartStream().
+    POSIX thread that performs i/o and calls client's callback, spawned by StartStream().
 */
-static void PaSGIpthread(void *userData)
+static void* PaSGIpthread(void *userData)
 {
-    PaSGIStream*              stream = (PaSGIStream*)userData;
-    PaStreamCallbackTimeInfo  timeInfo = {0,0,0}; /* IMPLEMENT ME */
-    int                       callbackResult;
-    unsigned long             framesProcessed;
-
+    PaSGIStream* stream = (PaSGIStream*)userData;
+   
+    stream->isActive = 1;
     while (!(stream->stopNow | stream->stopSoon))
         {
+        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
+        int callbackResult;
+        unsigned long framesProcessed;
+        
         PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
         /* IMPLEMENT ME: - generate timing information
                          - handle buffer slips
@@ -795,7 +797,7 @@ static void PaSGIpthread(void *userData)
                     0, /* first channel of inputBuffer is channel 0 */
                     stream->portBuffIn.buffer,
                     0 ); /* 0 - use inputChannelCount passed to init buffer processor */
-            /* Read interleaved samples from ALport (alReadFrames() may block the [first] time!). */
+            /* Read interleaved samples from ALport (alReadFrames() may block the first time?). */
             alReadFrames(stream->portBuffIn.port, stream->portBuffIn.buffer, stream->framesPerHostCallback);
             }
         if (stream->portBuffOut.port)
@@ -819,37 +821,32 @@ static void PaSGIpthread(void *userData)
             If you need to byte swap or shift outputBuffer to convert it to host format, do it here.
         */
         PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-
         if( callbackResult == paContinue )
             {
             /* nothing special to do */
             }
         else if( callbackResult == paAbort )
             {
-            /* IMPLEMENT ME - finish playback immediately  */
-
+            DBUG(("CallbackResult == paAbort (finish playback immediately).\n"));
             /* once finished, call the finished callback */
             if (stream->streamRepresentation.streamFinishedCallback != 0 )
-                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-            
-            return; /* like oss?  Or pthread_exit( NULL ); like ALSA? */
+                stream->streamRepresentation.streamFinishedCallback(stream->streamRepresentation.userData);
+            break;
             }
-        else /* paComplete?? */
+        else /* paComplete or some other non-zero value. */
             {
-            /* User callback has asked us to stop with paComplete or other non-zero value */
-
-            /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
-
+            DBUG(("CallbackResult != 0 (finish playback after last buffer).\n"));
             /* once finished, call the finished callback */
             if (stream->streamRepresentation.streamFinishedCallback != 0 )
                 stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
             stream->stopSoon = 1;
             }
-        /* WRITE TO HARDWARE HERE (like unix_oss, AFTER checking callback result)! */
-        /* Write interleaved samples to device. */
+        /* Write interleaved samples to SGI device (like unix_oss, AFTER checking callback result). */
         if (stream->portBuffOut.port)
             alWriteFrames(stream->portBuffOut.port, stream->portBuffOut.buffer, stream->framesPerHostCallback);
         }
+    stream->isActive = 0;
+    return NULL;
 }
 
 
@@ -878,15 +875,13 @@ static PaError StartStream(PaStream *s)
     PaSGIStream*    stream = (PaSGIStream*)s;
 
     PaUtil_ResetBufferProcessor(&stream->bufferProcessor); /* See pa_common/pa_process.h. */
-    stream->isActive = 1;
     if (stream->bufferProcessor.streamCallback)
         {                                       /* only when callback is used */
         if (pthread_create(&stream->thread,
                            NULL,                /* pthread_attr_t * attr */
-                           (void*)PaSGIpthread, /* Function to spawn. */
-                           (void*)stream))      /* Pass stream as arg. */
+                           PaSGIpthread,        /* Function to spawn.    */
+                           (void*)stream))      /* Pass stream as arg.   */
             {
-            stream->isActive = 0;
             DBUG(("pthread_create() failed!\n"));
             result = paUnanticipatedHostError;
             }
@@ -908,13 +903,9 @@ static PaError StopStream( PaStream *s )
             DBUG(("pthread_join() failed!\n"));
             result = paUnanticipatedHostError;
             }
-        else
-            stream->isActive = 0;
         }
-    else
-        stream->isActive = 0;
-    stream->stopSoon = stream->stopNow = 0;
-    DBUG(("PaSGI StopStream() finished\n"));
+    stream->stopSoon = 0;
+    DBUG(("PaSGI StopStream().\n"));
     return result;
 }
 
@@ -924,7 +915,7 @@ static PaError AbortStream( PaStream *s )
     PaError result = paNoError;
     PaSGIStream *stream = (PaSGIStream*)s;
 
-   stream->stopNow = 1;
+    stream->stopNow = 1;
     if (stream->bufferProcessor.streamCallback) /* Only for callback streams. */
         {
         if (pthread_join(stream->thread, NULL))
@@ -932,13 +923,9 @@ static PaError AbortStream( PaStream *s )
             DBUG(("pthread_join() failed!\n"));
             result = paUnanticipatedHostError;
             }
-        else
-            stream->isActive = 0;
         }
-    else
-        stream->isActive = 0;
-    stream->stopSoon = stream->stopNow = 0;
-    DBUG(("PaSGI StopStream() finished\n"));
+    stream->stopNow = 0;
+    DBUG(("PaSGI StopStream().\n"));
     return result;
 }
 
@@ -1014,9 +1001,6 @@ static PaError WriteStream( PaStream* s,
 static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
-    
-    /* Assume this is an input port (for alGetFilled()
-       may be called for output as well). */
 
     return (signed long)alGetFilled(stream->portBuffIn.port);
 }
@@ -1025,9 +1009,18 @@ static signed long GetStreamReadAvailable( PaStream* s )
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaSGIStream *stream = (PaSGIStream*)s;
-    
-    /* Assume this is an output port (for alGetFillable() 
-       may be called for input as well). */
 
     return (signed long)alGetFillable(stream->portBuffOut.port);
 }
+
+/*------------------ for people with bad long- and short-term bio-mem: -----------
+  To download (co means checkout) 'v19-devel' branch from portaudio's CVS server:
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs co -r v19-devel portaudio
+  Then 'cd' to the 'portaudio' directory that should have been created.
+  Login as 'pieter' and commit edits (requires password):
+    cvs -d:pserver:pieter@www.portaudio.com:/home/cvs login
+    cvs -d:pserver:pieter@www.portaudio.com:/home/cvs commit -m 'V19 fix for self-finishing callback.' -r v19-devel pa_sgi/pa_sgi.c
+    cvs -d:pserver:pieter@www.portaudio.com:/home/cvs logout
+  To see if someone else worked on something:
+    cvs -d:pserver:anonymous@www.portaudio.com:/home/cvs update -r v19-devel
+*/
