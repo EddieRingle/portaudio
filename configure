@@ -801,7 +801,7 @@ Optional Packages:
   --with-alsa (default=auto)
   --with-jack (default=auto)
   --with-oss (default=yes)
-  --with-winapi ((wmme/directsound/asio) default=wmme)
+  --with-winapi ((wmme/directx/asio) default=wmme)
   --with-asiodir (default=/usr/local/asiosdk2)
   --with-calliasiodir (default=./calliasio)
   --with-nasm (checks path for nasm or nasmw
@@ -2784,9 +2784,7 @@ case "${host_os}" in
   mingw* )
 
         echo "WINAPI: $with_winapi"
-        if [ $with_winapi = "directsound" ] ; then
-            # Currently compile problems for Direct Sound
-            # with objbase.h and oaidl.h
+        if [ $with_winapi = "directx" ] ; then
             if [ $with_dxdir ] ; then
               DXDIR="$with_dxdir";
             else
@@ -2794,10 +2792,10 @@ case "${host_os}" in
             fi
             echo "DXDIR: $DXDIR"
             OTHER_OBJS="pa_win_ds/pa_win_ds.o pa_win_ds/dsound_wrapper.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
-            LIBS="-lwinmm -lm -ldsound";
+            LIBS="-lwinmm -lm -ldsound -lole32";
             PADLL="portaudio.dll";
             SHARED_FLAGS="-shared -mthreads";
-            DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -ldsound";
+            DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -ldsound -lole32";
             #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
             CFLAGS="$CFLAGS -Ipa_common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_ASIO";
