@@ -2697,7 +2697,7 @@ static PaError StartStream( PaStream *s )
 
                     PaUtil_BeginBufferProcessing( &stream->bufferProcessor,
                             &timeInfo,
-                            paPrimingOutput || ((stream->input.bufferCount > 0 ) ? paInputUnderflow : 0));
+                            paPrimingOutput | ((stream->input.bufferCount > 0 ) ? paInputUnderflow : 0));
 
                     if( stream->input.bufferCount > 0 )
                         PaUtil_SetNoInput( &stream->bufferProcessor );
