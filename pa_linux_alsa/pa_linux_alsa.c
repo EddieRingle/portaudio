@@ -1261,7 +1261,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels, int *interleaved, 
     ENSURE( snd_pcm_sw_params_set_stop_threshold( pcm, swParams, *bufferSize ), paUnanticipatedHostError );
 
     /* Silence buffer in the case of underrun */
-    if( !primeBuffers )
+    if( !primeBuffers ) /* XXX: Make sense? */
     {
         ENSURE( snd_pcm_sw_params_set_silence_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
         ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, INT_MAX ), paUnanticipatedHostError );
@@ -1582,7 +1582,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         inputLatency = inputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
 
-        numHostInputChannels = MAX( numInputChannels, inputDeviceInfo->minOutputChannels );
+        numHostInputChannels = MAX( numInputChannels, inputDeviceInfo->minInputChannels );
         ENSURE_PA( ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->captureBufferSize,
                              &inputLatency, 0, stream->callback_mode ) );
