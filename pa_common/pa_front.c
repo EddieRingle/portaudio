@@ -98,6 +98,7 @@ enquire about status on the PortAudio mailing list first.
 #include "portaudio.h"
 #include "pa_util.h"
 #include "pa_endianness.h"
+#include "pa_types.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
 
@@ -374,6 +375,7 @@ PaError Pa_Initialize( void )
     }
     else
     {
+        PA_VALIDATE_TYPE_SIZES;
         PA_VALIDATE_ENDIANNESS;
         
         PaUtil_InitializeClock();
@@ -787,7 +789,7 @@ PaDeviceIndex Pa_GetDefaultOutputDevice( void )
 {
     PaHostApiIndex hostApi;
     PaDeviceIndex result;
-
+    
 #ifdef PA_LOG_API_CALLS
     PaUtil_DebugPrint("Pa_GetDefaultOutputDevice called.\n" );
 #endif
