@@ -1134,18 +1134,18 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
                         frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
             }
         }
-        else /* no input converter, host and user format are the same */
+        else /* no output converter, host and user format are the same */
         {
-            /* we can optimize this in cases where the user input and host input
+            /* we can optimize this in cases where the user output and host output
                 have the same interleave. But for now we assume the worst and
                 copy to the temp buffer */
 
-            for( i=0; i<bp->numInputChannels; ++i )
+            for( i=0; i<bp->numOutputChannels; ++i )
             {
                 Copy( hostOutputChannels[i].data,
                         hostOutputChannels[i].stride,
                         srcBytePtr, srcStride,
-                        frameCount, bp->bytesPerHostInputSample );
+                        frameCount, bp->bytesPerHostOutputSample );
 
                 srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
 
@@ -1257,18 +1257,18 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
                             frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
                 }
             }
-            else /* no input converter, host and user format are the same */
+            else /* no output converter, host and user format are the same */
             {
-                /* we can optimize this in cases where the user input and host input
+                /* we can optimize this in cases where the user output and host output
                     have the same interleave. But for now we assume the worst and
                     copy to the temp buffer */
 
-                for( i=0; i<bp->numInputChannels; ++i )
+                for( i=0; i<bp->numOutputChannels; ++i )
                 {
                     Copy( hostOutputChannels[i].data,
                             hostOutputChannels[i].stride,
                             srcBytePtr, srcStride,
-                            frameCount, bp->bytesPerHostInputSample );
+                            frameCount, bp->bytesPerHostOutputSample );
 
                     srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
 
