@@ -1089,7 +1089,7 @@ error:
 }
 
 
-static PaError RealStop( PaStream *s, int (*StopFunc)( snd_pcm_t *) )
+static PaError RealStop( PaStream *s, int abort )
 {
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
@@ -1127,10 +1127,7 @@ static PaError RealStop( PaStream *s, int (*StopFunc)( snd_pcm_t *) )
     }
     else
     {
-        if( stream->pcm_playback )
-            ENSURE( StopFunc( stream->pcm_playback ), paUnanticipatedHostError );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            ENSURE( StopFunc( stream->pcm_capture ), paUnanticipatedHostError );
+        PA_ENSURE( AlsaStop( stream, abort ) );
     }
 
 end:
@@ -1144,14 +1141,14 @@ error:
 static PaError StopStream( PaStream *s )
 {
     ((PaAlsaStream *) s)->callbackAbort = 0;    /* In case abort has been called earlier */
-    return RealStop( s, &snd_pcm_drain );
+    return RealStop( s, 0);
 }
 
 
 static PaError AbortStream( PaStream *s )
 {
     ((PaAlsaStream *) s)->callbackAbort = 1;
-    return RealStop( s, &snd_pcm_drop );
+    return RealStop( s, 1);
 }
 
 
@@ -1303,4 +1300,32 @@ int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
     *sampleRate = (double) num / den;
 
     return err;
+}
+
+
+PaError AlsaStop( PaAlsaStream *stream, int abort )
+{
+    PaError result = paNoError;
+
+    if( abort )
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_drop( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_drop( stream->pcm_capture ), paUnanticipatedHostError );
+
+        PA_DEBUG(( "Dropped frames\n" ));
+    }
+    else
+    {
+        if( stream->pcm_playback )
+            ENSURE( snd_pcm_drain( stream->pcm_playback ), paUnanticipatedHostError );
+        if( stream->pcm_capture && !stream->pcmsSynced )
+            ENSURE( snd_pcm_drain( stream->pcm_capture ), paUnanticipatedHostError );
+    }
+
+end:
+    return result;
+error:
+    goto end;
 }

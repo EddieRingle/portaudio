@@ -16,22 +16,31 @@
 
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 
+extern pthread_mutex_t mtx;
+
 #define STRINGIZE_HELPER(exp) #exp
 #define STRINGIZE(exp) STRINGIZE_HELPER(exp)
 
-extern pthread_mutex_t mtx;
-
+/* Check return value of ALSA function, and map it to PaError */
 #define ENSURE(exp, code) \
-    if( (exp) < 0 ) \
+    if( (result = (exp)) < 0 ) \
     { \
         if( (code) == paUnanticipatedHostError ) \
         { \
             pthread_mutex_lock( &mtx ); \
-            PaUtil_SetLastHostErrorInfo( paALSA, (exp), snd_strerror( (exp) ) ); \
+            PaUtil_SetLastHostErrorInfo( paALSA, result, snd_strerror( result ) ); \
             pthread_mutex_unlock( &mtx ); \
         } \
         PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
+        goto error; \
+    }
+
+/* Check return value of Portaudio function */
+#define PA_ENSURE(exp) \
+    if( (result = (exp)) != paNoError ) \
+    { \
+        PA_DEBUG(( "Expression '" #exp "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         goto error; \
     }
 
@@ -81,5 +90,7 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t startThreshold;
 }
 PaAlsaStream;
+
+PaError AlsaStop( PaAlsaStream *stream, int abort );
 
 #endif

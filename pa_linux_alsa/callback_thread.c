@@ -4,7 +4,7 @@
 
 #include "pa_linux_alsa.h"
 
-void Stop( void *data );
+void OnExit( void *data );
 char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
 
 /*!
@@ -187,7 +187,7 @@ void *CallbackThread( void *userData )
 
     assert( userData );
 
-    pthread_cleanup_push( &Stop, stream );	/* Execute Stop on exit */
+    pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit during exit */
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
 
@@ -337,7 +337,7 @@ void *CallbackThread( void *userData )
      * is possibly a macro with a closing brace to match the opening brace in
      * pthread_cleanup_push() above.  The documentation states that they must
      * always occur in pairs. */
-    pthread_cleanup_pop( 1 );	/* Execute Stop on exit */
+    pthread_cleanup_pop( 1 );
 
 end:
     pthread_exit( NULL );
@@ -350,30 +350,16 @@ error:
     pthread_exit( pres );
 }
 
-void Stop( void *data )
+void OnExit( void *data )
 {
     PaAlsaStream *stream = (PaAlsaStream *) data;
 
     assert( data );
 
+    AlsaStop( stream, stream->callbackAbort );
     if( stream->callbackAbort )
-    {
-        if( stream->pcm_playback )
-            snd_pcm_drop( stream->pcm_playback );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            snd_pcm_drop( stream->pcm_capture );
-
-        PA_DEBUG(( "Dropped frames\n" ));
         stream->callbackAbort = 0;
-    }
-    else
-    {
-        if( stream->pcm_playback )
-            snd_pcm_drain( stream->pcm_playback );
-        if( stream->pcm_capture && !stream->pcmsSynced )
-            snd_pcm_drain( stream->pcm_capture );
-    }
-
+    
     PA_DEBUG(( "Stoppage\n" ));
 
     /* Eventually notify user all buffers have played */
