@@ -6,6 +6,7 @@
  *   Douglas Repetto
  *   Phil Burk
  *   Dominic Mazzoni
+ *   Arve Knudsen
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
@@ -513,12 +514,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
+    PaError result = paNoError;
     PaDeviceIndex device;
     PaDeviceInfo *deviceInfo;
-    PaError result = paNoError;
     char *deviceName;
     int inputChannelCount, outputChannelCount;
-    int tempDevHandle = 0;
+    int tempDevHandle = -1;
     int flags;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     
@@ -587,12 +588,14 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     /* open the device so we can do more tests */
     
-    if (inputChannelCount > 0) {
+    if( inputChannelCount > 0 )
+    {
         result = PaUtil_DeviceIndexToHostApiDeviceIndex(&device, inputParameters->device, hostApi);
         if (result != paNoError)
             return result;
     }
-    else {
+    else
+    {
         result = PaUtil_DeviceIndexToHostApiDeviceIndex(&device, outputParameters->device, hostApi);
         if (result != paNoError)
             return result;
@@ -609,32 +612,20 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     else
        flags |= O_WRONLY;
 
-    if ( (tempDevHandle = open(deviceInfo->name, flags))  == -1 )
-    {
-        PA_DEBUG(("PaOSS IsFormatSupported: could not open %s\n", deviceName ));
-        return paDeviceUnavailable;
-    }
+    ENSURE_( tempDevHandle = open( deviceInfo->name, flags ), paDeviceUnavailable );
 
     /* SetFormat will do the rest of the checking for us */
-
-    if ((result = SetFormat("PaOSS IsFormatSupported", tempDevHandle,
+    PA_ENSURE( SetFormat( "PaOSS IsFormatSupported", tempDevHandle,
                                   deviceName, inputChannelCount, outputChannelCount,
-                                  &sampleRate)) != paNoError)
-    {
-       goto error;
-    }
+                                  &sampleRate ) );
 
     /* everything succeeded! */
 
-    close(tempDevHandle);             
-
-    return paFormatIsSupported;
-
  error:
-    if (tempDevHandle)
-        close(tempDevHandle);         
+    if( tempDevHandle >= 0 )
+        close( tempDevHandle );         
 
-    return paSampleFormatNotSupported;
+    return result;
 }
 
 /* PaOSSStream - a stream data structure specifically for this implementation */
@@ -779,12 +770,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
        flags |= O_WRONLY;
 
     /* open first in nonblocking mode, in case it's busy... */
-    ENSURE_( deviceHandle = open(deviceInfo->name, flags), paDeviceUnavailable );
-    {
-        /* Then make it blocking */
-        int fflags = fcntl( deviceHandle, F_GETFL );
-        ENSURE_( fcntl( deviceHandle, F_SETFL, fflags & ~O_NONBLOCK ), paUnanticipatedHostError );
-    }
+    ENSURE_( deviceHandle = open( deviceInfo->name, flags ), paDeviceUnavailable );
+
+    /* Then make it blocking */
+    ENSURE_( flags = fcntl( deviceHandle, F_GETFL, 0 ), paUnanticipatedHostError );
+    ENSURE_( fcntl( deviceHandle, F_SETFL, flags & ~O_NONBLOCK ), paUnanticipatedHostError );
 
     PA_ENSURE( SetFormat( "PaOSS OpenStream", deviceHandle, deviceName, inputChannelCount, outputChannelCount,
                                   &sampleRate ) );
