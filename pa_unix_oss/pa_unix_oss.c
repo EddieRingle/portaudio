@@ -175,7 +175,7 @@ typedef struct PaOssStream
     PaOssStreamComponent *capture, *playback;
     struct pollfd pfds[2];
     int nfds;
-    int pollTimeout;
+    unsigned long pollTimeout;
     sem_t semaphore;
 }
 PaOssStream;
@@ -1065,7 +1065,7 @@ static PaError PaOssStream_Configure( PaOssStream *stream, double sampleRate, un
         framesPerHostBuffer = stream->playback->hostFrames;
 
     stream->framesPerHostBuffer = framesPerHostBuffer;
-    stream->pollTimeout = (int) ceil( 1000 * framesPerHostBuffer / sampleRate );    /* Period in msecs, rounded up */
+    stream->pollTimeout = (int) ceil( 1e6 * framesPerHostBuffer / sampleRate );    /* Period in usecs, rounded up */
 
 error:
     return result;
@@ -1202,7 +1202,11 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
     int pollPlayback = 0, pollCapture = 0;
     int captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
     audio_buf_info bufInfo;
-    int ofs = 0, nfds = stream->nfds;
+    /* int ofs = 0, nfds = stream->nfds; */
+    fd_set readFds, writeFds;
+    int nfds = 0;
+    struct timeval selectTimeval = {0, 0};
+    unsigned long timeout = stream->pollTimeout;    /* In usecs */
 
     assert( stream );
     assert( frames );
@@ -1210,37 +1214,62 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
     if( stream->capture )
     {
         pollCapture = 1;
-        stream->capture->pfd->events = POLLIN;
+        /* stream->capture->pfd->events = POLLIN; */
     }
     if( stream->playback )
     {
         pollPlayback = 1;
-        stream->playback->pfd->events = POLLOUT;
+        /* stream->playback->pfd->events = POLLOUT; */
     }
 
     while( pollPlayback || pollCapture )
     {
         pthread_testcancel();
 
+        /* PA_DEBUG(( "Poll timeout in usecs: %lu, polling for capture: %d, playback: %d\n", (size_t) pollTimeout.tv_usec,
+                    pollPlayback, pollCapture ));*/
+
+        /* We need to reinitialize the parameters to select between each call */
+        selectTimeval.tv_usec = timeout;
+        FD_ZERO( &readFds );
+        FD_ZERO( &writeFds );
+        nfds = 0;
+
+        if( pollCapture )
+        {
+            FD_SET( stream->capture->fd, &readFds );
+            nfds = stream->capture->fd + 1;
+        }
+        if( pollPlayback )
+        {
+            FD_SET( stream->playback->fd, &writeFds );
+            nfds = PA_MAX( nfds, stream->playback->fd + 1 );
+        }
+        ENSURE_( select( nfds, &readFds, &writeFds, NULL, &selectTimeval ), paUnanticipatedHostError );
+        /*
         if( poll( stream->pfds + ofs, nfds, stream->pollTimeout ) < 0 )
         {
-            /*  XXX: Depend on preprocessor condition? */
-            if( errno == EINTR ) {  /* gdb */
-                continue;
-            }
 
             ENSURE_( -1, paUnanticipatedHostError );
         }
+        */
         pthread_testcancel();
 
         if( pollCapture )
         {
+            if( FD_ISSET( stream->capture->fd, &readFds ) )
+            {
+                FD_ZERO( &readFds );
+                pollCapture = 0;
+            }
+            /*
             if( stream->capture->pfd->revents & POLLIN )
             {
                 --nfds;
                 ++ofs;
                 pollCapture = 0;
             }
+            */
             else if( stream->playback ) /* Timed out, go on with playback? */ 
             {
                 /*PA_DEBUG(( "%s: Trying to poll again for capture frames, pollTimeout: %d\n",
@@ -1249,11 +1278,18 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
         }
         if( pollPlayback )
         {
+            if( FD_ISSET( stream->playback->fd, &writeFds ) )
+            {
+                FD_ZERO( &writeFds );
+                pollPlayback = 0;
+            }
+            /*
             if( stream->playback->pfd->revents & POLLOUT )
             {
                 --nfds;
                 pollPlayback = 0;
             }
+            */
             else if( stream->capture )  /* Timed out, go on with capture? */
             {
                 /*PA_DEBUG(( "%s: Trying to poll again for playback frames, pollTimeout: %d\n\n",
