@@ -377,17 +377,17 @@ PaError Pa_Terminate( void )
 }
 
 
-const PaHostErrorInfo* Pa_GetLastHostError()
+const PaHostErrorInfo* Pa_GetLastHostError( void )
 {
     return &lastHostErrorInfo_;
 }
 
 
-const char *Pa_GetErrorText( PaError errnum )
+const char *Pa_GetErrorText( PaError errorNumber )
 {
     const char *result;
 
-    switch(errnum)
+    switch( errorNumber )
     {
     case paNoError:                  result = "Success"; break;
     case paNotInitialized:           result = "PortAudio not initialized"; break;

@@ -86,7 +86,7 @@ typedef enum PaErrorNum
 /** Translate the supplied PortAudio error number into a human readable
  message.
 */
-const char *Pa_GetErrorText( PaError errnum );
+const char *Pa_GetErrorText( PaError errorNumber );
 
 
 /** Library initialization function - call this before using PortAudio.
@@ -141,7 +141,7 @@ typedef int PaDeviceIndex;
 
  @see PaDeviceIndex
 */
-#define paNoDevice (-1)
+#define paNoDevice ((PaDeviceIndex)-1)
 
 
 /** A special PaDeviceIndex value indicating that the device(s) to be used
@@ -149,7 +149,7 @@ typedef int PaDeviceIndex;
 
  @see PaDeviceIndex
 */
-#define paUseHostApiSpecificDeviceSpecification (-2)
+#define paUseHostApiSpecificDeviceSpecification ((PaDeviceIndex)-2)
 
 
 /* Host API enumeration mechanism */
@@ -299,7 +299,7 @@ PaDeviceIndex Pa_HostApiDeviceIndexToDeviceIndex( PaHostApiIndex hostApi,
 
 
 
-/** Structure used to return information about an host error condition.
+/** Structure used to return information about a host error condition.
 */
 typedef struct PaHostErrorInfo{
     PaHostApiTypeId hostApiType;    /**< the host API which returned the error code */
@@ -321,7 +321,7 @@ typedef struct PaHostErrorInfo{
  PortAudio function has previously returned the paUnanticipatedHostError
  error code.
 */
-const PaHostErrorInfo* Pa_GetLastHostError();
+const PaHostErrorInfo* Pa_GetLastHostError( void );
 
 
 
@@ -393,13 +393,13 @@ typedef double PaTime;
 typedef unsigned long PaSampleFormat;
 
 
-#define paFloat32      ((PaSampleFormat) (1<<0)) /** @see PaSampleFormat */
-#define paInt32        ((PaSampleFormat) (1<<1)) /** @see PaSampleFormat */
-#define paInt24        ((PaSampleFormat) (1<<2)) /** Packed 24 bit format. @see PaSampleFormat */
-#define paInt16        ((PaSampleFormat) (1<<3)) /** @see PaSampleFormat */
-#define paInt8         ((PaSampleFormat) (1<<4)) /** @see PaSampleFormat */
-#define paUInt8        ((PaSampleFormat) (1<<5)) /** @see PaSampleFormat */
-#define paCustomFormat ((PaSampleFormat) (1<<16))/** @see PaSampleFormat */
+#define paFloat32      ((PaSampleFormat) (1<<0)) /**< @see PaSampleFormat */
+#define paInt32        ((PaSampleFormat) (1<<1)) /**< @see PaSampleFormat */
+#define paInt24        ((PaSampleFormat) (1<<2)) /**< Packed 24 bit format. @see PaSampleFormat */
+#define paInt16        ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
+#define paInt8         ((PaSampleFormat) (1<<4)) /**< @see PaSampleFormat */
+#define paUInt8        ((PaSampleFormat) (1<<5)) /**< @see PaSampleFormat */
+#define paCustomFormat ((PaSampleFormat) (1<<16))/**< @see PaSampleFormat */
 
 #define paNonInterleaved ((PaSampleFormat) (1<<31))
 
@@ -561,13 +561,13 @@ typedef void PaStream;
 */
 typedef unsigned long PaStreamFlags;
 
-#define   paNoFlag      (0)      /**< @see PaStreamFlags */
-#define   paClipOff     (1<<0)   /**< Disable default clipping of out of range samples. @see PaStreamFlags */
-#define   paDitherOff   (1<<1)   /**< Disable default dithering. @see PaStreamFlags */
-#define   paNeverDropInput (1<<2)/**< A full duplex stream will not discard overflowed input samples without calling the stream callback, this flag is ignored for blocking read/write streams */
+#define   paNoFlag      ((PaStreamFlags) (0))      /**< @see PaStreamFlags */
+#define   paClipOff     ((PaStreamFlags) (1<<0))   /**< Disable default clipping of out of range samples. @see PaStreamFlags */
+#define   paDitherOff   ((PaStreamFlags) (1<<1))   /**< Disable default dithering. @see PaStreamFlags */
+#define   paNeverDropInput ((PaStreamFlags) (1<<2))/**< A full duplex stream will not discard overflowed input samples without calling the stream callback, this flag is ignored for blocking read/write streams */
 
 
-#define   paPlatformSpecificFlags (0xFFFF0000) /** A mask specifying the platform specific bits. @see PaStreamFlags */
+#define   paPlatformSpecificFlags ((PaStreamFlags)0xFFFF0000) /**< A mask specifying the platform specific bits. @see PaStreamFlags */
 
 
 /**
