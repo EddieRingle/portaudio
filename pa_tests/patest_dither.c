@@ -3,9 +3,6 @@
 
 	This only has an effect if the native format is 16 bit.
 
-	@todo needs revision: after V19 API adaption, I cannot hear any difference 
-                          between dither and no dither, with pa_sgi on an Indy 
-                          with 16 bit output hardware. Pieter.
 	@author Phil Burk  http://www.softsynth.com
 */
 /*
@@ -147,7 +144,7 @@ int main(void)
     PaError     err;
     paTestData  DATA;
     int         i;
-    float       amplitude = 32.0 / (1<<15);
+    float       amplitude = 4.0 / (1<<15);
     
     printf("PortAudio Test: output EXTREMELY QUIET sine wave with and without dithering.\n");
     /* initialise sinusoidal wavetable */
