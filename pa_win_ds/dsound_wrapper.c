@@ -36,12 +36,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#define INITGUID     // Needed to build IID_IDirectSoundNotify. See objbase.h for info.
-#include <wtypes.h>
-#include <objbase.h>
-#include <unknwn.h>
+
 #include "dsound_wrapper.h"
 #include "pa_trace.h"
+
+/*
+    Rather than linking with dxguid.a or using "#define INITGUID" to force a
+    header file to instantiate the required GUID(s), we define them directly
+    below.
+*/
+#include <initguid.h> // needed for the DEFINE_GUID macro
+DEFINE_GUID(IID_IDirectSoundNotify, 0xb0210783, 0x89cd, 0x11d0, 0xaf, 0x8, 0x0, 0xa0, 0xc9, 0x25, 0xcd, 0x16);
+
 
 /************************************************************************************/
 DSoundEntryPoints dswDSoundEntryPoints = { 0, 0, 0, 0, 0, 0, 0 };

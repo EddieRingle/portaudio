@@ -49,8 +49,14 @@
     @todo check that CoInitialize() CoUninitialize() are always correctly
         paired, even in error cases.
 
+    @todo call PaUtil_SetLastHostErrorInfo with a specific error string (currently just "DSound error").
+
     @todo make sure all buffers have been played before stopping the stream
         when the stream callback returns paComplete
+
+    old TODOs from phil, need to work out if these have been done:
+        O- fix "patest_stop.c"
+        O- Handle buffer underflow, overflow, etc.
 */
 
 #include <stdio.h>
@@ -65,12 +71,7 @@
 
 #include "dsound_wrapper.h"
 
-/* TODO
-O- fix "patest_stop.c"
-O- Handle buffer underflow, overflow, etc.
-*/
-
-#define PRINT(x) { printf x; fflush(stdout); }
+#define PRINT(x) /* { printf x; fflush(stdout); } */
 #define ERR_RPT(x) PRINT(x)
 #define DBUG(x)  /* PRINT(x) */
 #define DBUGX(x) /* PRINT(x) */
@@ -376,15 +377,23 @@ static PaError AddOutputDeviceInfoFromDirectSound(
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
+    
     /* Create a DirectSound object for the specified GUID
         Note that using CoCreateInstance doesn't work on windows CE.
     */
-    /* hr = dswDSoundEntryPoints.DirectSoundCreate( lpGUID, &lpDirectSound, NULL );  */
+    hr = dswDSoundEntryPoints.DirectSoundCreate( lpGUID, &lpDirectSound, NULL );
 
-    /* try using CoCreateInstance because DirectSoundCreate was hanging under
-        some circumstances. */
+    /** try using CoCreateInstance because DirectSoundCreate was hanging under
+        some circumstances - note this was probably related to the
+        #define BOOL short bug which has now been fixed
+        @todo delete this comment and the following code once we've ensured
+        there is no bug.
+    */
+    /*
     hr = CoCreateInstance( &CLSID_DirectSound, NULL, CLSCTX_INPROC_SERVER,
             &IID_IDirectSound, (void**)&lpDirectSound );
+    */
+    
     if( hr == S_OK )
     {
         hr = IDirectSound_Initialize( lpDirectSound, lpGUID );
@@ -478,10 +487,15 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
         memcpy( &winDsDeviceInfo->GUID, lpGUID, sizeof(GUID) );
     }
 
-    
+
     hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
 
-
+    /** try using CoCreateInstance because DirectSoundCreate was hanging under
+        some circumstances - note this was probably related to the
+        #define BOOL short bug which has now been fixed
+        @todo delete this comment and the following code once we've ensured
+        there is no bug.
+    */
     /*
     hr = CoCreateInstance( &CLSID_DirectSoundCapture, NULL, CLSCTX_INPROC_SERVER,
             &IID_IDirectSoundCapture, (void**)&lpDirectSoundCapture );
