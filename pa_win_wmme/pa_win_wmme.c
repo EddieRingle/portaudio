@@ -1009,7 +1009,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
 
 
-static void SelectBufferSizeAndCount( unsigned long userBufferSize,
+static void SelectBufferSizeAndCount( unsigned long baseBufferSize,
     unsigned long requestedLatency,
     unsigned long baseBufferCount, unsigned long minimumBufferCount,
     unsigned long maximumBufferSize, unsigned long *hostBufferSize,
@@ -1017,7 +1017,7 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
 {
     unsigned long sizeMultiplier, bufferCount, latency;
     unsigned long nextLatency, nextBufferSize;
-    int userBufferSizeIsPowerOfTwo;
+    int baseBufferSizeIsPowerOfTwo;
     
     sizeMultiplier = 1;
     bufferCount = baseBufferCount;
@@ -1025,34 +1025,34 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
     /* count-1 below because latency is always determined by one less
         than the total number of buffers.
     */
-    latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+    latency = (baseBufferSize * sizeMultiplier) * (bufferCount-1);
 
     if( latency > requestedLatency )
     {
 
         /* reduce number of buffers without falling below suggested latency */
 
-        nextLatency = (userBufferSize * sizeMultiplier) * (bufferCount-2);
+        nextLatency = (baseBufferSize * sizeMultiplier) * (bufferCount-2);
         while( bufferCount > minimumBufferCount && nextLatency >= requestedLatency )
         {
             --bufferCount;
-            nextLatency = (userBufferSize * sizeMultiplier) * (bufferCount-2);
+            nextLatency = (baseBufferSize * sizeMultiplier) * (bufferCount-2);
         }
 
     }else if( latency < requestedLatency ){
 
-        userBufferSizeIsPowerOfTwo = (! (userBufferSize & (userBufferSize - 1))); 
-        if( userBufferSizeIsPowerOfTwo ){
+        baseBufferSizeIsPowerOfTwo = (! (baseBufferSize & (baseBufferSize - 1)));
+        if( baseBufferSizeIsPowerOfTwo ){
 
             /* double size of buffers without exceeding requestedLatency */
 
-            nextBufferSize = (userBufferSize * (sizeMultiplier*2));
+            nextBufferSize = (baseBufferSize * (sizeMultiplier*2));
             nextLatency = nextBufferSize * (bufferCount-1);
             while( nextBufferSize <= maximumBufferSize
                     && nextLatency < requestedLatency )
             {
                 sizeMultiplier *= 2;
-                nextBufferSize = (userBufferSize * (sizeMultiplier*2));
+                nextBufferSize = (baseBufferSize * (sizeMultiplier*2));
                 nextLatency = nextBufferSize * (bufferCount-1);
             }   
 
@@ -1060,13 +1060,13 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
 
             /* increase size of buffers upto first excess of requestedLatency */
 
-            nextBufferSize = (userBufferSize * (sizeMultiplier+1));
+            nextBufferSize = (baseBufferSize * (sizeMultiplier+1));
             nextLatency = nextBufferSize * (bufferCount-1);
             while( nextBufferSize <= maximumBufferSize
                     && nextLatency < requestedLatency )
             {
                 ++sizeMultiplier;
-                nextBufferSize = (userBufferSize * (sizeMultiplier+1));
+                nextBufferSize = (baseBufferSize * (sizeMultiplier+1));
                 nextLatency = nextBufferSize * (bufferCount-1);
             }
 
@@ -1076,15 +1076,15 @@ static void SelectBufferSizeAndCount( unsigned long userBufferSize,
 
         /* increase number of buffers until requestedLatency is reached */
 
-        latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+        latency = (baseBufferSize * sizeMultiplier) * (bufferCount-1);
         while( latency < requestedLatency )
         {
             ++bufferCount;
-            latency = (userBufferSize * sizeMultiplier) * (bufferCount-1);
+            latency = (baseBufferSize * sizeMultiplier) * (bufferCount-1);
         }
     }
 
-    *hostBufferSize = userBufferSize * sizeMultiplier;
+    *hostBufferSize = baseBufferSize * sizeMultiplier;
     *hostBufferCount = bufferCount;
 }
 
@@ -1146,13 +1146,19 @@ static PaError CalculateBufferSettings(
         double sampleRate, unsigned long framesPerBuffer )
 {
     PaError result = paNoError;
-
-    /* currently unused parameters */
-    (void)hostInputSampleFormat;
-    (void)hostOutputSampleFormat;    
+    int hostInputFrameSize;
 
     if( inputChannelCount > 0 )
     {
+        int hostInputSampleSize = Pa_GetSampleSize( hostInputSampleFormat );
+        if( hostInputSampleSize < 0 )
+        {
+            result = hostInputSampleSize;
+            goto error;
+        }
+
+        hostInputFrameSize = hostInputSampleSize * inputChannelCount;
+
         if( inputStreamInfo
                 && ( inputStreamInfo->flags & PaWinMmeUseLowLevelLatencyParameters ) )
         {
@@ -1168,25 +1174,22 @@ static PaError CalculateBufferSettings(
         }
         else
         {
-            unsigned long minimumBufferCount, hostBufferSizeBytes, hostBufferCount;
-            if( outputChannelCount > 0 )
-                minimumBufferCount = 3;
-            else
-                minimumBufferCount = 2;
+            unsigned long hostBufferSizeBytes, hostBufferCount;
+            unsigned long minimumBufferCount = (outputChannelCount > 0) ? 3 : 2;
 
             /* compute the following in bytes, then convert back to frames */
 
             SelectBufferSizeAndCount(
                 ((framesPerBuffer == paFramesPerBufferUnspecified)
                     ? 16
-                    : framesPerBuffer ) * inputChannelCount * sizeof(short), /* userBufferSize */
-                ((unsigned long)(suggestedInputLatency * sampleRate)) * inputChannelCount * sizeof(short), /* suggestedLatency */
+                    : framesPerBuffer ) * hostInputFrameSize, /* baseBufferSize */
+                ((unsigned long)(suggestedInputLatency * sampleRate)) * hostInputFrameSize, /* suggestedLatency */
                 4, /* baseBufferCount */
                 minimumBufferCount,
                 1024 * 32, /* maximumBufferSize -- bigger buffers are known to crash some drivers */
                 &hostBufferSizeBytes, &hostBufferCount );
 
-            *framesPerHostInputBuffer = hostBufferSizeBytes / (inputChannelCount * sizeof(short)) ;
+            *framesPerHostInputBuffer = hostBufferSizeBytes / hostInputFrameSize;
             *hostInputBufferCount = hostBufferCount;
         }
     }
@@ -1213,22 +1216,31 @@ static PaError CalculateBufferSettings(
         }
         else
         {
-            unsigned long minimumBufferCount, hostBufferSizeBytes, hostBufferCount;
-            minimumBufferCount = 2;
+            unsigned long hostBufferSizeBytes, hostBufferCount;
+            unsigned long minimumBufferCount = 2;
+            int hostOutputFrameSize;
+            int hostOutputSampleSize = Pa_GetSampleSize( hostOutputSampleFormat );
+            if( hostOutputSampleSize < 0 )
+            {
+                result = hostOutputSampleSize;
+                goto error;
+            }
 
+            hostOutputFrameSize = hostOutputSampleSize * outputChannelCount;
+            
             /* compute the following in bytes, then convert back to frames */
 
             SelectBufferSizeAndCount(
                 ((framesPerBuffer == paFramesPerBufferUnspecified)
                     ? 16
-                    : framesPerBuffer ) * outputChannelCount * sizeof(short), /* userBufferSize */
-                ((unsigned long)(suggestedOutputLatency * sampleRate)) * outputChannelCount * sizeof(short), /* suggestedLatency */
+                    : framesPerBuffer ) * hostOutputFrameSize, /* baseBufferSize */
+                ((unsigned long)(suggestedOutputLatency * sampleRate)) * hostOutputFrameSize, /* suggestedLatency */
                 4, /* baseBufferCount */
                 minimumBufferCount,
                 1024 * 32, /* maximumBufferSize -- bigger buffers are known to crash some drivers */
                 &hostBufferSizeBytes, &hostBufferCount );
 
-            *framesPerHostOutputBuffer = hostBufferSizeBytes / (outputChannelCount * sizeof(short)) ;
+            *framesPerHostOutputBuffer = hostBufferSizeBytes / hostOutputFrameSize;
             *hostOutputBufferCount = hostBufferCount;
 
 
@@ -1247,8 +1259,8 @@ static PaError CalculateBufferSettings(
                         
                         minimumBufferCount = 2;
                         ReselectBufferCount(
-                            framesPerHostBuffer * outputChannelCount * sizeof(short), /* bufferSize */
-                            ((unsigned long)(suggestedOutputLatency * sampleRate)) * outputChannelCount * sizeof(short), /* suggestedLatency */
+                            framesPerHostBuffer * hostOutputFrameSize, /* bufferSize */
+                            ((unsigned long)(suggestedOutputLatency * sampleRate)) * hostOutputFrameSize, /* suggestedLatency */
                             4, /* baseBufferCount */
                             minimumBufferCount,
                             &hostBufferCount );
@@ -1262,8 +1274,8 @@ static PaError CalculateBufferSettings(
                         
                         minimumBufferCount = 3;
                         ReselectBufferCount(
-                            framesPerHostBuffer * inputChannelCount * sizeof(short), /* bufferSize */
-                            ((unsigned long)(suggestedInputLatency * sampleRate)) * inputChannelCount * sizeof(short), /* suggestedLatency */
+                            framesPerHostBuffer * hostInputFrameSize, /* bufferSize */
+                            ((unsigned long)(suggestedInputLatency * sampleRate)) * hostInputFrameSize, /* suggestedLatency */
                             4, /* baseBufferCount */
                             minimumBufferCount,
                             &hostBufferCount );
