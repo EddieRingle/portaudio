@@ -72,9 +72,6 @@
 
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
-    @todo make sure all buffers have been played before stopping the stream
-        when the stream callback returns paComplete
-
     @todo implement IsFormatSupported for paUseHostApiSpecificDeviceSpecification
     
     @todo Fix fixmes
@@ -2381,8 +2378,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     statusFlags = 0; /** @todo support paInputUnderflow, paOutputOverflow and paNeverDropInput */
     
     /* loop until something causes us to stop */
-    while( !done )
-    {
+    do{
         /* wait for MME to signal that a buffer is available, or for
             the PA abort event to be signaled.
 
@@ -2621,32 +2617,44 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         result = paNoError;
                     }
 
-                    /** @todo
-                    FIXME: the following code is incorrect, because stopProcessing should
-                    still queue the current buffer - it should also drain the buffer processor
-                    */
-                    if( stream->stopProcessing == 0 && stream->abortProcessing == 0 )
+
+                    if( PA_IS_INPUT_STREAM_(stream)
+                            && stream->stopProcessing == 0 && stream->abortProcessing == 0
+                            && stream->input.framesUsedInCurrentBuffer == stream->input.framesPerBuffer )
                     {
-                        if( PA_IS_INPUT_STREAM_(stream) &&
-                                stream->input.framesUsedInCurrentBuffer == stream->input.framesPerBuffer )
+                        if( NoBuffersAreQueued( &stream->input ) )
                         {
-                            if( NoBuffersAreQueued( &stream->input ) )
-                            {
-                                /** @todo need to handle PaNeverDropInput here where necessary */
-                                result = CatchUpInputBuffers( stream );
-                                if( result != paNoError )
-                                    done = 1;
-
-                                statusFlags |= paInputOverflow;
-                            }
-
-                            result = AdvanceToNextInputBuffer( stream );
+                            /** @todo need to handle PaNeverDropInput here where necessary */
+                            result = CatchUpInputBuffers( stream );
                             if( result != paNoError )
                                 done = 1;
+
+                            statusFlags |= paInputOverflow;
                         }
 
-                        if( PA_IS_OUTPUT_STREAM_(stream) &&
-                                stream->output.framesUsedInCurrentBuffer == stream->output.framesPerBuffer )
+                        result = AdvanceToNextInputBuffer( stream );
+                        if( result != paNoError )
+                            done = 1;
+                    }
+
+                    
+                    if( PA_IS_OUTPUT_STREAM_(stream) && !stream->abortProcessing )
+                    {
+                        if( stream->stopProcessing &&
+                                stream->output.framesUsedInCurrentBuffer < stream->output.framesPerBuffer )
+                        {
+                            /* zero remaining samples in output output buffer and flush */
+
+                            stream->output.framesUsedInCurrentBuffer += PaUtil_ZeroOutput( &stream->bufferProcessor,
+                                    stream->output.framesPerBuffer - stream->output.framesUsedInCurrentBuffer );
+
+                            /* we send the entire buffer to the output devices, but we could
+                                just send a partial buffer, rather than zeroing the unused
+                                samples.
+                            */
+                        }
+
+                        if( stream->output.framesUsedInCurrentBuffer == stream->output.framesPerBuffer )
                         {
                             /* check for underflow before enquing the just-generated buffer,
                                 but recover from underflow after enquing it. This ensures
@@ -2657,7 +2665,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                             if( result != paNoError )
                                 done = 1;
 
-                            if( outputUnderflow && !done )
+                            if( outputUnderflow && !done && !stream->stopProcessing )
                             {
                                 /* Recover from underflow in the case where the
                                     underflow occured while processing the buffer
@@ -2670,27 +2678,35 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                                 statusFlags |= paOutputUnderflow;
                             }
                         }
-
-                        if( stream->throttleProcessingThreadOnOverload != 0 )
+                    }
+                    
+                    if( stream->throttleProcessingThreadOnOverload != 0 )
+                    {
+                        if( stream->stopProcessing || stream->abortProcessing )
                         {
-                            if( PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer ) > 1. )
+                            if( stream->processingThreadPriority != stream->highThreadPriority )
                             {
-                                if( stream->processingThreadPriority != stream->throttledThreadPriority )
-                                {
-                                    SetThreadPriority( stream->processingThread, stream->throttledThreadPriority );
-                                    stream->processingThreadPriority = stream->throttledThreadPriority;
-                                }
-
-                                /* sleep to give other processes a go */
-                                Sleep( stream->throttledSleepMsecs );
+                                SetThreadPriority( stream->processingThread, stream->highThreadPriority );
+                                stream->processingThreadPriority = stream->highThreadPriority;
                             }
-                            else
+                        }
+                        else if( PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer ) > 1. )
+                        {
+                            if( stream->processingThreadPriority != stream->throttledThreadPriority )
                             {
-                                if( stream->processingThreadPriority != stream->highThreadPriority )
-                                {
-                                    SetThreadPriority( stream->processingThread, stream->highThreadPriority );
-                                    stream->processingThreadPriority = stream->highThreadPriority;
-                                }
+                                SetThreadPriority( stream->processingThread, stream->throttledThreadPriority );
+                                stream->processingThreadPriority = stream->throttledThreadPriority;
+                            }
+
+                            /* sleep to give other processes a go */
+                            Sleep( stream->throttledSleepMsecs );
+                        }
+                        else
+                        {
+                            if( stream->processingThreadPriority != stream->highThreadPriority )
+                            {
+                                SetThreadPriority( stream->processingThread, stream->highThreadPriority );
+                                stream->processingThreadPriority = stream->highThreadPriority;
                             }
                         }
                     }
@@ -2706,6 +2722,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                     !done );
         }
     }
+    while( !done );
 
     stream->isActive = 0;
 
@@ -3056,7 +3073,13 @@ static PaError StopStream( PaStream *s )
                     channel += channelCount;
                 }
 
-                PaUtil_ZeroOutput( &stream->bufferProcessor );
+                PaUtil_ZeroOutput( &stream->bufferProcessor,
+                        stream->output.framesPerBuffer - stream->output.framesUsedInCurrentBuffer );
+
+                /* we send the entire buffer to the output devices, but we could
+                    just send a partial buffer, rather than zeroing the unused
+                    samples.
+                */
                 AdvanceToNextOutputBuffer( stream );
             }
             
