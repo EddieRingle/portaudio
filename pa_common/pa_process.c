@@ -44,7 +44,14 @@
     The optimisations which are planned involve only converting data in-place
     where possible, rather than copying to the temp buffer(s).
 
+    Note that in the extreme case of being able to convert in-place, and there
+    being no conversion necessary there should be some code which short-circuits
+    the operation.
+
     Cache tilings for intereave<->deinterleave also need to be considered.
+
+    The abort flag from the callback is currently not honoured properly
+    in this file, see fixmes.
 */
 
 
@@ -745,99 +752,6 @@ void PaUtil_Set2ndNonInterleavedOutputChannel( PaUtilBufferProcessor* bp,
 }
 
 
-static void Copy1( void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int count )
-{
-    unsigned char *src = (unsigned char*)sourceBuffer;
-    unsigned char *dest = (unsigned char*)destinationBuffer;
-
-    while( count-- )
-    {
-        *dest = *src;
-        src += sourceStride;
-        dest += destinationStride;
-    }
-}
-
-
-static void Copy2( void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int count )
-{
-    unsigned short *src = (unsigned short*)sourceBuffer;
-    unsigned short *dest = (unsigned short*)destinationBuffer;
-
-    while( count-- )
-    {
-        *dest = *src;
-        src += sourceStride;
-        dest += destinationStride;
-    }
-}
-
-
-static void Copy3( void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int count )
-{
-    unsigned char *src = (unsigned char*)sourceBuffer;
-    unsigned char *dest = (unsigned char*)destinationBuffer;
-
-    while( count-- )
-    {
-        dest[0] = src[0];
-        dest[1] = src[1];
-        dest[2] = src[2];
-
-        src += sourceStride * 3;
-        dest += destinationStride * 3;
-    }
-}
-
-
-static void Copy4( void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int count )
-{
-    unsigned long *src = (unsigned long*)sourceBuffer;
-    unsigned long *dest = (unsigned long*)destinationBuffer;
-
-    while( count-- )
-    {
-        *dest = *src;
-        src += sourceStride;
-        dest += destinationStride;
-    }
-}
-
-
-static void Copy( void *destinationBuffer, signed int destinationStride,
-    void *sourceBuffer, signed int sourceStride,
-    unsigned int frameCount, unsigned int bytesPerSample )
-{
-    switch( bytesPerSample )
-    {
-        case 1:
-            Copy1( destinationBuffer, destinationStride,
-                    sourceBuffer, sourceStride, frameCount );
-            break;
-        case 2:
-            Copy2( destinationBuffer, destinationStride,
-                    sourceBuffer, sourceStride, frameCount );
-            break;
-        case 3:
-            Copy3( destinationBuffer, destinationStride,
-                    sourceBuffer, sourceStride, frameCount );
-            break;
-        case 4:
-            Copy4( destinationBuffer, destinationStride,
-                    sourceBuffer, sourceStride, frameCount );
-            break;
-    }
-}
-
-
 /*
     NonAdaptingProcess() is a simple buffer copying adaptor that can handle
     both full and half duplex copies. It processes framesToProcess frames,
@@ -904,41 +818,18 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                 userInput = bp->tempInputBufferPtrs;
             }
 
-            if( bp->inputConverter )
+            for( i=0; i<bp->numInputChannels; ++i )
             {
-                for( i=0; i<bp->numInputChannels; ++i )
-                {
-                    bp->inputConverter( destBytePtr, destStride,
-                                            hostInputChannels[i].data,
-                                            hostInputChannels[i].stride,
-                                            frameCount, &bp->ditherGenerator );
+                bp->inputConverter( destBytePtr, destStride,
+                                        hostInputChannels[i].data,
+                                        hostInputChannels[i].stride,
+                                        frameCount, &bp->ditherGenerator );
 
-                    destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+                destBytePtr += destBytePtrStride;  /* skip to next destination channel */
 
-                    /* advance src ptr for next iteration */
-                    hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                            frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-                }
-            }
-            else /* no input converter, host and user format are the same */
-            {
-                /* we can optimize this in cases where the user input and host input
-                    have the same interleave. But for now we assume the worst and
-                    copy to the temp buffer */
-
-                for( i=0; i<bp->numInputChannels; ++i )
-                {
-                    Copy( destBytePtr, destStride,
-                            hostInputChannels[i].data,
-                            hostInputChannels[i].stride,
-                            frameCount, bp->bytesPerHostInputSample );
-
-                    destBytePtr += destBytePtrStride;  /* skip to next destination channel */
-
-                    /* advance src ptr for next iteration */
-                    hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                            frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-                }
+                /* advance src ptr for next iteration */
+                hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
+                        frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
             }
         }
 
@@ -994,41 +885,18 @@ static unsigned long NonAdaptingProcess( PaUtilBufferProcessor *bp,
                 srcBytePtrStride = frameCount * bp->bytesPerUserOutputSample;
             }
 
-            if( bp->outputConverter )
+            for( i=0; i<bp->numOutputChannels; ++i )
             {
-                for( i=0; i<bp->numOutputChannels; ++i )
-                {
-                    bp->outputConverter(    hostOutputChannels[i].data,
-                                            hostOutputChannels[i].stride,
-                                            srcBytePtr, srcStride,
-                                            frameCount, &bp->ditherGenerator );
+                bp->outputConverter(    hostOutputChannels[i].data,
+                                        hostOutputChannels[i].stride,
+                                        srcBytePtr, srcStride,
+                                        frameCount, &bp->ditherGenerator );
 
-                    srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
+                srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
 
-                    /* advance dest ptr for next iteration */
-                    hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                            frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-                }
-            }
-            else /* no input converter, host and user format are the same */
-            {
-                /* we can optimize this in cases where the user input and host input
-                    have the same interleave. But for now we assume the worst and
-                    copy to the temp buffer */
-
-                for( i=0; i<bp->numInputChannels; ++i )
-                {
-                    Copy( hostOutputChannels[i].data,
-                            hostOutputChannels[i].stride,
-                            srcBytePtr, srcStride,
-                            frameCount, bp->bytesPerHostInputSample );
-
-                    srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
-
-                    /* advance dest ptr for next iteration */
-                    hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                            frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-                }
+                /* advance dest ptr for next iteration */
+                hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                        frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
             }
         }
 
@@ -1099,41 +967,18 @@ static unsigned long AdaptingInputOnlyProcess( PaUtilBufferProcessor *bp,
             userInput = bp->tempInputBufferPtrs;
         }
 
-        if( bp->inputConverter )
+        for( i=0; i<bp->numInputChannels; ++i )
         {
-            for( i=0; i<bp->numInputChannels; ++i )
-            {
-                bp->inputConverter( destBytePtr, destStride,
-                                        hostInputChannels[i].data,
-                                        hostInputChannels[i].stride,
-                                        frameCount, &bp->ditherGenerator );
+            bp->inputConverter( destBytePtr, destStride,
+                                    hostInputChannels[i].data,
+                                    hostInputChannels[i].stride,
+                                    frameCount, &bp->ditherGenerator );
 
-                destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+            destBytePtr += destBytePtrStride;  /* skip to next destination channel */
 
-                /* advance src ptr for next iteration */
-                hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                        frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-            }
-        }
-        else /* no input converter, host and user format are the same */
-        {
-            /* we can optimize this in cases where the user input and host input
-                have the same interleave. But for now we assume the worst and
-                copy to the temp buffer */
-
-            for( i=0; i<bp->numInputChannels; ++i )
-            {
-                Copy( destBytePtr, destStride,
-                        hostInputChannels[i].data,
-                        hostInputChannels[i].stride,
-                        frameCount, bp->bytesPerHostInputSample );
-
-                destBytePtr += destBytePtrStride;  /* skip to next destination channel */
-
-                /* advance src ptr for next iteration */
-                hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                        frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-            }
+            /* advance src ptr for next iteration */
+            hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
+                    frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
         }
 
         bp->framesInTempInputBuffer += frameCount;
@@ -1234,41 +1079,18 @@ static unsigned long AdaptingOutputOnlyProcess( PaUtilBufferProcessor *bp,
             srcBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
         }
 
-        if( bp->outputConverter )
+        for( i=0; i<bp->numOutputChannels; ++i )
         {
-            for( i=0; i<bp->numOutputChannels; ++i )
-            {
-                bp->outputConverter(    hostOutputChannels[i].data,
-                                        hostOutputChannels[i].stride,
-                                        srcBytePtr, srcStride,
-                                        frameCount, &bp->ditherGenerator );
+            bp->outputConverter(    hostOutputChannels[i].data,
+                                    hostOutputChannels[i].stride,
+                                    srcBytePtr, srcStride,
+                                    frameCount, &bp->ditherGenerator );
 
-                srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
+            srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
 
-                /* advance dest ptr for next iteration */
-                hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                        frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-            }
-        }
-        else /* no output converter, host and user format are the same */
-        {
-            /* we can optimize this in cases where the user output and host output
-                have the same interleave. But for now we assume the worst and
-                copy to the temp buffer */
-
-            for( i=0; i<bp->numOutputChannels; ++i )
-            {
-                Copy( hostOutputChannels[i].data,
-                        hostOutputChannels[i].stride,
-                        srcBytePtr, srcStride,
-                        frameCount, bp->bytesPerHostOutputSample );
-
-                srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
-
-                /* advance dest ptr for next iteration */
-                hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                        frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-            }
+            /* advance dest ptr for next iteration */
+            hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                    frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
         }
 
         bp->framesInTempOutputBuffer -= frameCount;
@@ -1357,41 +1179,18 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
                 srcBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserOutputSample;
             }
 
-            if( bp->outputConverter )
+            for( i=0; i<bp->numOutputChannels; ++i )
             {
-                for( i=0; i<bp->numOutputChannels; ++i )
-                {
-                    bp->outputConverter(    hostOutputChannels[i].data,
-                                            hostOutputChannels[i].stride,
-                                            srcBytePtr, srcStride,
-                                            frameCount, &bp->ditherGenerator );
+                bp->outputConverter(    hostOutputChannels[i].data,
+                                        hostOutputChannels[i].stride,
+                                        srcBytePtr, srcStride,
+                                        frameCount, &bp->ditherGenerator );
 
-                    srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
+                srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
 
-                    /* advance dest ptr for next iteration */
-                    hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                            frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-                }
-            }
-            else /* no output converter, host and user format are the same */
-            {
-                /* we can optimize this in cases where the user output and host output
-                    have the same interleave. But for now we assume the worst and
-                    copy to the temp buffer */
-
-                for( i=0; i<bp->numOutputChannels; ++i )
-                {
-                    Copy( hostOutputChannels[i].data,
-                            hostOutputChannels[i].stride,
-                            srcBytePtr, srcStride,
-                            frameCount, bp->bytesPerHostOutputSample );
-
-                    srcBytePtr += srcBytePtrStride;  /* skip to next source channel */
-
-                    /* advance dest ptr for next iteration */
-                    hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
-                            frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
-                }
+                /* advance dest ptr for next iteration */
+                hostOutputChannels[i].data = ((unsigned char*)hostOutputChannels[i].data) +
+                        frameCount * hostOutputChannels[i].stride * bp->bytesPerHostOutputSample;
             }
 
             if( bp->hostOutputFrameCount[0] > 0 )
@@ -1444,41 +1243,18 @@ static unsigned long AdaptingProcess( PaUtilBufferProcessor *bp,
                 destBytePtrStride = bp->framesPerUserBuffer * bp->bytesPerUserInputSample;
             }
 
-            if( bp->inputConverter )
+            for( i=0; i<bp->numInputChannels; ++i )
             {
-                for( i=0; i<bp->numInputChannels; ++i )
-                {
-                    bp->inputConverter( destBytePtr, destStride,
-                                            hostInputChannels[i].data,
-                                            hostInputChannels[i].stride,
-                                            frameCount, &bp->ditherGenerator );
+                bp->inputConverter( destBytePtr, destStride,
+                                        hostInputChannels[i].data,
+                                        hostInputChannels[i].stride,
+                                        frameCount, &bp->ditherGenerator );
 
-                    destBytePtr += destBytePtrStride;  /* skip to next destination channel */
+                destBytePtr += destBytePtrStride;  /* skip to next destination channel */
 
-                    /* advance src ptr for next iteration */
-                    hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                            frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-                }
-            }
-            else /* no input converter, host and user format are the same */
-            {
-                /* we can optimize this in cases where the user input and host input
-                    have the same interleave. But for now we assume the worst and
-                    copy to the temp buffer */
-
-                for( i=0; i<bp->numInputChannels; ++i )
-                {
-                    Copy( destBytePtr, destStride,
-                            hostInputChannels[i].data,
-                            hostInputChannels[i].stride,
-                            frameCount, bp->bytesPerHostInputSample );
-
-                    destBytePtr += destBytePtrStride;  /* skip to next destination channel */
-
-                    /* advance src ptr for next iteration */
-                    hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
-                            frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
-                }
+                /* advance src ptr for next iteration */
+                hostInputChannels[i].data = ((unsigned char*)hostInputChannels[i].data) +
+                        frameCount * hostInputChannels[i].stride * bp->bytesPerHostInputSample;
             }
 
             if( bp->hostInputFrameCount[0] > 0 )

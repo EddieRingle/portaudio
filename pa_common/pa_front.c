@@ -895,7 +895,6 @@ static int SampleFormatIsValid( PaSampleFormat format )
     case paInt16: return 1;
     case paInt32: return 1;
     case paInt24: return 1;
-    case paPackedInt24: return 1;
     case paInt8: return 1;
     case paUInt8: return 1;
     case paCustomFormat: return 1;
@@ -1658,13 +1657,12 @@ PaError Pa_GetSampleSize( PaSampleFormat format )
         result = 2;
         break;
 
-    case paPackedInt24:
+    case paInt24:
         result = 3;
         break;
 
     case paFloat32:
     case paInt32:
-    case paInt24:
         result = 4;
         break;
 

@@ -44,7 +44,8 @@ Choose a format from availableFormats which can best be used to represent
 format. If the requested format is not available better formats are
 searched for before worse formats.
 */
-PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableFormats, PaSampleFormat format );
+PaSampleFormat PaUtil_SelectClosestAvailableFormat(
+        PaSampleFormat availableFormats, PaSampleFormat format );
 
 
 /* high level conversions functions for use by implementations */
@@ -79,8 +80,8 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
     For conversions where clipping or dithering is not necessary, the
     clip and dither flags are ignored and a non-clipping or dithering
     version is returned.
-    This function will also return NULL if the sourceFormat and
-    destinationFormat are identical.
+    If the source and destination formats are the same, a function which
+    copies data of the appropriate size will be returned.
 */
 
 
@@ -89,55 +90,74 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
 
     
 typedef struct{
-    /*
-    FIXME: do we need int 24 and packed int 24 here? : YES!!
+    PaUtilConverter *Float32_To_Int32;
+    PaUtilConverter *Float32_To_Int32_Dither;
+    PaUtilConverter *Float32_To_Int32_Clip;
+    PaUtilConverter *Float32_To_Int32_DitherClip;
 
-    naming format: Source_Dest
-    */
-    PaUtilConverter *Float32_Int32;
-    PaUtilConverter *Float32_Int32_Dither;
-    PaUtilConverter *Float32_Int32_Clip;
-    PaUtilConverter *Float32_Int32_DitherClip;
-
-    PaUtilConverter *Float32_Int16;
-    PaUtilConverter *Float32_Int16_Dither;
-    PaUtilConverter *Float32_Int16_Clip;
-    PaUtilConverter *Float32_Int16_DitherClip;
-
-    PaUtilConverter *Float32_Int8;
-    PaUtilConverter *Float32_Int8_Dither;
-    PaUtilConverter *Float32_Int8_Clip;
-    PaUtilConverter *Float32_Int8_DitherClip;
-
-    PaUtilConverter *Float32_UInt8;
-    PaUtilConverter *Float32_UInt8_Dither;
-    PaUtilConverter *Float32_UInt8_Clip;
-    PaUtilConverter *Float32_UInt8_DitherClip;
-
-    PaUtilConverter *Int32_Float32;
-    PaUtilConverter *Int32_Int16;
-    PaUtilConverter *Int32_Int16_Dither;
-    PaUtilConverter *Int32_Int8;
-    PaUtilConverter *Int32_Int8_Dither;
-    PaUtilConverter *Int32_UInt8;
-    PaUtilConverter *Int32_UInt8_Dither;
-
-    PaUtilConverter *Int16_Float32;
-    PaUtilConverter *Int16_Int32;
-    PaUtilConverter *Int16_Int8;
-    PaUtilConverter *Int16_Int8_Dither;
-    PaUtilConverter *Int16_UInt8;
-    PaUtilConverter *Int16_UInt8_Dither;
-
-    PaUtilConverter *Int8_Float32;
-    PaUtilConverter *Int8_Int32;
-    PaUtilConverter *Int8_Int16;
-    PaUtilConverter *Int8_UInt8;
+    PaUtilConverter *Float32_To_Int24;
+    PaUtilConverter *Float32_To_Int24_Dither;
+    PaUtilConverter *Float32_To_Int24_Clip;
+    PaUtilConverter *Float32_To_Int24_DitherClip;
     
-    PaUtilConverter *UInt8_Float32;
-    PaUtilConverter *UInt8_Int32;
-    PaUtilConverter *UInt8_Int16;
-    PaUtilConverter *UInt8_Int8;
+    PaUtilConverter *Float32_To_Int16;
+    PaUtilConverter *Float32_To_Int16_Dither;
+    PaUtilConverter *Float32_To_Int16_Clip;
+    PaUtilConverter *Float32_To_Int16_DitherClip;
+
+    PaUtilConverter *Float32_To_Int8;
+    PaUtilConverter *Float32_To_Int8_Dither;
+    PaUtilConverter *Float32_To_Int8_Clip;
+    PaUtilConverter *Float32_To_Int8_DitherClip;
+
+    PaUtilConverter *Float32_To_UInt8;
+    PaUtilConverter *Float32_To_UInt8_Dither;
+    PaUtilConverter *Float32_To_UInt8_Clip;
+    PaUtilConverter *Float32_To_UInt8_DitherClip;
+
+    PaUtilConverter *Int32_To_Float32;
+    PaUtilConverter *Int32_To_Int24;
+    PaUtilConverter *Int32_To_Int24_Dither;
+    PaUtilConverter *Int32_To_Int16;
+    PaUtilConverter *Int32_To_Int16_Dither;
+    PaUtilConverter *Int32_To_Int8;
+    PaUtilConverter *Int32_To_Int8_Dither;
+    PaUtilConverter *Int32_To_UInt8;
+    PaUtilConverter *Int32_To_UInt8_Dither;
+
+    PaUtilConverter *Int24_To_Float32;
+    PaUtilConverter *Int24_To_Int32;
+    PaUtilConverter *Int24_To_Int16;
+    PaUtilConverter *Int24_To_Int16_Dither;
+    PaUtilConverter *Int24_To_Int8;
+    PaUtilConverter *Int24_To_Int8_Dither;
+    PaUtilConverter *Int24_To_UInt8;
+    PaUtilConverter *Int24_To_UInt8_Dither;
+
+    PaUtilConverter *Int16_To_Float32;
+    PaUtilConverter *Int16_To_Int32;
+    PaUtilConverter *Int16_To_Int24;
+    PaUtilConverter *Int16_To_Int8;
+    PaUtilConverter *Int16_To_Int8_Dither;
+    PaUtilConverter *Int16_To_UInt8;
+    PaUtilConverter *Int16_To_UInt8_Dither;
+
+    PaUtilConverter *Int8_To_Float32;
+    PaUtilConverter *Int8_To_Int32;
+    PaUtilConverter *Int8_To_Int24;
+    PaUtilConverter *Int8_To_Int16;
+    PaUtilConverter *Int8_To_UInt8;
+    
+    PaUtilConverter *UInt8_To_Float32;
+    PaUtilConverter *UInt8_To_Int32;
+    PaUtilConverter *UInt8_To_Int24;
+    PaUtilConverter *UInt8_To_Int16;
+    PaUtilConverter *UInt8_To_Int8;
+
+    PaUtilConverter *Copy_8_To_8;       /* copy without any conversion */
+    PaUtilConverter *Copy_16_To_16;     /* copy without any conversion */
+    PaUtilConverter *Copy_24_To_24;     /* copy without any conversion */
+    PaUtilConverter *Copy_32_To_32;     /* copy without any conversion */
 } PaUtilConverterTable;
 /**< The type used to store all sample conversion functions.
     @see paConverters;

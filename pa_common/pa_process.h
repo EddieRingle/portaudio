@@ -67,13 +67,13 @@ typedef struct {
     unsigned int bytesPerHostInputSample;
     unsigned int bytesPerUserInputSample;
     int userInputIsInterleaved;
-    PaUtilConverter *inputConverter;        /* NULL if no converter is required */
+    PaUtilConverter *inputConverter;
 
     unsigned int numOutputChannels;
     unsigned int bytesPerHostOutputSample;
     unsigned int bytesPerUserOutputSample;
     int userOutputIsInterleaved;
-    PaUtilConverter *outputConverter;       /* NULL if no converter is required */
+    PaUtilConverter *outputConverter;
 
     void *tempInputBuffer;          /* used for slips, block adaption, and conversion. */
     void **tempInputBufferPtrs;     /* storage for non-interleaved buffer pointers, NULL for interleaved user input */

@@ -72,6 +72,11 @@ extern "C"
      
     - added paNonInterleaved contant to support non-interleaved sample buffers
         as per existing proposal.
+
+    - changed streamInfo parameters to Pa_OpenStream to from void * to
+        PaHostApiSpecificStreamInfo*
+
+    - removed paPackedInt24, paInt24 is now a packed format
 */
 
 
@@ -257,7 +262,7 @@ PaDeviceIndex Pa_HostApiDefaultInputDevice( PaHostApiIndex hostApi );
 
 PaDeviceIndex Pa_HostApiDefaultOutputDevice( PaHostApiIndex hostApi );
 /**< Retrieve the default output device for the specified host API
-     
+
  @param hostApi A valid host API index ranging from 0 to (Pa_CountHostApis()-1)
 
  @return A device index ranging from 0 to (Pa_CountDevices()-1), or paNoDevice
@@ -319,7 +324,7 @@ PaDeviceIndex Pa_GetDefaultOutputDevice( void );
      
  @return The default output device index for the defualt host API, or paNoDevice
  if not output device is available.
-     
+
  @note 
  On the PC, the user can specify a default device by
  setting an environment variable. For example, to use device #1.
@@ -349,17 +354,16 @@ typedef unsigned long PaSampleFormat;
  as a set of non-interleaved pointers.
      
  @see Pa_OpenStream, Pa_OpenDefaultStream, PaDeviceInfo
- @see paFloat32, paInt16, paInt32, paInt24, paPackedInt24, paInt8
+ @see paFloat32, paInt16, paInt32, paInt24, paInt8
  @see paUInt8, paCustomFormat, paNonInterleaved
 */
 
-#define paFloat32      ((PaSampleFormat) (1<<0)) /**< always available @see PaSampleFormat */
-#define paInt32        ((PaSampleFormat) (1<<1)) /**< always available @see PaSampleFormat */
-#define paInt24        ((PaSampleFormat) (1<<2)) /**< @see PaSampleFormat */
-#define paPackedInt24  ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
-#define paInt16        ((PaSampleFormat) (1<<4)) /**< always available @see PaSampleFormat */
-#define paInt8         ((PaSampleFormat) (1<<5)) /**< @see PaSampleFormat */
-#define paUInt8        ((PaSampleFormat) (1<<6)) /**< @see PaSampleFormat */
+#define paFloat32      ((PaSampleFormat) (1<<0)) /**< @see PaSampleFormat */
+#define paInt32        ((PaSampleFormat) (1<<1)) /**< @see PaSampleFormat */
+#define paInt24        ((PaSampleFormat) (1<<2)) /**< Packed 24 bit format. @see PaSampleFormat */
+#define paInt16        ((PaSampleFormat) (1<<3)) /**< @see PaSampleFormat */
+#define paInt8         ((PaSampleFormat) (1<<4)) /**< @see PaSampleFormat */
+#define paUInt8        ((PaSampleFormat) (1<<5)) /**< @see PaSampleFormat */
 #define paCustomFormat ((PaSampleFormat) (1<<16))/**< @see PaSampleFormat */
 
 #define paNonInterleaved ((PaSampleFormat) (1<<31))

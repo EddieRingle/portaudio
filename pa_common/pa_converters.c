@@ -28,12 +28,20 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
- 
+
+/*
+TODO:
+    - implement the converters marked IMPLEMENT ME
+    - review the converters marked REVIEW
+*/
+
+
 #include "pa_converters.h"
 #include "pa_dither.h"
 
 
-PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableFormats, PaSampleFormat format )
+PaSampleFormat PaUtil_SelectClosestAvailableFormat(
+        PaSampleFormat availableFormats, PaSampleFormat format )
 {
     PaSampleFormat result;
 
@@ -43,7 +51,10 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableForm
     if( (format & availableFormats) == 0 )
     {
         /* NOTE: this code depends on the sample format constants being in
-            descending order of quality - ie best quality is 0 */
+            descending order of quality - ie best quality is 0
+            FIXME: should write an assert which checks that all of the
+            known constants conform to that requirement.
+        */
 
         if( format != 0x01 )
         {
@@ -80,60 +91,62 @@ PaSampleFormat PaUtil_SelectClosestAvailableFormat( PaSampleFormat availableForm
     return result;
 }
 
+/* -------------------------------------------------------------------------- */
 
-#define PA_SELECT_FORMAT_( format, float32, int32, int24, packedInt24, int16, int8, uint8 )\
-    switch( format & ~paNonInterleaved ){                                                       \
-    case paFloat32:                                                     \
-        float32                                                         \
-    case paInt32:                                                       \
-        int32                                                           \
-    case paInt24:                                                       \
-        int24                                                           \
-    case paPackedInt24:                                                 \
-        packedInt24                                                     \
-    case paInt16:                                                       \
-        int16                                                           \
-    case paInt8:                                                        \
-        int8                                                            \
-    case paUInt8:                                                       \
-        uint8                                                           \
-    default: return 0;                                                  \
+#define PA_SELECT_FORMAT_( format, float32, int32, int24, int16, int8, uint8 ) \
+    switch( format & ~paNonInterleaved ){                                      \
+    case paFloat32:                                                            \
+        float32                                                                \
+    case paInt32:                                                              \
+        int32                                                                  \
+    case paInt24:                                                              \
+        int24                                                                  \
+    case paInt16:                                                              \
+        int16                                                                  \
+    case paInt8:                                                               \
+        int8                                                                   \
+    case paUInt8:                                                              \
+        uint8                                                                  \
+    default: return 0;                                                         \
     }
 
+/* -------------------------------------------------------------------------- */
 
-#define PA_SELECT_CONVERTER_DITHER_CLIP_( flags, source, destination )\
-    if( flags & paClipOff ){ /* no clip */                                 \
-        if( flags & paDitherOff ){ /* no dither */                          \
-            return paConverters. ## source ## _ ## destination;             \
-        }else{ /* dither */                                                 \
-            return paConverters. ## source ## _ ## destination ## _Dither;  \
-        }                                                                   \
-    }else{ /* clip */                                                       \
-        if( flags & paDitherOff ){ /* no dither */                          \
-            return paConverters. ## source ## _ ## destination ## _Clip;    \
-        }else{ /* dither */                                                 \
-            return paConverters. ## source ## _ ## destination ## _DitherClip;\
-        }                                                                   \
+#define PA_SELECT_CONVERTER_DITHER_CLIP_( flags, source, destination )         \
+    if( flags & paClipOff ){ /* no clip */                                     \
+        if( flags & paDitherOff ){ /* no dither */                             \
+            return paConverters. ## source ## _To_ ## destination;             \
+        }else{ /* dither */                                                    \
+            return paConverters. ## source ## _To_ ## destination ## _Dither;  \
+        }                                                                      \
+    }else{ /* clip */                                                          \
+        if( flags & paDitherOff ){ /* no dither */                             \
+            return paConverters. ## source ## _To_ ## destination ## _Clip;    \
+        }else{ /* dither */                                                    \
+            return paConverters. ## source ## _To_ ## destination ## _DitherClip;\
+        }                                                                      \
     }
 
+/* -------------------------------------------------------------------------- */
 
-#define PA_SELECT_CONVERTER_DITHER_( flags, source, destination )\
-    if( flags & paDitherOff ){ /* no dither */                              \
-        return paConverters. ## source ## _ ## destination;                 \
-    }else{ /* dither */                                                     \
-        return paConverters. ## source ## _ ## destination ## _Dither;      \
+#define PA_SELECT_CONVERTER_DITHER_( flags, source, destination )              \
+    if( flags & paDitherOff ){ /* no dither */                                 \
+        return paConverters. ## source ## _To_ ## destination;                 \
+    }else{ /* dither */                                                        \
+        return paConverters. ## source ## _To_ ## destination ## _Dither;      \
     }
 
+/* -------------------------------------------------------------------------- */
 
 #define PA_USE_CONVERTER_( source, destination )\
-    return paConverters. ## source ## _ ## destination;
+    return paConverters. ## source ## _To_ ## destination;
 
+/* -------------------------------------------------------------------------- */
 
-#define PA_NO_CONVERSION_DEFINED_ return 0;
+#define PA_UNITY_CONVERSION_( wordlength )\
+    return paConverters.Copy_ ## wordlength ## _To_ ## wordlength;
 
-
-#define PA_UNITY_CONVERSION_ return 0;
-
+/* -------------------------------------------------------------------------- */
 
 PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
         PaSampleFormat destinationFormat, PaStreamFlags flags )
@@ -141,10 +154,9 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
     PA_SELECT_FORMAT_( sourceFormat,
                        /* paFloat32: */
                        PA_SELECT_FORMAT_( destinationFormat,
-                                          /* paFloat32: */        PA_UNITY_CONVERSION_,
+                                          /* paFloat32: */        PA_UNITY_CONVERSION_( 32 ),
                                           /* paInt32: */          PA_SELECT_CONVERTER_DITHER_CLIP_( flags, Float32, Int32 ),
-                                          /* paInt24: */          PA_NO_CONVERSION_DEFINED_,
-                                          /* paPackedInt24: */    PA_NO_CONVERSION_DEFINED_,
+                                          /* paInt24: */          PA_SELECT_CONVERTER_DITHER_CLIP_( flags, Float32, Int24 ),
                                           /* paInt16: */          PA_SELECT_CONVERTER_DITHER_CLIP_( flags, Float32, Int16 ),
                                           /* paInt8: */           PA_SELECT_CONVERTER_DITHER_CLIP_( flags, Float32, Int8 ),
                                           /* paUInt8: */          PA_SELECT_CONVERTER_DITHER_CLIP_( flags, Float32, UInt8 )
@@ -152,24 +164,27 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
                        /* paInt32: */
                        PA_SELECT_FORMAT_( destinationFormat,
                                           /* paFloat32: */        PA_USE_CONVERTER_( Int32, Float32 ),
-                                          /* paInt32: */          PA_UNITY_CONVERSION_,
-                                          /* paInt24: */          PA_NO_CONVERSION_DEFINED_,
-                                          /* paPackedInt24: */    PA_NO_CONVERSION_DEFINED_,
+                                          /* paInt32: */          PA_UNITY_CONVERSION_( 32 ),
+                                          /* paInt24: */          PA_SELECT_CONVERTER_DITHER_( flags, Int32, Int24 ),
                                           /* paInt16: */          PA_SELECT_CONVERTER_DITHER_( flags, Int32, Int16 ),
                                           /* paInt8: */           PA_SELECT_CONVERTER_DITHER_( flags, Int32, Int8 ),
                                           /* paUInt8: */          PA_SELECT_CONVERTER_DITHER_( flags, Int32, UInt8 )
                                         ),
                        /* paInt24: */
-                       PA_NO_CONVERSION_DEFINED_,
-                       /* paPackedInt24: */
-                       PA_NO_CONVERSION_DEFINED_,
+                       PA_SELECT_FORMAT_( destinationFormat,
+                                          /* paFloat32: */        PA_USE_CONVERTER_( Int24, Float32 ),
+                                          /* paInt32: */          PA_USE_CONVERTER_( Int24, Int32 ),
+                                          /* paInt24: */          PA_UNITY_CONVERSION_( 24 ),
+                                          /* paInt16: */          PA_SELECT_CONVERTER_DITHER_( flags, Int24, Int16 ),
+                                          /* paInt8: */           PA_SELECT_CONVERTER_DITHER_( flags, Int24, Int8 ),
+                                          /* paUInt8: */          PA_SELECT_CONVERTER_DITHER_( flags, Int24, UInt8 )
+                                        ),
                        /* paInt16: */
                        PA_SELECT_FORMAT_( destinationFormat,
                                           /* paFloat32: */        PA_USE_CONVERTER_( Int16, Float32 ),
                                           /* paInt32: */          PA_USE_CONVERTER_( Int16, Int32 ),
-                                          /* paInt24: */          PA_NO_CONVERSION_DEFINED_,
-                                          /* paPackedInt24: */    PA_NO_CONVERSION_DEFINED_,
-                                          /* paInt16: */          PA_UNITY_CONVERSION_,
+                                          /* paInt24: */          PA_USE_CONVERTER_( Int16, Int24 ),
+                                          /* paInt16: */          PA_UNITY_CONVERSION_( 16 ),
                                           /* paInt8: */           PA_SELECT_CONVERTER_DITHER_( flags, Int16, Int8 ),
                                           /* paUInt8: */          PA_SELECT_CONVERTER_DITHER_( flags, Int16, UInt8 )
                                         ),
@@ -177,76 +192,103 @@ PaUtilConverter* PaUtil_SelectConverter( PaSampleFormat sourceFormat,
                        PA_SELECT_FORMAT_( destinationFormat,
                                           /* paFloat32: */        PA_USE_CONVERTER_( Int8, Float32 ),
                                           /* paInt32: */          PA_USE_CONVERTER_( Int8, Int32 ),
-                                          /* paInt24: */          PA_NO_CONVERSION_DEFINED_,
-                                          /* paPackedInt24: */    PA_NO_CONVERSION_DEFINED_,
+                                          /* paInt24: */          PA_USE_CONVERTER_( Int8, Int24 ),
                                           /* paInt16: */          PA_USE_CONVERTER_( Int8, Int16 ),
-                                          /* paInt8: */           PA_UNITY_CONVERSION_,
+                                          /* paInt8: */           PA_UNITY_CONVERSION_( 8 ),
                                           /* paUInt8: */          PA_USE_CONVERTER_( Int8, UInt8 )
                                         ),
                        /* paUInt8: */
                        PA_SELECT_FORMAT_( destinationFormat,
                                           /* paFloat32: */        PA_USE_CONVERTER_( UInt8, Float32 ),
                                           /* paInt32: */          PA_USE_CONVERTER_( UInt8, Int32 ),
-                                          /* paInt24: */          PA_NO_CONVERSION_DEFINED_,
-                                          /* paPackedInt24: */    PA_NO_CONVERSION_DEFINED_,
+                                          /* paInt24: */          PA_USE_CONVERTER_( UInt8, Int24 ),
                                           /* paInt16: */          PA_USE_CONVERTER_( UInt8, Int16 ),
                                           /* paInt8: */           PA_USE_CONVERTER_( UInt8, Int8 ),
-                                          /* paUInt8: */          PA_UNITY_CONVERSION_
+                                          /* paUInt8: */          PA_UNITY_CONVERSION_( 8 )
                                         )
                      )
 }
 
+/* -------------------------------------------------------------------------- */
 
 #ifdef PA_NO_STANDARD_CONVERTERS
 
+/* -------------------------------------------------------------------------- */
+
 PaUtilConverterTable paConverters = {
-                                        0, /* PaUtilConverter *Float32_Int32; */
-                                        0, /* PaUtilConverter *Float32_Int32_Dither; */
-                                        0, /* PaUtilConverter *Float32_Int32_Clip; */
-                                        0, /* PaUtilConverter *Float32_Int32_DitherClip; */
+    0, /* PaUtilConverter *Float32_To_Int32; */
+    0, /* PaUtilConverter *Float32_To_Int32_Dither; */
+    0, /* PaUtilConverter *Float32_To_Int32_Clip; */
+    0, /* PaUtilConverter *Float32_To_Int32_DitherClip; */
 
-                                        0, /* PaUtilConverter *Float32_Int16; */
-                                        0, /* PaUtilConverter *Float32_Int16_Dither; */
-                                        0, /* PaUtilConverter *Float32_Int16_Clip; */
-                                        0, /* PaUtilConverter *Float32_Int16_DitherClip; */
+    0, /* PaUtilConverter *Float32_To_Int24; */
+    0, /* PaUtilConverter *Float32_To_Int24_Dither; */
+    0, /* PaUtilConverter *Float32_To_Int24_Clip; */
+    0, /* PaUtilConverter *Float32_To_Int24_DitherClip; */
 
-                                        0, /* PaUtilConverter *Float32_Int8; */
-                                        0, /* PaUtilConverter *Float32_Int8_Dither; */
-                                        0, /* PaUtilConverter *Float32_Int8_Clip; */
-                                        0, /* PaUtilConverter *Float32_Int8_DitherClip; */
+    0, /* PaUtilConverter *Float32_To_Int16; */
+    0, /* PaUtilConverter *Float32_To_Int16_Dither; */
+    0, /* PaUtilConverter *Float32_To_Int16_Clip; */
+    0, /* PaUtilConverter *Float32_To_Int16_DitherClip; */
 
-                                        0, /* PaUtilConverter *Float32_UInt8; */
-                                        0, /* PaUtilConverter *Float32_UInt8_Dither; */
-                                        0, /* PaUtilConverter *Float32_UInt8_Clip; */
-                                        0, /* PaUtilConverter *Float32_UInt8_DitherClip; */
+    0, /* PaUtilConverter *Float32_To_Int8; */
+    0, /* PaUtilConverter *Float32_To_Int8_Dither; */
+    0, /* PaUtilConverter *Float32_To_Int8_Clip; */
+    0, /* PaUtilConverter *Float32_To_Int8_DitherClip; */
 
-                                        0, /* PaUtilConverter *Int32_Float32; */
-                                        0, /* PaUtilConverter *Int32_Int16; */
-                                        0, /* PaUtilConverter *Int32_Int16_Dither; */
-                                        0, /* PaUtilConverter *Int32_Int8; */
-                                        0, /* PaUtilConverter *Int32_Int8_Dither; */
-                                        0, /* PaUtilConverter *Int32_UInt8; */
-                                        0, /* PaUtilConverter *Int32_UInt8_Dither; */
+    0, /* PaUtilConverter *Float32_To_UInt8; */
+    0, /* PaUtilConverter *Float32_To_UInt8_Dither; */
+    0, /* PaUtilConverter *Float32_To_UInt8_Clip; */
+    0, /* PaUtilConverter *Float32_To_UInt8_DitherClip; */
 
-                                        0, /* PaUtilConverter *Int16_Float32; */
-                                        0, /* PaUtilConverter *Int16_Int32; */
-                                        0, /* PaUtilConverter *Int16_Int8; */
-                                        0, /* PaUtilConverter *Int16_Int8_Dither; */
-                                        0, /* PaUtilConverter *Int16_UInt8; */
-                                        0, /* PaUtilConverter *Int16_UInt8_Dither; */
+    0, /* PaUtilConverter *Int32_To_Float32; */
+    0, /* PaUtilConverter *Int32_To_Int24; */
+    0, /* PaUtilConverter *Int32_To_Int24_Dither; */
+    0, /* PaUtilConverter *Int32_To_Int16; */
+    0, /* PaUtilConverter *Int32_To_Int16_Dither; */
+    0, /* PaUtilConverter *Int32_To_Int8; */
+    0, /* PaUtilConverter *Int32_To_Int8_Dither; */
+    0, /* PaUtilConverter *Int32_To_UInt8; */
+    0, /* PaUtilConverter *Int32_To_UInt8_Dither; */
 
-                                        0, /* PaUtilConverter *Int8_Float32; */
-                                        0, /* PaUtilConverter *Int8_Int32; */
-                                        0, /* PaUtilConverter *Int8_Int16; */
-                                        0, /* PaUtilConverter *Int8_UInt8; */
+    0, /* PaUtilConverter *Int24_To_Float32; */
+    0, /* PaUtilConverter *Int24_To_Int32; */
+    0, /* PaUtilConverter *Int24_To_Int16; */
+    0, /* PaUtilConverter *Int24_To_Int16_Dither; */
+    0, /* PaUtilConverter *Int24_To_Int8; */
+    0, /* PaUtilConverter *Int24_To_Int8_Dither; */
+    0, /* PaUtilConverter *Int24_To_UInt8; */
+    0, /* PaUtilConverter *Int24_To_UInt8_Dither; */
+    
+    0, /* PaUtilConverter *Int16_To_Float32; */
+    0, /* PaUtilConverter *Int16_To_Int32; */
+    0, /* PaUtilConverter *Int16_To_Int24; */
+    0, /* PaUtilConverter *Int16_To_Int8; */
+    0, /* PaUtilConverter *Int16_To_Int8_Dither; */
+    0, /* PaUtilConverter *Int16_To_UInt8; */
+    0, /* PaUtilConverter *Int16_To_UInt8_Dither; */
 
-                                        0, /* PaUtilConverter *UInt8_Float32; */
-                                        0, /* PaUtilConverter *UInt8_Int16; */
-                                        0, /* PaUtilConverter *UInt8_Int32; */
-                                        0, /* PaUtilConverter *UInt8_Int8; */
-                                    };
+    0, /* PaUtilConverter *Int8_To_Float32; */
+    0, /* PaUtilConverter *Int8_To_Int32; */
+    0, /* PaUtilConverter *Int8_To_Int24 */
+    0, /* PaUtilConverter *Int8_To_Int16; */
+    0, /* PaUtilConverter *Int8_To_UInt8; */
 
-#else
+    0, /* PaUtilConverter *UInt8_To_Float32; */
+    0, /* PaUtilConverter *UInt8_To_Int32; */
+    0, /* PaUtilConverter *UInt8_To_Int24; */
+    0, /* PaUtilConverter *UInt8_To_Int16; */
+    0, /* PaUtilConverter *UInt8_To_Int8; */
+
+    0, /* PaUtilConverter *Copy_8_To_8; */
+    0, /* PaUtilConverter *Copy_16_To_16; */
+    0, /* PaUtilConverter *Copy_24_To_24; */
+    0  /* PaUtilConverter *Copy_32_To_32; */
+};
+
+/* -------------------------------------------------------------------------- */
+
+#else /* PA_NO_STANDARD_CONVERTERS is not defined */
 
 /* -------------------------------------------------------------------------- */
 
@@ -262,7 +304,7 @@ static const double const_1_div_2147483648_ = 1.0 / 2147483648.0; /* 32 bit mult
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int32(
+static void Float32_To_Int32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -284,7 +326,7 @@ static void Float32_Int32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int32_Dither(
+static void Float32_To_Int32_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -307,7 +349,7 @@ static void Float32_Int32_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int32_Clip(
+static void Float32_To_Int32_Clip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -330,7 +372,7 @@ static void Float32_Int32_Clip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int32_DitherClip(
+static void Float32_To_Int32_DitherClip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -355,7 +397,47 @@ static void Float32_Int32_DitherClip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int16(
+static void Float32_To_Int24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Float32_To_Int24_Dither(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Float32_To_Int24_Clip(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Float32_To_Int24_DitherClip(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Float32_To_Int16(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -377,7 +459,7 @@ static void Float32_Int16(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int16_Dither(
+static void Float32_To_Int16_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -400,7 +482,7 @@ static void Float32_Int16_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int16_Clip(
+static void Float32_To_Int16_Clip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -423,7 +505,7 @@ static void Float32_Int16_Clip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int16_DitherClip(
+static void Float32_To_Int16_DitherClip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -449,7 +531,7 @@ static void Float32_Int16_DitherClip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int8(
+static void Float32_To_Int8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -470,7 +552,7 @@ static void Float32_Int8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int8_Dither(
+static void Float32_To_Int8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -494,7 +576,7 @@ static void Float32_Int8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int8_Clip(
+static void Float32_To_Int8_Clip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -516,7 +598,7 @@ static void Float32_Int8_Clip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_Int8_DitherClip(
+static void Float32_To_Int8_DitherClip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -541,7 +623,7 @@ static void Float32_Int8_DitherClip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_UInt8(
+static void Float32_To_UInt8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -562,7 +644,7 @@ static void Float32_UInt8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_UInt8_Dither(
+static void Float32_To_UInt8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -583,7 +665,7 @@ static void Float32_UInt8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_UInt8_Clip(
+static void Float32_To_UInt8_Clip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -604,7 +686,7 @@ static void Float32_UInt8_Clip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Float32_UInt8_DitherClip(
+static void Float32_To_UInt8_DitherClip(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -625,7 +707,7 @@ static void Float32_UInt8_DitherClip(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_Float32(
+static void Int32_To_Float32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -645,7 +727,39 @@ static void Int32_Float32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_Int16(
+static void Int32_To_Int24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int32_To_Int24_Dither(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int32_To_Int16(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -666,7 +780,7 @@ static void Int32_Int16(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_Int16_Dither(
+static void Int32_To_Int16_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -687,7 +801,7 @@ static void Int32_Int16_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_Int8(
+static void Int32_To_Int8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -708,7 +822,7 @@ static void Int32_Int8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_Int8_Dither(
+static void Int32_To_Int8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -729,7 +843,7 @@ static void Int32_Int8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_UInt8(
+static void Int32_To_UInt8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -750,7 +864,7 @@ static void Int32_UInt8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int32_UInt8_Dither(
+static void Int32_To_UInt8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -771,7 +885,129 @@ static void Int32_UInt8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_Float32(
+static void Int24_To_Float32(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_Int32(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_Int16(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_Int16_Dither(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_Int8(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_Int8_Dither(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_UInt8(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int24_To_UInt8_Dither(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int16_To_Float32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -792,7 +1028,7 @@ static void Int16_Float32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_Int32(
+static void Int16_To_Int32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -813,7 +1049,23 @@ static void Int16_Int32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_Int8(
+static void Int16_To_Int24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int16_To_Int8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -834,7 +1086,7 @@ static void Int16_Int8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_Int8_Dither(
+static void Int16_To_Int8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -855,7 +1107,7 @@ static void Int16_Int8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_UInt8(
+static void Int16_To_UInt8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -876,7 +1128,7 @@ static void Int16_UInt8(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int16_UInt8_Dither(
+static void Int16_To_UInt8_Dither(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -897,7 +1149,7 @@ static void Int16_UInt8_Dither(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int8_Float32(
+static void Int8_To_Float32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -918,7 +1170,7 @@ static void Int8_Float32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int8_Int32(
+static void Int8_To_Int32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -939,7 +1191,17 @@ static void Int8_Int32(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int8_Int16(
+static void Int8_To_Int24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Int8_To_Int16(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -960,7 +1222,7 @@ static void Int8_Int16(
 
 /* -------------------------------------------------------------------------- */
 
-static void Int8_UInt8(
+static void Int8_To_UInt8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -981,7 +1243,7 @@ static void Int8_UInt8(
 
 /* -------------------------------------------------------------------------- */
 
-static void UInt8_Float32(
+static void UInt8_To_Float32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -1003,7 +1265,7 @@ static void UInt8_Float32(
 
 /* -------------------------------------------------------------------------- */
 
-static void UInt8_Int32(
+static void UInt8_To_Int32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -1024,7 +1286,23 @@ static void UInt8_Int32(
 
 /* -------------------------------------------------------------------------- */
 
-static void UInt8_Int16(
+static void UInt8_To_Int24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    (void) destinationBuffer; /* unused parameters */
+    (void) destinationStride; /* unused parameters */
+    (void) sourceBuffer; /* unused parameters */
+    (void) sourceStride; /* unused parameters */
+    (void) count; /* unused parameters */
+    (void) ditherGenerator; /* unused parameters */
+    /* IMPLEMENT ME */
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void UInt8_To_Int16(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -1045,7 +1323,7 @@ static void UInt8_Int16(
 
 /* -------------------------------------------------------------------------- */
 
-static void UInt8_Int8(
+static void UInt8_To_Int8(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
     unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
@@ -1066,52 +1344,163 @@ static void UInt8_Int8(
 
 /* -------------------------------------------------------------------------- */
 
+static void Copy_8_To_8(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+                                                      
+    (void) ditherGenerator; /* unused parameter */
+
+    while( count-- )
+    {
+        *dest = *src;
+
+        src += sourceStride;
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Copy_16_To_16(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    unsigned short *src = (unsigned short*)sourceBuffer;
+    unsigned short *dest = (unsigned short*)destinationBuffer;
+                                                        
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        *dest = *src;
+
+        src += sourceStride;
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Copy_24_To_24(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    unsigned char *src = (unsigned char*)sourceBuffer;
+    unsigned char *dest = (unsigned char*)destinationBuffer;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        dest[0] = src[0];
+        dest[1] = src[1];
+        dest[2] = src[2];
+
+        src += sourceStride * 3;
+        dest += destinationStride * 3;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void Copy_32_To_32(
+    void *destinationBuffer, signed int destinationStride,
+    void *sourceBuffer, signed int sourceStride,
+    unsigned int count, PaUtilTriangularDitherGenerator *ditherGenerator )
+{
+    unsigned long *dest = (unsigned long*)destinationBuffer;
+    unsigned long *src = (unsigned long*)sourceBuffer;
+
+    (void) ditherGenerator; /* unused parameter */
+    
+    while( count-- )
+    {
+        *dest = *src;
+
+        src += sourceStride;
+        dest += destinationStride;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
 
 PaUtilConverterTable paConverters = {
-                                        Float32_Int32,              /* PaUtilConverter *Float32_Int32; */
-                                        Float32_Int32_Dither,       /* PaUtilConverter *Float32_Int32_Dither; */
-                                        Float32_Int32_Clip,         /* PaUtilConverter *Float32_Int32_Clip; */
-                                        Float32_Int32_DitherClip,   /* PaUtilConverter *Float32_Int32_DitherClip; */
+    Float32_To_Int32,              /* PaUtilConverter *Float32_To_Int32; */
+    Float32_To_Int32_Dither,       /* PaUtilConverter *Float32_To_Int32_Dither; */
+    Float32_To_Int32_Clip,         /* PaUtilConverter *Float32_To_Int32_Clip; */
+    Float32_To_Int32_DitherClip,   /* PaUtilConverter *Float32_To_Int32_DitherClip; */
 
-                                        Float32_Int16,              /* PaUtilConverter *Float32_Int16; */
-                                        Float32_Int16_Dither,       /* PaUtilConverter *Float32_Int16_Dither; */
-                                        Float32_Int16_Clip,         /* PaUtilConverter *Float32_Int16_Clip; */
-                                        Float32_Int16_DitherClip,   /* PaUtilConverter *Float32_Int16_DitherClip; */
+    Float32_To_Int24,              /* PaUtilConverter *Float32_To_Int24; */
+    Float32_To_Int24_Dither,       /* PaUtilConverter *Float32_To_Int24_Dither; */
+    Float32_To_Int24_Clip,         /* PaUtilConverter *Float32_To_Int24_Clip; */
+    Float32_To_Int24_DitherClip,   /* PaUtilConverter *Float32_To_Int24_DitherClip; */
+    
+    Float32_To_Int16,              /* PaUtilConverter *Float32_To_Int16; */
+    Float32_To_Int16_Dither,       /* PaUtilConverter *Float32_To_Int16_Dither; */
+    Float32_To_Int16_Clip,         /* PaUtilConverter *Float32_To_Int16_Clip; */
+    Float32_To_Int16_DitherClip,   /* PaUtilConverter *Float32_To_Int16_DitherClip; */
 
-                                        Float32_Int8,               /* PaUtilConverter *Float32_Int8; */
-                                        Float32_Int8_Dither,        /* PaUtilConverter *Float32_Int8_Dither; */
-                                        Float32_Int8_Clip,          /* PaUtilConverter *Float32_Int8_Clip; */
-                                        Float32_Int8_DitherClip,    /* PaUtilConverter *Float32_Int8_DitherClip; */
+    Float32_To_Int8,               /* PaUtilConverter *Float32_To_Int8; */
+    Float32_To_Int8_Dither,        /* PaUtilConverter *Float32_To_Int8_Dither; */
+    Float32_To_Int8_Clip,          /* PaUtilConverter *Float32_To_Int8_Clip; */
+    Float32_To_Int8_DitherClip,    /* PaUtilConverter *Float32_To_Int8_DitherClip; */
 
-                                        Float32_UInt8,              /* PaUtilConverter *Float32_UInt8; */
-                                        Float32_UInt8_Dither,       /* PaUtilConverter *Float32_UInt8_Dither; */
-                                        Float32_UInt8_Clip,         /* PaUtilConverter *Float32_UInt8_Clip; */
-                                        Float32_UInt8_DitherClip,   /* PaUtilConverter *Float32_UInt8_DitherClip; */
+    Float32_To_UInt8,              /* PaUtilConverter *Float32_To_UInt8; */
+    Float32_To_UInt8_Dither,       /* PaUtilConverter *Float32_To_UInt8_Dither; */
+    Float32_To_UInt8_Clip,         /* PaUtilConverter *Float32_To_UInt8_Clip; */
+    Float32_To_UInt8_DitherClip,   /* PaUtilConverter *Float32_To_UInt8_DitherClip; */
 
-                                        Int32_Float32,              /* PaUtilConverter *Int32_Float32; */
-                                        Int32_Int16,                /* PaUtilConverter *Int32_Int16; */
-                                        Int32_Int16_Dither,         /* PaUtilConverter *Int32_Int16_Dither; */
-                                        Int32_Int8,                 /* PaUtilConverter *Int32_Int8; */
-                                        Int32_Int8_Dither,          /* PaUtilConverter *Int32_Int8_Dither; */
-                                        Int32_UInt8,                /* PaUtilConverter *Int32_UInt8; */
-                                        Int32_UInt8_Dither,         /* PaUtilConverter *Int32_UInt8_Dither; */
+    Int32_To_Float32,              /* PaUtilConverter *Int32_To_Float32; */
+    Int32_To_Int24,                /* PaUtilConverter *Int32_To_Int24; */
+    Int32_To_Int24_Dither,         /* PaUtilConverter *Int32_To_Int24_Dither; */
+    Int32_To_Int16,                /* PaUtilConverter *Int32_To_Int16; */
+    Int32_To_Int16_Dither,         /* PaUtilConverter *Int32_To_Int16_Dither; */
+    Int32_To_Int8,                 /* PaUtilConverter *Int32_To_Int8; */
+    Int32_To_Int8_Dither,          /* PaUtilConverter *Int32_To_Int8_Dither; */
+    Int32_To_UInt8,                /* PaUtilConverter *Int32_To_UInt8; */
+    Int32_To_UInt8_Dither,         /* PaUtilConverter *Int32_To_UInt8_Dither; */
 
-                                        Int16_Float32,              /* PaUtilConverter *Int16_Float32; */
-                                        Int16_Int32,                /* PaUtilConverter *Int16_Int32; */
-                                        Int16_Int8,                 /* PaUtilConverter *Int16_Int8; */
-                                        Int16_Int8_Dither,          /* PaUtilConverter *Int16_Int8_Dither; */
-                                        Int16_UInt8,                /* PaUtilConverter *Int16_UInt8; */
-                                        Int16_UInt8_Dither,         /* PaUtilConverter *Int16_UInt8_Dither; */
+    Int24_To_Float32,              /* PaUtilConverter *Int24_To_Float32; */
+    Int24_To_Int32,                /* PaUtilConverter *Int24_To_Int32; */
+    Int24_To_Int16,                /* PaUtilConverter *Int24_To_Int16; */
+    Int24_To_Int16_Dither,         /* PaUtilConverter *Int24_To_Int16_Dither; */
+    Int24_To_Int8,                 /* PaUtilConverter *Int24_To_Int8; */
+    Int24_To_Int8_Dither,          /* PaUtilConverter *Int24_To_Int8_Dither; */
+    Int24_To_UInt8,                /* PaUtilConverter *Int24_To_UInt8; */
+    Int24_To_UInt8_Dither,         /* PaUtilConverter *Int24_To_UInt8_Dither; */
 
-                                        Int8_Float32,               /* PaUtilConverter *Int8_Float32; */
-                                        Int8_Int32,                 /* PaUtilConverter *Int8_Int32; */
-                                        Int8_Int16,                 /* PaUtilConverter *Int8_Int16; */
-                                        Int8_UInt8,                 /* PaUtilConverter *Int8_UInt8; */
+    Int16_To_Float32,              /* PaUtilConverter *Int16_To_Float32; */
+    Int16_To_Int32,                /* PaUtilConverter *Int16_To_Int32; */
+    Int16_To_Int24,                /* PaUtilConverter *Int16_To_Int24; */
+    Int16_To_Int8,                 /* PaUtilConverter *Int16_To_Int8; */
+    Int16_To_Int8_Dither,          /* PaUtilConverter *Int16_To_Int8_Dither; */
+    Int16_To_UInt8,                /* PaUtilConverter *Int16_To_UInt8; */
+    Int16_To_UInt8_Dither,         /* PaUtilConverter *Int16_To_UInt8_Dither; */
 
-                                        UInt8_Float32,              /* PaUtilConverter *UInt8_Float32; */
-                                        UInt8_Int32,                /* PaUtilConverter *UInt8_Int32; */
-                                        UInt8_Int16,                /* PaUtilConverter *UInt8_Int16; */
-                                        UInt8_Int8,                 /* PaUtilConverter *UInt8_Int8; */
-                                    };
+    Int8_To_Float32,               /* PaUtilConverter *Int8_To_Float32; */
+    Int8_To_Int32,                 /* PaUtilConverter *Int8_To_Int32; */
+    Int8_To_Int24,                 /* PaUtilConverter *Int8_To_Int24 */
+    Int8_To_Int16,                 /* PaUtilConverter *Int8_To_Int16; */
+    Int8_To_UInt8,                 /* PaUtilConverter *Int8_To_UInt8; */
+
+    UInt8_To_Float32,              /* PaUtilConverter *UInt8_To_Float32; */
+    UInt8_To_Int32,                /* PaUtilConverter *UInt8_To_Int32; */
+    UInt8_To_Int24,                /* PaUtilConverter *UInt8_To_Int24; */
+    UInt8_To_Int16,                /* PaUtilConverter *UInt8_To_Int16; */
+    UInt8_To_Int8,                 /* PaUtilConverter *UInt8_To_Int8; */
+
+    Copy_8_To_8,                   /* PaUtilConverter *Copy_8_To_8; */
+    Copy_16_To_16,                 /* PaUtilConverter *Copy_16_To_16; */
+    Copy_24_To_24,                 /* PaUtilConverter *Copy_24_To_24; */
+    Copy_32_To_32                  /* PaUtilConverter *Copy_32_To_32; */
+};
+
+/* -------------------------------------------------------------------------- */
 
 #endif /* PA_NO_STANDARD_CONVERTERS */
