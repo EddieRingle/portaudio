@@ -52,7 +52,9 @@ int Pa_GetVersion( void );
 const char* Pa_GetVersionText( void );
 
 
-/** Error codes returned by PortAudio functions. */
+/** Error codes returned by PortAudio functions.
+ Note that with the exception of paNoError, all PaErrorCodes are negative.
+*/
 
 typedef int PaError;
 typedef enum PaErrorCode
@@ -85,10 +87,10 @@ typedef enum PaErrorCode
 } PaErrorCode;
 
 
-/** Translate the supplied PortAudio error number into a human readable
+/** Translate the supplied PortAudio error code into a human readable
  message.
 */
-const char *Pa_GetErrorText( PaError errorNumber );
+const char *Pa_GetErrorText( PaError errorCode );
 
 
 /** Library initialization function - call this before using PortAudio.
@@ -167,9 +169,9 @@ typedef int PaHostApiIndex;
 /** Retrieve the number of available host APIs. Even if a host API is
  available it may have no devices available.
 
- @return A non-negative value indicating the number of available host APIs.
- Returns a negative PaErrorCode if PortAudio is not initialized or an error
- is encountered.
+ @return A non-negative value indicating the number of available host APIs
+ or, a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
 
  @see PaHostApiIndex
 */
@@ -181,22 +183,22 @@ PaHostApiIndex Pa_GetHostApiCount( void );
  unlikely to provide the best performance.
 
  @return A non-negative value ranging from 0 to (Pa_GetHostApiCount()-1)
- indicating the default host API index, or a negative PaErrorCode if
- an error is encountered.
+ indicating the default host API index or, a PaErrorCode (which are always
+ negative) if PortAudio is not initialized or an error is encountered.
 */
 PaHostApiIndex Pa_GetDefaultHostApi( void );
 
 
 /** Unchanging unique identifiers for each supported host API. This type
-    is used in the PaHostApiInfo structure. The values are guaranteed to be
-    unique and to never change, thus allowing code to be written that
-    conditionally uses host API specific extensions.
+ is used in the PaHostApiInfo structure. The values are guaranteed to be
+ unique and to never change, thus allowing code to be written that
+ conditionally uses host API specific extensions.
 
-    New type ids will be allocated when support for a host API reaches
-    "public alpha" status, prior to that developers should use the
-    paInDevelopment type id.
+ New type ids will be allocated when support for a host API reaches
+ "public alpha" status, prior to that developers should use the
+ paInDevelopment type id.
 
-    @see PaHostApiInfo
+ @see PaHostApiInfo
 */
 typedef enum PaHostApiTypeId
 {
@@ -268,10 +270,12 @@ const PaHostApiInfo * Pa_GetHostApiInfo( PaHostApiIndex hostApi );
  @param type A unique host API identifier belonging to the PaHostApiTypeId
  enumeration.
 
- @return A valid PaHostApiIndex ranging from 0 to (Pa_GetHostApiCount()-1), or
- a negative PaErrorCode if PortAudio is not initialized or an error is
- encountered. The paHostApiNotFound error code indicates that the host API
- specified by the type parameter is not available.
+ @return A valid PaHostApiIndex ranging from 0 to (Pa_GetHostApiCount()-1) or,
+ a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
+ 
+ The paHostApiNotFound error code indicates that the host API specified by the
+ type parameter is not available.
 
  @see PaHostApiTypeId
 */
@@ -287,10 +291,13 @@ PaHostApiIndex Pa_HostApiTypeIdToHostApiIndex( PaHostApiTypeId type );
  @param hostApiDeviceIndex A valid per-host device index in the range
  0 to (Pa_GetHostApiInfo(hostApi)->deviceCount-1)
 
- @return A non-negative PaDeviceIndex ranging from 0 to (Pa_GetDeviceCount()-1),
- or a negative PaErrorCode if an error is encountered.
- A paInvalidHostApi error code indicates that the host API index
- specified by the hostApi parameter is out of range.
+ @return A non-negative PaDeviceIndex ranging from 0 to (Pa_GetDeviceCount()-1)
+ or, a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
+
+ A paInvalidHostApi error code indicates that the host API index specified by
+ the hostApi parameter is out of range.
+
  A paInvalidDevice error code indicates that the hostApiDeviceIndex parameter
  is out of range.
  
@@ -330,11 +337,11 @@ const PaHostErrorInfo* Pa_GetLastHostErrorInfo( void );
 /* Device enumeration and capabilities */
 
 /** Retrieve the number of available devices. The number of available devices
-    may be zero.
+ may be zero.
 
-    @return A non-negative value indicating the number of available devices,
-    or a negative PaErrorCode if PortAudio is not initialized or an error
-    is encountered.
+ @return A non-negative value indicating the number of available devices or,
+ a PaErrorCode (which are always negative) if PortAudio is not initialized
+ or an error is encountered.
 */
 PaDeviceIndex Pa_GetDeviceCount( void );
 
@@ -492,11 +499,8 @@ typedef struct PaStreamParameters
 
     /** An optional pointer to a host api specific data structure
      containing additional information for device setup and/or stream processing.
-     hostApiSpecificStreamInfo is never required for correct operation.
-     If not used it should be set to paNullHostApiSpecificStreamInfo (aka NULL)
-     FIXME: redocument this based on new changes:
-     If hostApiSpecificStreamInfo is supplied, it's
-     size and hostApi fields must be compatible with the input devices host api.
+     hostApiSpecificStreamInfo is never required for correct operation,
+     if not used it should be set to NULL.
     */
     void *hostApiSpecificStreamInfo;
 
@@ -882,27 +886,33 @@ PaError Pa_StopStream( PaStream *stream );
 PaError Pa_AbortStream( PaStream *stream );
 
 
-/** @return Returns one (1) when the stream is stopped, zero (0) when
-    the stream is running, or a negative error number if the stream
-    is invalid. A stream is considered to be stopped prior to a successful
-    call to Pa_StartStream and after a successful call to Pa_StopStream
-    or Pa_AbortStream. If a stream callback returns a value other than
-    paContinue the stream is NOT considered to be stopped.
+/** Determine whether the stream is stopped.
+ A stream is considered to be stopped prior to a successful call to
+ Pa_StartStream and after a successful call to Pa_StopStream or Pa_AbortStream.
+ If a stream callback returns a value other than paContinue the stream is NOT
+ considered to be stopped.
+
+ @return Returns one (1) when the stream is stopped, zero (0) when
+ the stream is running or, a PaErrorCode (which are always negative) if
+ PortAudio is not initialized or an error is encountered.
+
+ @see Pa_StopStream, Pa_AbortStream, Pa_IsStreamActive
 */
 PaError Pa_IsStreamStopped( PaStream *stream );
 
 
-/** @return Returns one (1) when the stream is active (ie playing
- or recording audio), zero (0) when not playing, or a negative error number
- if the stream is invalid.
-
+/** Determine whether the stream is active.
  A stream is active after a successful call to Pa_StartStream(), until it
  becomes inactive either as a result of a call to Pa_StopStream() or
  Pa_AbortStream(), or as a result of a return value other than paContinue from
- the stream callback. In the latter case, the stream is considered inactive after
- the last buffer has finished playing.
+ the stream callback. In the latter case, the stream is considered inactive
+ after the last buffer has finished playing.
 
- @see Pa_StopStream, Pa_AbortStream
+ @return Returns one (1) when the stream is active (ie playing or recording
+ audio), zero (0) when not playing or, a PaErrorCode (which are always negative)
+ if PortAudio is not initialized or an error is encountered.
+
+ @see Pa_StopStream, Pa_AbortStream, Pa_IsStreamStopped
 */
 PaError Pa_IsStreamActive( PaStream *stream );
 
@@ -961,11 +971,11 @@ typedef struct PaStreamInfo
 const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream );
 
 
-/**
- @return The current time (in seconds) according to the same clock used to
- generate buffer timestamps for stream.
- This time may be used for syncronising other events to the audio stream,
- for example synchronizing audio to MIDI.
+/** Determine the current time for the stream according to the same clock used
+ to generate buffer timestamps. This time may be used for syncronising other
+ events to the audio stream, for example synchronizing audio to MIDI.
+                                        
+ @return The stream's current time in seconds.
 
  @see PaTime, PaStreamCallback
 */
@@ -1043,9 +1053,10 @@ PaError Pa_WriteStream( PaStream* stream,
 /** Retrieve the number of frames that can be read from the stream without
  waiting.
 
- @return If non-negative, the return value is the maximum number of frames
- that can be read from the stream without blocking or busy waiting. A
- negative value is a PaErrorCode.
+ @return Returns a non-negative value representing the maximum number of frames
+ that can be read from the stream without blocking or busy waiting or, a
+ PaErrorCode (which are always negative) if PortAudio is not initialized or an
+ error is encountered.
 */
 signed long Pa_GetStreamReadAvailable( PaStream* stream );
 
@@ -1053,9 +1064,10 @@ signed long Pa_GetStreamReadAvailable( PaStream* stream );
 /** Retrieve the number of frames that can be written to the stream without
  waiting.
 
- @return If non-negative, the return value is the maximum number of frames
- that can be written to the stream without blocking or busy waiting. A
- negative value is a PaErrorCode.
+ @return Returns a non-negative value representing the maximum number of frames
+ that can be written to the stream without blocking or busy waiting or, a
+ PaErrorCode (which are always negative) if PortAudio is not initialized or an
+ error is encountered.
 */
 signed long Pa_GetStreamWriteAvailable( PaStream* stream );
 
@@ -1063,19 +1075,20 @@ signed long Pa_GetStreamWriteAvailable( PaStream* stream );
 /* Miscellaneous utilities */
 
 
-/**
+/** Retrieve the size of a given sample format in bytes.
+
  @return The size in bytes of a single sample in the specified format,
  or paSampleFormatNotSupported if the format is not supported.
 */
 PaError Pa_GetSampleSize( PaSampleFormat format );
 
 
-/** Puts the caller to sleep for at least 'msec' milliseconds.
- It may sleep longer than requested so don't rely on this for accurate
- musical timing.
+/** Put the caller to sleep for at least 'msec' milliseconds. This function is
+ provided only as a convenience for authors of portable code (such as the tests
+ and examples in the PortAudio distribution.)
 
- This function is provided only as a convenience for authors of portable code
- (such as the tests and examples in the PortAudio distribution.)
+ The function may sleep longer than requested so don't rely on this for accurate
+ musical timing.
 */
 void Pa_Sleep( long msec );
 
