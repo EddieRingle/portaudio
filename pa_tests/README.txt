@@ -30,7 +30,7 @@ o- patest_sine8.c
 o- patest_sine_formats.c
 o- patest_sine_time.c
 x- patest_start_stop.c
-o- patest_stop.c
+x- patest_stop.c
 x- patest_sync.c
 o- patest_toomanysines.c
 o- patest_underflow.c

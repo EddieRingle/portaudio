@@ -10,7 +10,6 @@
 	Then a simple 8 note sequence is repeated twice.
 	The program will print what you should hear.
 
-	@todo needs to be updated to use the V19 API
 	@author Phil Burk <philburk@softsynth.com>
 */
 /*
@@ -47,11 +46,12 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
+
 #define OUTPUT_DEVICE       (Pa_GetDefaultOutputDevice())
 #define SLEEP_DUR           (200)
 #define SAMPLE_RATE         (44100)
 #define FRAMES_PER_BUFFER   (256)
-#define LATENCY_MSEC        (3000)
+#define LATENCY_SECONDS     (3.f)
 #define FRAMES_PER_NOTE     (SAMPLE_RATE/2)
 #define MAX_REPEATS         (2)
 #define FUNDAMENTAL         (400.0f / SAMPLE_RATE)
@@ -67,6 +67,7 @@
 #define M_PI  (3.14159265)
 #endif
 #define TABLE_SIZE   (400)
+
 typedef struct
 {
     float  waveform[TABLE_SIZE + 1]; // add one for guard point for interpolation
@@ -77,14 +78,16 @@ typedef struct
     int    frameCounter;
     int    noteCounter;
     int    repeatCounter;
-    PaTimestamp    outTime;
+    PaTime outTime;
     int    stopMode;
     int    done;
 }
 paTestData;
+
 /************* Prototypes *****************************/
 int TestStopMode( paTestData *data );
 float LookupWaveform( paTestData *data, float phase );
+
 /******************************************************
  * Convert phase between 0.0 and 1.0 to waveform value 
  * using linear interpolation.
@@ -99,23 +102,30 @@ float LookupWaveform( paTestData *data, float phase )
     float val = lo + fract*(hi-lo);
     return val;
 }
+
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
 */
-static int patestCallback( void *inputBuffer, void *outputBuffer,
-                           unsigned long framesPerBuffer,
-                           PaTimestamp outTime, void *userData )
+static int patestCallback(  void *inputBuffer, void *outputBuffer,
+                            unsigned long framesPerBuffer,
+                            const PaStreamCallbackTimeInfo* timeInfo,
+                            PaStreamCallbackFlags statusFlags,
+                            void *userData )
 {
     paTestData *data = (paTestData*)userData;
     float *out = (float*)outputBuffer;
     float value;
     unsigned int i = 0;
     int finished = paContinue;
-    (void) outTime; /* Prevent unused variable warnings. */
-    (void) inputBuffer;
 
-    data->outTime = outTime;
+    (void) inputBuffer;     /* Prevent unused variable warnings. */
+    (void) timeInfo;
+    (void) statusFlags;
+
+
+    /* data->outTime = outTime; */
+    
     if( !data->done )
     {
         for( i=0; i<framesPerBuffer; i++ )
@@ -164,82 +174,90 @@ static int patestCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    paTestData DATA;
+    paTestData data;
     int i;
     float simpleTune[] = { NOTE_0, NOTE_1, NOTE_2, NOTE_3, NOTE_4, NOTE_3, NOTE_2, NOTE_1 };
-    printf("PortAudio Test: play song and test stopping. ask for %d latency\n", LATENCY_MSEC );
+    
+    printf("PortAudio Test: play song and test stopping. ask for %f seconds latency\n", LATENCY_SECONDS );
     /* initialise sinusoidal wavetable */
     for( i=0; i<TABLE_SIZE; i++ )
     {
-        DATA.waveform[i] = (float) (
+        data.waveform[i] = (float) (
                                (0.2 * sin( ((double)i/(double)TABLE_SIZE) * M_PI * 2. )) +
                                (0.2 * sin( ((double)(3*i)/(double)TABLE_SIZE) * M_PI * 2. )) +
                                (0.1 * sin( ((double)(5*i)/(double)TABLE_SIZE) * M_PI * 2. ))
                            );
     }
-    DATA.waveform[TABLE_SIZE] = DATA.waveform[0]; // set guard point
-    DATA.tune = &simpleTune[0];
-    DATA.notesPerTune = sizeof(simpleTune) / sizeof(float);
+    data.waveform[TABLE_SIZE] = data.waveform[0]; // set guard point
+    data.tune = &simpleTune[0];
+    data.notesPerTune = sizeof(simpleTune) / sizeof(float);
+
     printf("Test MODE_FINISH - callback returns 1.\n");
-    printf("Should hear entire %d note tune repeated twice.\n", DATA.notesPerTune);
-    DATA.stopMode = MODE_FINISH;
-    if( TestStopMode( &DATA ) != paNoError )
+    printf("Should hear entire %d note tune repeated twice.\n", data.notesPerTune);
+    data.stopMode = MODE_FINISH;
+    if( TestStopMode( &data ) != paNoError )
     {
         printf("Test of MODE_FINISH failed!\n");
         goto error;
     }
+
     printf("Test MODE_STOP - stop when song is done.\n");
-    printf("Should hear entire %d note tune repeated twice.\n", DATA.notesPerTune);
-    DATA.stopMode = MODE_STOP;
-    if( TestStopMode( &DATA ) != paNoError )
+    printf("Should hear entire %d note tune repeated twice.\n", data.notesPerTune);
+    data.stopMode = MODE_STOP;
+    if( TestStopMode( &data ) != paNoError )
     {
         printf("Test of MODE_STOP failed!\n");
         goto error;
     }
 
     printf("Test MODE_ABORT - abort immediately.\n");
-    printf("Should hear last repetition cut short by %d msec.\n", LATENCY_MSEC);
-    DATA.stopMode = MODE_ABORT;
-    if( TestStopMode( &DATA ) != paNoError )
+    printf("Should hear last repetition cut short by %f seconds.\n", LATENCY_SECONDS);
+    data.stopMode = MODE_ABORT;
+    if( TestStopMode( &data ) != paNoError )
     {
         printf("Test of MODE_ABORT failed!\n");
         goto error;
     }
+
     return 0;
+
 error:
     return 1;
 }
 
 int TestStopMode( paTestData *data )
 {
+    PaStreamParameters outputParameters;
     PaStream *stream;
     PaError err;
+    
     data->done = 0;
     data->phase = 0.0;
     data->frameCounter = 0;
     data->noteCounter = 0;
     data->repeatCounter = 0;
     data->phase_increment = data->tune[data->noteCounter];
+    
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
+
+    outputParameters.device = OUTPUT_DEVICE;
+    outputParameters.channelCount = 2;          /* stereo output */
+    outputParameters.sampleFormat = paFloat32;  /* 32 bit floating point output */
+    outputParameters.suggestedLatency = LATENCY_SECONDS;
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+    
     err = Pa_OpenStream(
               &stream,
-              paNoDevice,/* default input device */
-              0,              /* no input */
-              paFloat32,  /* 32 bit floating point input */
-              0, 
-              NULL,
-              OUTPUT_DEVICE,
-              2,          /* stereo output */
-              paFloat32,      /* 32 bit floating point output */
-              LATENCY_MSEC,
-              NULL,
+              NULL, /* no input */
+              &outputParameters,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               data );
     if( err != paNoError ) goto error;
+
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
 
@@ -279,9 +297,12 @@ int TestStopMode( paTestData *data )
     printf("Call Pa_CloseStream()\n"); fflush(stdout);
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
+
     Pa_Terminate();
     printf("Test finished.\n");
+
     return err;
+
 error:
     Pa_Terminate();
     fprintf( stderr, "An error occured while using the portaudio stream\n" );
