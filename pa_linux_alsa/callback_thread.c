@@ -35,11 +35,11 @@ static int wait( PaAlsaStream *stream )
         /* if the main thread has requested that we stop, do so now */
         pthread_testcancel();
 
-        /*printf("still polling...\n");
+        /*PA_DEBUG(("still polling...\n"));
         if( need_capture )
-            printf("need capture.\n");
+            PA_DEBUG(("need capture.\n"));
         if( need_playback )
-            printf("need playback.\n"); */
+            PA_DEBUG(("need playback.\n")); */
 
         /* get the fds, packing all applicable fds into a single array,
          * so we can check them all with a single poll() call */
@@ -82,7 +82,7 @@ static int wait( PaAlsaStream *stream )
                                               stream->playback_nfds, &revents );
             //if( revents & POLLOUT )
             //if( revents & POLLERR )
-            //    printf("polling error!");
+            //    PA_DEBUG(("polling error!"));
             if( revents == POLLOUT )
                 need_playback = 0;
         }
@@ -194,9 +194,9 @@ static int setup_buffers( PaAlsaStream *stream, int frames_avail )
 
     common_frames_avail = MIN(capture_frames_avail, playback_frames_avail);
     common_frames_avail -= common_frames_avail % stream->frames_per_period;
-    //printf( "%d capture frames available\n", capture_frames_avail );
-    //printf( "%d frames playback available\n", playback_frames_avail );
-    //printf( "%d frames available\n", common_frames_avail );
+    //PA_DEBUG(( "%d capture frames available\n", capture_frames_avail ));
+    //PA_DEBUG(( "%d frames playback available\n", playback_frames_avail ));
+    //PA_DEBUG(( "%d frames available\n", common_frames_avail ));
 
     if( stream->pcm_capture )
         PaUtil_SetInputFrameCount( &stream->bufferProcessor, common_frames_avail );
@@ -255,7 +255,7 @@ void *CallbackThread( void *userData )
                 float playback_time= playback_timestamp.tv_sec +
                                      ((float)playback_timestamp.tv_usec/1000000);
                 if( fabsf(capture_time-playback_time) > 0.01 )
-                    printf("Capture time and playback time differ by %f\n", fabsf(capture_time-playback_time));
+                    PA_DEBUG(("Capture time and playback time differ by %f\n", fabsf(capture_time-playback_time)));
                 timeInfo.currentTime = capture_time;
             }
             else if( stream->pcm_playback )
@@ -300,7 +300,7 @@ void *CallbackThread( void *userData )
 
         while( frames_avail > 0 )
         {
-            //printf( "%d frames available\n", frames_avail );
+            //PA_DEBUG(( "%d frames available\n", frames_avail ));
 
             /* Now we know the soundcard is ready to produce/receive at least
              * one period.  We just need to get the buffers for the client

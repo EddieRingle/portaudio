@@ -450,11 +450,11 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
 {
 #define ENSURE(functioncall)   \
     if( (functioncall) < 0 ) { \
-        printf("Error executing ALSA call, line %d\n", __LINE__); \
+        PA_DEBUG(("Error executing ALSA call, line %d\n", __LINE__)); \
         return 1; \
     } \
     else { \
-        printf("ALSA call at line %d succeeded\n", __LINE__ ); \
+        PA_DEBUG(("ALSA call at line %d succeeded\n", __LINE__ )); \
     }
 
     snd_pcm_access_t access_mode;
@@ -466,7 +466,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     else
         numPeriods = ( (latency*rate) / framesPerBuffer ) + 1;
 
-    printf("latency: %f, rate: %ld, framesPerBuffer: %d\n", latency, rate, framesPerBuffer);
+    PA_DEBUG(("latency: %f, rate: %ld, framesPerBuffer: %d\n", latency, rate, framesPerBuffer));
     if( numPeriods <= 1 )
         numPeriods = 2;
 
@@ -521,11 +521,11 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
             break;
 
         default:
-            printf("Unknown PortAudio format %ld\n", pa_format );
+            PA_DEBUG(("Unknown PortAudio format %ld\n", pa_format ));
             return 1;
     }
-    //printf("PortAudio format: %d\n", pa_format);
-    printf("ALSA format: %d\n", alsa_format);
+    //PA_DEBUG(("PortAudio format: %d\n", pa_format));
+    PA_DEBUG(("ALSA format: %d\n", alsa_format));
     ENSURE( snd_pcm_hw_params_set_format( stream, hw_params, alsa_format ) );
 
     /* ... set the sample rate */
@@ -538,7 +538,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
     ENSURE( snd_pcm_hw_params_set_period_size( stream, hw_params, 
                                                framesPerBuffer, 0 ) );
 
-    printf("numperiods: %d\n", numPeriods);
+    PA_DEBUG(("numperiods: %d\n", numPeriods));
     if( snd_pcm_hw_params_set_periods ( stream, hw_params, numPeriods, 0 ) < 0 )
     {
         int i;
@@ -546,7 +546,7 @@ static PaError ConfigureStream( snd_pcm_t *stream, int channels,
         {
             if( snd_pcm_hw_params_set_periods( stream, hw_params, i, 0 ) >= 0 )
             {
-                printf("settled on %d periods\n", i);
+                PA_DEBUG(("settled on %d periods\n", i));
                 break;
             }
         }
@@ -748,7 +748,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 #define ENSURE(x) \
             if ( (x) < 0 ) \
             { \
-                printf("failed at line %d\n", __LINE__); \
+                PA_DEBUG(("failed at line %d\n", __LINE__)); \
                 continue; \
             }
 
@@ -787,7 +787,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     if( numPeriods <= 1 )
                         numPeriods = 2;
 
-                    printf("trying periodSize=%d, numPeriods=%d, sampleRate=%f, channels=%d\n", periodSize, numPeriods, sampleRate, channels);
+                    PA_DEBUG(("trying periodSize=%d, numPeriods=%d, sampleRate=%f, channels=%d\n", periodSize, numPeriods, sampleRate, channels));
                     ENSURE( snd_pcm_hw_params_any( pcm_handle, hw_params ) );
                     ENSURE( snd_pcm_hw_params_set_rate( pcm_handle, hw_params, sampleRate, 0 ) );
                     ENSURE( snd_pcm_hw_params_set_channels( pcm_handle, hw_params, channels ) );
@@ -796,7 +796,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
                     /* if we made it this far, we have a winner. */
                     framesPerHostBuffer = periodSize;
-                    printf("I came up with %ld frames per host buffer.\n", framesPerHostBuffer);
+                    PA_DEBUG(("I came up with %ld frames per host buffer.\n", framesPerHostBuffer));
                     break;
                 }
 
@@ -950,11 +950,11 @@ static PaError StartStream( PaStream *s )
             PaHostErrorInfo err; \
             err.errorCode = error_ret; \
             err.hostApiType = paALSA; \
-            printf("call at %d failed\n", __LINE__); \
+            PA_DEBUG(("call at %d failed\n", __LINE__)); \
             return paUnanticipatedHostError; \
         } \
         else \
-            printf("call at line %d succeeded\n", __LINE__); \
+            PA_DEBUG(("call at line %d succeeded\n", __LINE__)); \
     }
 
     if( stream->pcm_playback )
@@ -962,11 +962,11 @@ static PaError StartStream( PaStream *s )
         const snd_pcm_channel_area_t *playback_areas, *area;
         snd_pcm_uframes_t offset, frames;
         int sample_size = Pa_GetSampleSize( stream->playback_hostsampleformat );
-        printf("Sample size: %d\n", sample_size );
+        PA_DEBUG(("Sample size: %d\n", sample_size ));
         ENSURE( snd_pcm_prepare( stream->pcm_playback ) );
         frames = snd_pcm_avail_update( stream->pcm_playback );
-        printf("frames: %ld\n", frames );
-        printf("channels: %d\n", stream->playback_channels );
+        PA_DEBUG(("frames: %ld\n", frames ));
+        PA_DEBUG(("channels: %d\n", stream->playback_channels ));
 
         snd_pcm_mmap_begin( stream->pcm_playback, &playback_areas, &offset, &frames );
 
