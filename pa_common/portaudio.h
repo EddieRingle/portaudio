@@ -398,6 +398,7 @@ typedef struct PaDeviceInfo
     int structVersion;  /* this is struct version 2 */
     const char *name;
     PaHostApiIndex hostApi; /* note this is a host API index, not a type id*/
+    
     int maxInputChannels;
     int maxOutputChannels;
 
@@ -408,14 +409,7 @@ typedef struct PaDeviceInfo
     PaTime defaultHighInputLatency;
     PaTime defaultHighOutputLatency;
 
-
-    /* THE FOLLOWING FIELDS WILL BE REMOVED in favour of Pa_IsFormatSupported() */
-
-    /* Number of discrete rates, or -1 if range supported. */
-    int numSampleRates;
-    /* Array of supported sample rates, or {min,max} if range supported. */
-    const double *sampleRates;
-    PaSampleFormat nativeSampleFormats;
+    double defaultSampleRate;
 } PaDeviceInfo;
 
 
@@ -492,8 +486,35 @@ typedef struct PaStreamParameters
 } PaStreamParameters;
 
 
+/** Return code for Pa_IsFormatSupported indicating success. */
+#define paFormatIsSupported (0)
 
-// Pa_IsFormatSupported goes here
+/** Determine whether it would be possible to open a stream with the specified
+ parameters.
+
+ @param inputParameters A structure that describes the input parameters used to
+ open a stream. The suggestedLatency field is ignored. See PaStreamParameters
+ for a description of these parameters. inputParameters must be NULL for
+ output-only streams.
+
+ @param outputParameters A structure that describes the output parameters used
+ to open a stream. The suggestedLatency field is ignored. See PaStreamParameters
+ for a description of these parameters. outputParameters must be NULL for
+ input-only streams.
+
+ @param sampleRate The required sampleRate. For full-duplex streams it is the
+ sample rate for both input and output
+
+ @return Returns 0 if the format is supported, and an error code indicating why
+ the format is not supported otherwise. The constant paFormatIsSupported is
+ provided to compare with the return value for success.
+
+ @see paFormatIsSupported, PaStreamParameters
+*/
+PaError Pa_IsFormatSupported( const PaStreamParameters *inputParameters,
+                              const PaStreamParameters *outputParameters,
+                              double sampleRate );
+
 
 
 /* Streaming types and functions */
