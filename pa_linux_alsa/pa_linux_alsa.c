@@ -1330,7 +1330,7 @@ static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags 
     InitializeThreading( &stream->threading, &stream->cpuLoadMeasurer );
 
     memset( &stream->capture, 0, sizeof (PaAlsaStreamComponent) );
-    memset( &stream->capture, 0, sizeof (PaAlsaStreamComponent) );
+    memset( &stream->playback, 0, sizeof (PaAlsaStreamComponent) );
 }
 
 /* We need to determine how many frames per host buffer to use.  Our
