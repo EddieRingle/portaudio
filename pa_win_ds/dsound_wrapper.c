@@ -167,19 +167,20 @@ void DSW_Term( DSoundWrapper *dsw )
         IDirectSoundBuffer_Release( dsw->dsw_OutputBuffer );
         dsw->dsw_OutputBuffer = NULL;
     }
-#if SUPPORT_AUDIO_CAPTURE
+
     if (dsw->dsw_InputBuffer)
     {
         IDirectSoundCaptureBuffer_Stop( dsw->dsw_InputBuffer );
         IDirectSoundCaptureBuffer_Release( dsw->dsw_InputBuffer );
         dsw->dsw_InputBuffer = NULL;
     }
+
     if (dsw->dsw_pDirectSoundCapture)
     {
         IDirectSoundCapture_Release( dsw->dsw_pDirectSoundCapture );
         dsw->dsw_pDirectSoundCapture = NULL;
     }
-#endif /* SUPPORT_AUDIO_CAPTURE */
+
     if (dsw->dsw_pDirectSound)
     {
         IDirectSound_Release( dsw->dsw_pDirectSound );
@@ -215,17 +216,20 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     DSBUFFERDESC   secondaryDesc;
     unsigned char* pDSBuffData;
     LARGE_INTEGER  counterFrequency;
+
     dsw->dsw_OutputSize = bytesPerBuffer;
     dsw->dsw_OutputRunning = FALSE;
     dsw->dsw_OutputUnderflows = 0;
     dsw->dsw_FramesWritten = 0;
-    dsw->dsw_BytesPerFrame = nChannels * sizeof(short);
+    dsw->dsw_BytesPerOutputFrame = nChannels * sizeof(short);
+
     // We were using getForegroundWindow() but sometimes the ForegroundWindow may not be the
     // applications's window. Also if that window is closed before the Buffer is closed
     // then DirectSound can crash. (Thanks for Scott Patterson for reporting this.)
     // So we will use GetDesktopWindow() which was suggested by Miller Puckette.
     // hWnd = GetForegroundWindow();
     hWnd = GetDesktopWindow();
+
     // Set cooperative level to DSSCL_EXCLUSIVE so that we can get 16 bit output, 44.1 KHz.
     // Exclusize also prevents unexpected sounds from other apps during a performance.
     if ((hr = IDirectSound_SetCooperativeLevel( dsw->dsw_pDirectSound,
@@ -233,6 +237,7 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     {
         return hr;
     }
+
     // -----------------------------------------------------------------------
     // Create primary buffer and set format just so we can specify our custom format.
     // Otherwise we would be stuck with the default which might be 8 bit or 22050 Hz.
@@ -255,6 +260,7 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     wfFormat.cbSize = 0;  /* No extended format info. */
     // Set the primary buffer's format
     if((result = IDirectSoundBuffer_SetFormat( pPrimaryBuffer, &wfFormat)) != DS_OK) return result;
+
     // ----------------------------------------------------------------------
     // Setup the secondary buffer description
     ZeroMemory(&secondaryDesc, sizeof(DSBUFFERDESC));
@@ -288,7 +294,7 @@ HRESULT DSW_InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int 
     {
         return hr;
     }
-    dsw->dsw_FramesWritten = dsw->dsw_WriteOffset / dsw->dsw_BytesPerFrame;
+    dsw->dsw_FramesWritten = dsw->dsw_WriteOffset / dsw->dsw_BytesPerOutputFrame;
     /* printf("DSW_InitOutputBuffer: playCursor = %d, writeCursor = %d\n", playCursor, dsw->dsw_WriteOffset ); */
     return DS_OK;
 }
@@ -398,7 +404,7 @@ HRESULT DSW_QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
             bytesPlayed += (buffersWrapped * dsw->dsw_OutputSize);
         }
         /* Maintain frame output cursor. */
-        dsw->dsw_FramesPlayed += (bytesPlayed / dsw->dsw_BytesPerFrame);
+        dsw->dsw_FramesPlayed += (bytesPlayed / dsw->dsw_BytesPerOutputFrame);
     }
     numBytesEmpty = playCursor - dsw->dsw_WriteOffset;
     if( numBytesEmpty < 0 ) numBytesEmpty += dsw->dsw_OutputSize; // unwrap offset
@@ -442,7 +448,7 @@ HRESULT DSW_ZeroEmptySpace( DSoundWrapper *dsw )
         // Update our buffer offset and unlock sound buffer
         dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + dwsize1 + dwsize2) % dsw->dsw_OutputSize;
         IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, lpbuf1, dwsize1, lpbuf2, dwsize2);
-        dsw->dsw_FramesWritten += bytesEmpty / dsw->dsw_BytesPerFrame;
+        dsw->dsw_FramesWritten += bytesEmpty / dsw->dsw_BytesPerOutputFrame;
     }
     return hr;
 }
@@ -469,7 +475,7 @@ HRESULT DSW_WriteBlock( DSoundWrapper *dsw, char *buf, long numBytes )
         // Update our buffer offset and unlock sound buffer
         dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + dwsize1 + dwsize2) % dsw->dsw_OutputSize;
         IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, lpbuf1, dwsize1, lpbuf2, dwsize2);
-        dsw->dsw_FramesWritten += numBytes / dsw->dsw_BytesPerFrame;
+        dsw->dsw_FramesWritten += numBytes / dsw->dsw_BytesPerOutputFrame;
     }
     return hr;
 }
@@ -484,7 +490,6 @@ DWORD DSW_GetOutputStatus( DSoundWrapper *dsw )
         return( status );
 }
 
-#if SUPPORT_AUDIO_CAPTURE
 /* These routines are used to support audio input.
  * Do NOT compile these calls when using NT4 because it does
  * not support the entry points.
@@ -502,6 +507,9 @@ HRESULT DSW_InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, int n
     DSCBUFFERDESC  captureDesc;
     WAVEFORMATEX   wfFormat;
     HRESULT        result;
+    
+    dsw->dsw_BytesPerInputFrame = nChannels * sizeof(short);
+
     // Define the buffer format
     wfFormat.wFormatTag      = WAVE_FORMAT_PCM;
     wfFormat.nChannels       = nChannels;
@@ -594,4 +602,3 @@ HRESULT DSW_ReadBlock( DSoundWrapper *dsw, char *buf, long numBytes )
     return hr;
 }
 
-#endif /* SUPPORT_AUDIO_CAPTURE */
