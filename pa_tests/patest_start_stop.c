@@ -1,5 +1,7 @@
 /** @file patest_start_stop.c
-	@brief Play a sine wave for several seconds - start and stop the stream multiple times.
+	@brief Play a sine wave for several seconds
+        - start and stop the stream multiple times.
+        
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>
 */
@@ -37,6 +39,8 @@
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
+
+#define OUTPUT_DEVICE Pa_GetDefaultOutputDevice()   /* default output device */
 
 #define NUM_SECONDS   (3)
 #define NUM_LOOPS     (4)
@@ -110,7 +114,7 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-    outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    outputParameters.device = OUTPUT_DEVICE;
     outputParameters.channelCount = 2;       /* stereo output */
     outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
