@@ -67,7 +67,7 @@
         if( UNLIKELY( (aErr_ = (expr)) < 0 ) ) \
         { \
             /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
-            if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
+            if( (code) == paUnanticipatedHostError && pthread_self() != callbackThread_ ) \
             { \
                 PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
             } \
@@ -82,7 +82,7 @@
     assert( aErr_ == success );
 
 static int aErr_;               /* Used with ENSURE_ */
-static pthread_t mainThread_;
+static pthread_t callbackThread_;
 
 typedef enum
 {
@@ -534,8 +534,6 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     PA_ENSURE( BuildDeviceList( alsaHostApi ) );
 
-    mainThread_ = pthread_self();
-
     PaUtil_InitializeStreamInterface( &alsaHostApi->callbackStreamInterface,
                                       CloseStream, StartStream,
                                       StopStream, AbortStream,
@@ -940,7 +938,6 @@ error:
     goto end;   /* No particular action */
 }
 
-
 /* Check against known device capabilities */
 static PaError ValidateParameters( const PaStreamParameters *parameters, PaUtilHostApiRepresentation *hostApi, StreamMode mode )
 {
@@ -976,7 +973,6 @@ error:
     return paNoError;
 }
 
-
 /* Given an open stream, what sample formats are available? */
 
 static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
@@ -1008,7 +1004,6 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
     return available;
 }
 
-
 static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
 {
     switch( paFormat )
@@ -1036,7 +1031,7 @@ static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
     }
 }
 
-/* Open an ALSA pcm handle.
+/** Open an ALSA pcm handle.
  * 
  * The device to be open can be specified in a custom PaAlsaStreamInfo struct, or it will be a device number. In case of a
  * device number, it maybe specified through an env variable (PA_ALSA_PLUGHW) that we should open the corresponding plugin
@@ -1351,7 +1346,8 @@ error:
 }
 
 static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiRepresentation *alsaApi, const PaStreamParameters *inParams,
-        const PaStreamParameters *outParams, double sampleRate, PaStreamCallback callback, PaStreamFlags streamFlags, void *userData )
+        const PaStreamParameters *outParams, double sampleRate, unsigned long framesPerUserBuffer, PaStreamCallback callback,
+        PaStreamFlags streamFlags, void *userData )
 {
     PaError result = paNoError;
     assert( self );
@@ -1373,6 +1369,7 @@ static PaError PaAlsaStream_Initialize( PaAlsaStream *self, PaAlsaHostApiReprese
                                                NULL, userData );
     }
 
+    self->framesPerUserBuffer = framesPerUserBuffer;
     self->neverDropInput = streamFlags & paNeverDropInput;
     /* XXX: Ignore paPrimeOutputBuffersUsingStreamCallback untill buffer priming is fully supported in pa_process.c */
     /*
@@ -1401,7 +1398,7 @@ error:
     return result;
 }
 
-/*! Free resources associated with stream, and eventually stream itself.
+/** Free resources associated with stream, and eventually stream itself.
  *
  * Frees allocated memory, and closes opened pcms.
  */
@@ -1468,10 +1465,10 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
         /* If the user expects a certain number of frames per callback we will either have to rely on block adaption
          * (framesPerHostBuffer is not an integer multiple of framesPerBuffer) or we can simply align the number
          * of host buffer frames with what the user specified */
-        /*
-        if( framesPerUserBuffer != paFramesPerBufferUnspecified )
+        if( self->framesPerUserBuffer != paFramesPerBufferUnspecified )
         {
-        */
+            self->alignFrames = 1;
+
             /* Unless the ratio between number of host and user buffer frames is an integer we will have to rely
              * on block adaption */
         /*
@@ -1480,8 +1477,8 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
                 self->useBlockAdaption = 1;
             else
                 self->alignFrames = 1;
-        }
         */
+        }
     }
 
 error:
@@ -1709,14 +1706,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* XXX: Why do we support this anyway? */
     if( framesPerBuffer == paFramesPerBufferUnspecified && getenv("PA_ALSA_PERIODSIZE") != NULL )
+    {
+        PA_DEBUG(( "%s: Getting framesPerBuffer from environment\n", __FUNCTION__ ));
         framesPerBuffer = atoi( getenv("PA_ALSA_PERIODSIZE") );
+    }
     framesPerHostBuffer = framesPerBuffer;
 
     /* allocate and do basic initialization of the stream structure */
 
     PA_UNLESS( stream = (PaAlsaStream*)PaUtil_AllocateMemory( sizeof(PaAlsaStream) ), paInsufficientMemory );
-    PA_ENSURE( PaAlsaStream_Initialize( stream, alsaHostApi, inputParameters, outputParameters, sampleRate, callback,
-                streamFlags, userData ) );
+    PA_ENSURE( PaAlsaStream_Initialize( stream, alsaHostApi, inputParameters, outputParameters, sampleRate,
+                framesPerBuffer, callback, streamFlags, userData ) );
 
     /* If the number of frames per buffer is unspecified, we have to come up with
      * one.  This is both a blessing and a curse: a blessing because we can optimize
@@ -1734,12 +1734,27 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     hostOutputSampleFormat = stream->playback.hostSampleFormat;
 
     if( !stream->useBlockAdaption )
+    {
         hostBufferSizeMode = paUtilFixedHostBufferSize;
+        PA_DEBUG(( "%s: Fixed host buffer size\n", __FUNCTION__ ));
+    }
     else if( framesPerHostBuffer >= framesPerBuffer )   /* This mode will skip buffers smaller than framesPerUserBuffer */
         hostBufferSizeMode = paUtilVariableHostBufferSizePartialUsageAllowed;
 
     if( hostBufferSizeMode == paUtilUnknownHostBufferSize )
-        PA_DEBUG(( "OK Unknown\n" ));
+        PA_DEBUG(( "%s: Unknown host buffer size\n", __FUNCTION__ ));
+    if( framesPerHostBuffer != framesPerBuffer )
+    {
+        PA_DEBUG(( "%s: Number of frames per user and host buffer differs\n", __FUNCTION__ ));
+    }
+    if( stream->alignFrames )
+    {
+        PA_DEBUG(( "%s: Aligning frames on a host buffer boundary\n", __FUNCTION__ ));
+    }
+    else
+    {
+        PA_DEBUG(( "%s: Not aligning frames on a host buffer boundary\n", __FUNCTION__ ));
+    }
 
     PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
@@ -1765,7 +1780,6 @@ error:
 
     return result;
 }
-
 
 /*
     When CloseStream() is called, the multi-api layer ensures that
@@ -1794,7 +1808,7 @@ static void SilenceBuffer( PaAlsaStream *stream )
     snd_pcm_mmap_commit( stream->playback.pcm, offset, frames );
 }
 
-/*! Start/prepare pcm(s) for streaming.
+/** Start/prepare pcm(s) for streaming.
  *
  * Depending on wether the stream is in callback or blocking mode, we will respectively start or simply
  * prepare the playback pcm. If the buffer has _not_ been primed, we will in callback mode prepare and
@@ -1837,7 +1851,8 @@ error:
     goto end;
 }
 
-/*! Utility function for determining if pcms are in running state.
+/** Utility function for determining if pcms are in running state.
+ *
  */
 static int IsRunning( PaAlsaStream *stream )
 {
@@ -1960,7 +1975,7 @@ error:
     goto end;
 }
 
-/*! Stop or abort stream.
+/** Stop or abort stream.
  *
  * If a stream is in callback mode we will have to inspect wether the background thread has
  * finished, or we will have to take it out. In either case we join the thread before
@@ -2019,8 +2034,9 @@ static PaError AbortStream( PaStream *s )
     return RealStop( (PaAlsaStream * ) s, 1 );
 }
 
-/*! The stream is considered stopped before StartStream, or AFTER a call to Abort/StopStream (callback
+/** The stream is considered stopped before StartStream, or AFTER a call to Abort/StopStream (callback
  * returning !paContinue is not considered)
+ *
  */
 static PaError IsStreamStopped( PaStream *s )
 {
@@ -2062,7 +2078,6 @@ static PaTime GetStreamTime( PaStream *s )
     snd_pcm_status_get_tstamp( status, &timestamp );
     return timestamp.tv_sec + (PaTime)timestamp.tv_usec / 1000000.0;
 }
-
 
 static double GetStreamCpuLoad( PaStream* s )
 {
@@ -2106,7 +2121,6 @@ static int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate
 
     return err;
 }
-
 
 /* Utility functions for blocking/callback interfaces */
 
@@ -2600,6 +2614,7 @@ static void *CallbackThreadFunc( void *userData )
 
     assert( userData );
 
+    callbackThread_ = pthread_self();
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
 
     /* Priming output? Prepare first */
@@ -2693,6 +2708,7 @@ static void *CallbackThreadFunc( void *userData )
 
             CalculateTimeInfo( stream, &timeInfo );
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
+            cbFlags = 0;
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             /* Invoke the callback if we have any frames */
@@ -2701,7 +2717,6 @@ static void *CallbackThreadFunc( void *userData )
             framesProcessed = framesGot ? PaUtil_EndBufferProcessing( &stream->bufferProcessor,
                                                           &callbackResult ) : 0;
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-            cbFlags = 0;    /* Reset callback flags now that they should be received by the callback */
 
             /* Take note that framesProcessed may differ from framesGot, if we've allowed for partial
              * consumption of the host buffer (paUtilVariableHostBufferSizePartialUsageAllowed) */
@@ -2920,7 +2935,6 @@ error:
     goto end;
 }
 
-
 /* Return frames available for reading. In the event of an overflow, the capture pcm will be restarted */
 static signed long GetStreamReadAvailable( PaStream* s )
 {
@@ -2946,7 +2960,6 @@ static signed long GetStreamReadAvailable( PaStream* s )
 error:
     return result;
 }
-
 
 /* Return frames available for writing. In the event of an underflow, the playback pcm will be prepared */
 static signed long GetStreamWriteAvailable( PaStream* s )
