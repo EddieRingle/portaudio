@@ -33,6 +33,7 @@
  
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/time.h>
 
 #include "pa_util.h"
 
@@ -101,8 +102,9 @@ void PaUtil_InitializeClock( void )
 }
 
 
-double PaUtil_GetTime( void )
+PaTime PaUtil_GetTime( void )
 {
-    /* TODO */
-    return 0.0; /* Surpress warning. */
+    struct timeval tv;
+    gettimeofday( &tv, NULL );
+    return (PaTime) tv.tv_usec / 1000000 + (PaTime) tv.tv_sec;
 }
