@@ -121,14 +121,15 @@ int main(void)
               Pa_GetDefaultInputDevice(), /* default output device */
               2,               /* stereo input */
               PA_SAMPLE_TYPE,
+              0, /* use default input latency */
               NULL,
               Pa_GetDefaultOutputDevice(), /* default output device */
               2,               /* stereo output */
               PA_SAMPLE_TYPE,
+              0, /* use default output latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,
-              0,             /* number of buffers, if zero then use default minimum */
               0, // paClipOff,     /* we won't output out of range samples so don't bother clipping them */
               fuzzCallback,
               NULL );
