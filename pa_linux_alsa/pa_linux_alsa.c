@@ -1528,7 +1528,7 @@ static PaError DetermineFramesPerBuffer( const PaAlsaStream *stream, double samp
         /* Come up with a common desired latency */
         pcm = stream->playback.pcm;
         snd_pcm_hw_params_any( pcm, hwParamsPlayback );
-        ENSURE_( SetApproximateSampleRate( pcm, hwParamsPlayback, sampleRate ), paBadIODeviceCombination );
+        ENSURE_( SetApproximateSampleRate( pcm, hwParamsPlayback, sampleRate ), paInvalidSampleRate );
         ENSURE_( snd_pcm_hw_params_set_channels( pcm, hwParamsPlayback, outputParameters->channelCount ),
                 paBadIODeviceCombination );
 
@@ -1644,7 +1644,7 @@ static PaError DetermineFramesPerBuffer( const PaAlsaStream *stream, double samp
         }
 
         ENSURE_( snd_pcm_hw_params_any( pcm, hwParams ), paUnanticipatedHostError );
-        ENSURE_( SetApproximateSampleRate( pcm, hwParams, sampleRate ), paBadIODeviceCombination );
+        ENSURE_( SetApproximateSampleRate( pcm, hwParams, sampleRate ), paInvalidSampleRate );
         ENSURE_( snd_pcm_hw_params_set_channels( pcm, hwParams, channels ), paBadIODeviceCombination );
 
         ENSURE_( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
@@ -1705,7 +1705,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     /* XXX: Why do we support this anyway? */
-    if( framesPerBuffer == paFramesPerBufferUnspecified && getenv("PA_ALSA_PERIODSIZE") != NULL )
+    if( framesPerBuffer == paFramesPerBufferUnspecified && getenv( "PA_ALSA_PERIODSIZE" ) != NULL )
     {
         PA_DEBUG(( "%s: Getting framesPerBuffer from environment\n", __FUNCTION__ ));
         framesPerBuffer = atoi( getenv("PA_ALSA_PERIODSIZE") );
@@ -2356,7 +2356,6 @@ static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
     assert( !(captureAvail == playbackAvail == INT_MAX) );
 
     commonAvail = PA_MIN( captureAvail, playbackAvail );
-    /* commonAvail -= commonAvail % stream->frames_per_period; */
 
     if( xrun )
     {
@@ -2709,7 +2708,8 @@ static void *CallbackThreadFunc( void *userData )
             cbFlags = 0;
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-            /* Invoke the callback if we have any frames */
+            /* Invoke the callback if we have any frames, it could be that we just want to sink frames in one
+             * of the directions */
             if( callbackResult != paContinue )
                 PA_DEBUG(( "callbackResult == %d\n", callbackResult ));
             framesProcessed = framesGot ? PaUtil_EndBufferProcessing( &stream->bufferProcessor,
@@ -2772,6 +2772,16 @@ static void *CallbackThreadFunc( void *userData )
                         /* Go on if buffered (from adaptation) output */
                         PaUtil_IsBufferProcessorOutputEmpty( &stream->bufferProcessor ) ) 
                     goto end;
+            }
+
+            /* XXX: Not entirely sure of this */
+            /* If no frames are processed we will want to go back to poll for more frames. This could happen if we
+             * receive less than a buffer's worth of frames from ALSA and we are aligning on a host buffer boundary.
+             */
+            if( framesProcessed == 0 )
+            {
+                PA_DEBUG(( "%s: framesProcessed == 0\n", __FUNCTION__ ));
+                break;   /* Go back to polling */
             }
 
             framesAvail -= framesProcessed;
