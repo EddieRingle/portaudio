@@ -778,12 +778,8 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
     PaError result;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-    
-#if MAC
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paMacOSASIO );
-#elif WINDOWS
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paWin32ASIO );
-#endif
+
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
 
     if( result == paNoError )
     {
@@ -958,13 +954,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     *hostApi = &asioHostApi->commonHostApiRep;
     (*hostApi)->info.structVersion = 1;
 
-    /* REVIEW: should we really have separate host api type ids for windows and macintosh? */
-#if MAC
-    (*hostApi)->info.type = paMacOSASIO;
-#elif WINDOWS
-    (*hostApi)->info.type = paWin32ASIO;
-#endif
-
+    (*hostApi)->info.type = paASIO;
     (*hostApi)->info.name = "ASIO";
     (*hostApi)->deviceCount = 0;
 

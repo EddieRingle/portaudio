@@ -166,15 +166,14 @@ typedef int PaHostApiIndex;
 
 typedef enum {
     paInDevelopment=0, /* use while developing support for a new host API */
-    paWin32DirectSound=1,
-    paWin32MME=2,
-    paWin32ASIO=3,
-    paMacOSSoundManager=4,
-    paMacOSCoreAudio=5,
-    paMacOSASIO=6,
+    paDirectSound=1,
+    paMME=2,
+    paASIO=3,
+    paSoundManager=4,
+    paCoreAudio=5,
     paOSS=7,
     paALSA=8,
-    paIRIXAL=9,
+    paAL=9,
     paBeOS=10
 } PaHostApiTypeId;
 /**< Unchanging unique identifiers for each supported host API. This type

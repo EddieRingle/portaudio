@@ -426,7 +426,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
     *hostApi = &winDsHostApi->commonHostApiRep;
     (*hostApi)->info.structVersion = 1;
-    (*hostApi)->info.type = paWin32DirectSound;
+    (*hostApi)->info.type = paDirectSound;
     (*hostApi)->info.name = "Windows DirectSound";
     
     (*hostApi)->deviceCount = 0;  

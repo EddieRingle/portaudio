@@ -521,8 +521,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     *hostApi = &winMmeHostApi->commonHostApiRep;
     (*hostApi)->info.structVersion = 1;
-    (*hostApi)->info.type = paWin32MME;
-    (*hostApi)->info.name = "Windows MME";
+    (*hostApi)->info.type = paMME;
+    (*hostApi)->info.name = "MME";
 
     InitializeDeviceCountsAndDefaultDevices( winMmeHostApi );
 
