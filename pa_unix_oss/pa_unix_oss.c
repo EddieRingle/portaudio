@@ -1383,6 +1383,12 @@ static void OnExit( void *data )
 
     PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
 
+    /* Make devices block again */
+    if( stream->capture )
+        ModifyBlocking( stream->capture->fd, 1 );
+    if( stream->playback )
+        ModifyBlocking( stream->playback->fd, 1 );
+
     PaOssStream_Stop( stream, stream->callbackAbort );
     
     PA_DEBUG(( "OnExit: Stoppage\n" ));
@@ -1454,7 +1460,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
     PaOssStream *stream = (PaOssStream*)userData;
     unsigned long framesAvail, framesProcessed;
     int callbackResult = paContinue;
-    int triggered = stream->triggered;
+    int triggered = stream->triggered;  /* See if SNDCTL_DSP_TRIGGER has been issued already */
     int startProcessing = triggered;    /* Already triggered? */
     assert( stream );
 
