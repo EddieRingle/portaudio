@@ -46,7 +46,7 @@ const PaUtilHostApiInitializer *paHostApiInitializers[] =
 #endif
 
 #ifndef PA_NO_DS
-        //PaWinDs_Initialize,
+        PaWinDs_Initialize,
 #endif
 
 #ifndef PA_NO_ASIO
