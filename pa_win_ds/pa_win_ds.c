@@ -454,6 +454,10 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                 deviceInfo->defaultHighInputLatency = 0.;   /** @todo IMPLEMENT ME */
                 deviceInfo->defaultHighOutputLatency = 0.;  /** @todo IMPLEMENT ME */
                 deviceInfo->defaultSampleRate = 0;          /** @todo IMPLEMENT ME */
+
+
+                //printf( "min %d max %d\n", caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate );
+                // dwFlags | DSCAPS_CONTINUOUSRATE 
             }
         }
 
@@ -1046,11 +1050,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &winDsHostApi->blockingStreamInterface, streamCallback, userData );
     }
-
-    stream->streamRepresentation.streamInfo.inputLatency = 0.;  /* FIXME: not initialised anywhere else */
-    stream->streamRepresentation.streamInfo.outputLatency = 0.;
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
-
     
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
@@ -1080,6 +1079,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result != paNoError )
         goto error;
 
+
+    stream->streamRepresentation.streamInfo.inputLatency =
+            PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor);   /* FIXME: not initialised anywhere else */
+    stream->streamRepresentation.streamInfo.outputLatency =
+            PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor);    /* FIXME: not initialised anywhere else */
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+
+    
 /* DirectSound specific initialization */
     {
         HRESULT          hr;

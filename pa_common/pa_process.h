@@ -292,7 +292,7 @@ typedef struct {
 } PaUtilBufferProcessor;
 
 
-/** @name Initialization, termination, and resetting  */
+/** @name Initialization, termination, resetting and info */
 /*@{*/
 
 /** Initialize a buffer processor's representation stored in a
@@ -383,6 +383,27 @@ void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
  @param bufferProcessor The buffer processor to reset.
 */
 void PaUtil_ResetBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
+
+
+/** Retrieve the input latency of a buffer processor.
+
+ @param bufferProcessor The buffer processor examine.
+
+ @return The input latency introduced by the buffer processor, in frames.
+
+ @see PaUtil_GetBufferProcessorOutputLatency
+*/
+unsigned long PaUtil_GetBufferProcessorInputLatency( PaUtilBufferProcessor* bufferProcessor );
+
+/** Retrieve the output latency of a buffer processor.
+
+ @param bufferProcessor The buffer processor examine.
+
+ @return The output latency introduced by the buffer processor, in frames.
+
+ @see PaUtil_GetBufferProcessorInputLatency
+*/
+unsigned long PaUtil_GetBufferProcessorOutputLatency( PaUtilBufferProcessor* bufferProcessor );
 
 /*@}*/
 

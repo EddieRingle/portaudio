@@ -422,6 +422,18 @@ void PaUtil_ResetBufferProcessor( PaUtilBufferProcessor* bp )
 }
 
 
+unsigned long PaUtil_GetBufferProcessorInputLatency( PaUtilBufferProcessor* bp )
+{
+    return bp->initialFramesInTempInputBuffer;
+}
+
+
+unsigned long PaUtil_GetBufferProcessorOutputLatency( PaUtilBufferProcessor* bp )
+{
+    return bp->initialFramesInTempOutputBuffer;
+}
+
+
 void PaUtil_SetInputFrameCount( PaUtilBufferProcessor* bp,
         unsigned long frameCount )
 {

@@ -2019,10 +2019,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                            streamCallback, userData );
     streamRepresentationIsInitialized = 1;
 
-    stream->streamRepresentation.streamInfo.inputLatency = (double)(framesPerHostInputBuffer * (hostInputBufferCount-1)) / sampleRate;
-    stream->streamRepresentation.streamInfo.outputLatency = (double)(framesPerHostOutputBuffer * (hostOutputBufferCount-1)) / sampleRate;
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
@@ -2069,6 +2065,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result != paNoError ) goto error;
     
     bufferProcessorIsInitialized = 1;
+
+    stream->streamRepresentation.streamInfo.inputLatency =
+            (double)(PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor)
+                +(framesPerHostInputBuffer * (hostInputBufferCount-1))) / sampleRate;
+    stream->streamRepresentation.streamInfo.outputLatency =
+            (double)(PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor)
+                +(framesPerHostOutputBuffer * (hostOutputBufferCount-1))) / sampleRate;
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     stream->primeStreamUsingCallback = ( (streamFlags&paPrimeOutputBuffersUsingStreamCallback) && streamCallback ) ? 1 : 0;
 

@@ -484,14 +484,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                                &skeletonHostApi->blockingStreamInterface, streamCallback, userData );
     }
 
-    /*
-        IMPLEMENT ME: initialise the following fields with estimated or actual
-        values.
-    */
-    stream->streamRepresentation.streamInfo.inputLatency = 0.;
-    stream->streamRepresentation.streamInfo.outputLatency = 0.;
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
@@ -509,6 +501,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result != paNoError )
         goto error;
 
+
+    /*
+        IMPLEMENT ME: initialise the following fields with estimated or actual
+        values.
+    */
+    stream->streamRepresentation.streamInfo.inputLatency =
+            PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor);
+    stream->streamRepresentation.streamInfo.outputLatency =
+            PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor);
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+
+    
     /*
         IMPLEMENT ME:
             - additional stream setup + opening

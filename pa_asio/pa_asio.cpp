@@ -1099,7 +1099,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                     deviceInfo->defaultLowInputLatency = defaultLowLatency;
                     deviceInfo->defaultLowOutputLatency = defaultLowLatency;
 
-                    unsigned long defaultHighLatencyBufferSize =
+                    long defaultHighLatencyBufferSize =
                             paAsioDriverInfo.bufferPreferredSize * 3;
 
                     if( defaultHighLatencyBufferSize > paAsioDriverInfo.bufferMaxSize )
@@ -1782,22 +1782,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->outputBufferPtrs[1] = 0;
     }
 
-
-    ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
-
-    stream->streamRepresentation.streamInfo.inputLatency = (double)stream->inputLatency / sampleRate;   // seconds
-    stream->streamRepresentation.streamInfo.outputLatency = (double)stream->outputLatency / sampleRate; // seconds
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
-
-
-    PA_DEBUG(("PaAsio : InputLatency = %ld latency = %ld msec \n",
-            stream->inputLatency,
-            (long)((stream->inputLatency*1000)/ sampleRate)));
-    PA_DEBUG(("PaAsio : OuputLatency = %ld latency = %ld msec \n",
-            stream->outputLatency,
-            (long)((stream->outputLatency*1000)/ sampleRate)));
-
-
     if( numInputChannels > 0 )
     {
         /* FIXME: assume all channels use the same type for now */
@@ -1836,6 +1820,26 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
 
 
+    ASIOGetLatencies( &stream->inputLatency, &stream->outputLatency );
+
+    stream->streamRepresentation.streamInfo.inputLatency =
+            (double)( PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor)
+                + stream->inputLatency) / sampleRate;   // seconds
+    stream->streamRepresentation.streamInfo.outputLatency =
+            (double)( PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor)
+                + stream->outputLatency) / sampleRate; // seconds
+    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+
+    // the code below prints the ASIO latency which doesn't include the
+    // buffer processor latency.
+    PA_DEBUG(("PaAsio : ASIO InputLatency = %ld latency = %ld msec \n",
+            stream->inputLatency,
+            (long)((stream->inputLatency*1000)/ sampleRate)));
+    PA_DEBUG(("PaAsio : ASIO OuputLatency = %ld latency = %ld msec \n",
+            stream->outputLatency,
+            (long)((stream->outputLatency*1000)/ sampleRate)));
+
+            
     /* Reentrancy counter initialisation */
     stream->reenterCount = -1;
     stream->reenterError = 0;
@@ -2055,6 +2059,9 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
             paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
 
+            // note that the above input and output times do not need to be
+            // adjusted for the latency of the buffer processor -- the buffer
+            // processor handles that.
 
             if( theAsioStream->inputBufferConverter )
             {
