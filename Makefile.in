@@ -44,6 +44,7 @@ TESTS = \
 	bin/patest_latency \
 	bin/patest_leftright \
 	bin/patest_many \
+	bin/patest_pink \
 	bin/patest_prime \
 	bin/patest_read_record \
 	bin/patest_record \
