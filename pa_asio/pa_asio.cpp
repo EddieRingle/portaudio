@@ -106,6 +106,9 @@
         PaAsio_ShowControlPanel. - this would allow PaAsio_ShowControlPanel
         to be called for the currently open stream (at present all streams
         must be closed).
+
+    @todo fire an Event from the callback so that StopStream can wait for it,
+        and not prematurely terminate the stream before all data has been played.
 */
 
 
@@ -202,6 +205,27 @@ static ASIOCallbacks asioCallbacks_ =
 
 #define PA_ASIO_SET_LAST_HOST_ERROR( errorCode, errorText ) \
     PaUtil_SetLastHostErrorInfo( paASIO, errorCode, errorText )
+
+
+static void PaAsio_SetLastSystemError( DWORD errorCode )
+{
+    LPVOID lpMsgBuf;
+    FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+        NULL,
+        errorCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &lpMsgBuf,
+        0,
+        NULL
+    );
+    PaUtil_SetLastHostErrorInfo( paASIO, errorCode, (const char*)lpMsgBuf );
+    LocalFree( lpMsgBuf );
+}
+
+#define PA_ASIO_SET_LAST_SYSTEM_ERROR( errorCode ) \
+    PaAsio_SetLastSystemError( errorCode )
+
 
 static const char* PaAsio_GetAsioErrorText( ASIOError asioError )
 {
@@ -1248,8 +1272,12 @@ typedef struct PaAsioStream
     PaAsioBufferConverter *outputBufferConverter;
     long outputShift;
 
-    volatile int stopProcessing; /* stop thread once existing buffers have been returned */
-    volatile int abortProcessing; /* stop thread immediately */
+    volatile bool stopProcessing;
+    int stopPlayoutCount;
+    HANDLE completedBuffersPlayedEvent;
+                         
+    volatile int isActive;
+    volatile bool zeroOutput; /* all future calls to the callback will output silence */
 }
 PaAsioStream;
 
@@ -1341,7 +1369,7 @@ static unsigned long SelectHostBufferSize( unsigned long suggestedLatencyFrames,
 }
 
 
-/* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
+/* see pa_hostapi.h for a list of validity guarantees made about OpenStream  parameters */
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -1366,6 +1394,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     ASIOError asioError;
     int asioIsInitialized = 0;
     int asioBuffersCreated = 0;
+    int completedBuffersPlayedEventInited = 0;
     PaAsioDriverInfo driverInfo;
     int i;
 
@@ -1373,7 +1402,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         one device open at a time */
     if( asioHostApi->openAsioDeviceIndex != paNoDevice )
         return paDeviceUnavailable;
-
 
 
     if( inputParameters )
@@ -1431,8 +1459,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paBadIODeviceCombination;
     }
 
-
-
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
@@ -1486,6 +1512,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         result = paInsufficientMemory;
         goto error;
     }
+
+    stream->completedBuffersPlayedEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
+    if( stream->completedBuffersPlayedEvent == NULL )
+    {
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+        goto error;
+    }
+    completedBuffersPlayedEventInited = 1;
+
 
     stream->asioBufferInfos = 0; /* for deallocation in error */
     stream->asioChannelInfos = 0; /* for deallocation in error */
@@ -1691,7 +1727,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->numInputChannels = numInputChannels;
     stream->numOutputChannels = numOutputChannels;
     stream->postOutput = driverInfo.postOutput;
-
+    stream->isActive = 0;
+    
     asioHostApi->openAsioDeviceIndex = asioDeviceIndex;
 
     *s = (PaStream*)stream;
@@ -1701,6 +1738,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 error:
     if( stream )
     {
+        if( completedBuffersPlayedEventInited )
+            CloseHandle( stream->completedBuffersPlayedEvent );
+
         if( stream->asioBufferInfos )
             PaUtil_FreeMemory( stream->asioBufferInfos );
 
@@ -1741,6 +1781,8 @@ static PaError CloseStream( PaStream* s )
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
 
     stream->asioHostApi->openAsioDeviceIndex = paNoDevice;
+
+    CloseHandle( stream->completedBuffersPlayedEvent );
 
     PaUtil_FreeMemory( stream->asioBufferInfos );
     PaUtil_FreeMemory( stream->asioChannelInfos );
@@ -1837,8 +1879,8 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
     // Keep sample position
     // FIXME: asioDriverInfo.pahsc_NumFramesDone = timeInfo->timeInfo.samplePosition.lo;
 
-    if( theAsioStream->stopProcessing || theAsioStream->abortProcessing ) {
-
+    if( theAsioStream->zeroOutput )
+    {
         ZeroOutputBuffers( theAsioStream, index );
 
         // Finally if the driver supports the ASIOOutputReady() optimization,
@@ -1846,6 +1888,18 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         if( theAsioStream->postOutput )
             ASIOOutputReady();
 
+        if( theAsioStream->stopProcessing )
+        {
+            if( theAsioStream->stopPlayoutCount < 2 )
+            {
+                ++theAsioStream->stopPlayoutCount;
+                if( theAsioStream->stopPlayoutCount == 2 )
+                {
+                    theAsioStream->isActive = 0;
+                    SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                }
+            }
+        }
     }
     else
     {
@@ -1882,6 +1936,10 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             PaUtil_SetNonInterleavedOutputChannel( &theAsioStream->bufferProcessor, i, theAsioStream->outputBufferPtrs[index][i] );
 
         int callbackResult;
+        if( theAsioStream->stopProcessing )
+            callbackResult = paComplete;
+        else
+            callbackResult = paContinue;
         unsigned long framesProcessed = PaUtil_EndBufferProcessing( &theAsioStream->bufferProcessor, &callbackResult );
 
         if( theAsioStream->outputBufferConverter )
@@ -1906,13 +1964,21 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         }
         else if( callbackResult == paAbort )
         {
-            /* IMPLEMENT ME - finish playback immediately  */
+            /* finish playback immediately  */
+            theAsioStream->isActive = 0;
+            SetEvent( theAsioStream->completedBuffersPlayedEvent );
+            theAsioStream->zeroOutput = true;
         }
-        else
+        else /* paComplete or other non-zero value indicating complete */
         {
-            /* User callback has asked us to stop with paComplete or other non-zero value */
+            /* Finish playback once currently queued audio has completed. */
+            theAsioStream->stopProcessing = true;
 
-            /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
+            if( PaUtil_IsBufferProcessorOuputEmpty( &theAsioStream->bufferProcessor ) )
+            {
+                theAsioStream->zeroOutput = true;
+                theAsioStream->stopPlayoutCount = 0;
+            }
         }
     }
 
@@ -2027,18 +2093,32 @@ static PaError StartStream( PaStream *s )
         ZeroOutputBuffers( stream, 1 );
     }
 
-    stream->stopProcessing = 0;
-    stream->abortProcessing = 0;
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
+    stream->stopProcessing = false;
+    stream->zeroOutput = false;    
 
-    theAsioStream = stream;
-    asioError = ASIOStart();
-    if( asioError != ASE_OK )
+    if( ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
     {
-        theAsioStream = 0;
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
     }
 
+    if( result == paNoError )
+    {
+        theAsioStream = stream;
+        asioError = ASIOStart();
+        if( asioError == ASE_OK )
+        {
+            stream->isActive = 1;
+        }
+        else
+        {
+            theAsioStream = 0;
+            result = paUnanticipatedHostError;
+            PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        }
+    }
+    
     return result;
 }
 
@@ -2049,8 +2129,24 @@ static PaError StopStream( PaStream *s )
     PaAsioStream *stream = (PaAsioStream*)s;
     ASIOError asioError;
 
-    stream->stopProcessing = 1;
-    stream->abortProcessing = 1;
+    if( stream->isActive )
+    {
+        stream->stopProcessing = true;
+
+        /* wait for the stream to finish playing out enqueued buffers.
+            timeout after four times the stream latency.
+
+            @todo should use a better time out value - if the user buffer
+            length is longer than the asio buffer size then that should
+            be taken into account.
+        */
+        if( WaitForSingleObject( theAsioStream->completedBuffersPlayedEvent,
+                (DWORD)(stream->streamRepresentation.streamInfo.outputLatency * 1000. * 4.) )
+                    == WAIT_TIMEOUT	 )
+        {
+            PA_DEBUG(("WaitForSingleObject() timed out in StopStream()\n" ));
+        }
+    }
 
     asioError = ASIOStop();
     if( asioError != ASE_OK )
@@ -2060,15 +2156,31 @@ static PaError StopStream( PaStream *s )
     }
 
     theAsioStream = 0;
-
+    stream->isActive = 0;
+    
     return result;
 }
 
 
 static PaError AbortStream( PaStream *s )
 {
-    /* ASIO doesn't provide Abort behavior, so just stop instead */
-    return StopStream( s );
+    PaError result = paNoError;
+    PaAsioStream *stream = (PaAsioStream*)s;
+    ASIOError asioError;
+
+    stream->zeroOutput = true;
+
+    asioError = ASIOStop();
+    if( asioError != ASE_OK )
+    {
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+    }
+
+    theAsioStream = 0;
+    stream->isActive = 0;
+
+    return result;
 }
 
 
@@ -2082,9 +2194,9 @@ static PaError IsStreamStopped( PaStream *s )
 
 static PaError IsStreamActive( PaStream *s )
 {
-    //PaAsioStream *stream = (PaAsioStream*)s;
-    (void) s; /* unused parameter */
-    return theAsioStream != 0; /* FIXME: currently there is no way to stop the stream from the callback */
+    PaAsioStream *stream = (PaAsioStream*)s;
+
+    return stream->isActive;
 }
 
 
