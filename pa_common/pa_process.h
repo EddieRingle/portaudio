@@ -110,8 +110,15 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bufferProcessor
             unsigned long framesPerHostBuffer,
             PaUtilHostBufferSizeMode hostBufferSizeMode,
             PortAudioCallback *userCallback, void *userData );
-/**< interleave flag is ignored for host buffer formats. Host interleave
-is configured below.
+/**<
+
+    @param framesPerHostBuffer Specifies the number of frames per host buffer
+    for fixed the fixed buffer size mode, and the maximum number of frames
+    per host buffer for the bounded host buffer size mode. It is ignored for
+    the other modes.
+    
+    @note The interleave flag is ignored for host buffer formats. Host interleave
+    is determined by the use of different SetInput and SetOutput functions.
 */
 
 void PaUtil_TerminateBufferProcessor( PaUtilBufferProcessor* bufferProcessor );
