@@ -582,6 +582,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     PaUtil_FreeMemory( alsaHostApi );
+    snd_config_update_free_global();
 }
 
 /*! Determine max channels and default latencies.
@@ -715,6 +716,27 @@ error:
     return result;
 }
 
+/* Disregard standard plugins
+ * XXX: Might want to make the "default" plugin available, if we can make it work
+ */
+static int IgnorePlugin( const char *pluginId )
+{
+#define numIgnored 10
+    static const char *ignoredPlugins[numIgnored] = {"hw", "plughw", "plug", "default", "dsnoop", "dmix", "tee",
+        "file", "null", "shm"};
+    int i;
+
+    for( i = 0; i < numIgnored; ++i )
+    {
+        if( !strcmp( pluginId, ignoredPlugins[i] ) )
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
@@ -725,7 +747,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     PaError result = paNoError;
     size_t numDeviceNames = 0, maxDeviceNames = 1, i;
     DeviceNames *deviceNames = NULL;
-    snd_config_t *top;
+    snd_config_t *topNode = NULL;
     snd_pcm_info_t *pcmInfo;
     int res;
     int blocking = SND_PCM_NONBLOCK;
@@ -814,37 +836,36 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     }
 
     /* Iterate over plugin devices */
-    if( (res = snd_config_search( snd_config, "pcm", &top )) >= 0 )
+    if( (res = snd_config_search( snd_config, "pcm", &topNode )) >= 0 )
     {
         snd_config_iterator_t i, next;
-        const char *s;
 
-        snd_config_for_each( i, next, top )
+        snd_config_for_each( i, next, topNode )
         {
+            const char *tpStr = NULL, *idStr = NULL;
             char *alsaDeviceName, *deviceName;
-            snd_config_t *n = snd_config_iterator_entry( i ), *tp;
+            snd_config_t *n = snd_config_iterator_entry( i ), *tp = NULL;
             if( snd_config_get_type( n ) != SND_CONFIG_TYPE_COMPOUND )
                 continue;
 
-            /* Restrict search to nodes of type "plug" for now */
             ENSURE_( snd_config_search( n, "type", &tp ), paUnanticipatedHostError );
-            ENSURE_( snd_config_get_string( tp, &s ), paUnanticipatedHostError );
-            if( strcmp( s, "plug" ) )
-                continue;
+            ENSURE_( snd_config_get_string( tp, &tpStr ), paUnanticipatedHostError );
 
-            /* Disregard standard plugins
-             * XXX: Might want to make the "default" plugin available, if we can make it work
-             */
-            ENSURE_( snd_config_get_id( n, &s ), paUnanticipatedHostError );
-            if( !strcmp( s, "plughw" ) || !strcmp( s, "plug" ) || !strcmp( s, "default" ) )
+            ENSURE_( snd_config_get_id( n, &idStr ), paUnanticipatedHostError );
+            if( IgnorePlugin( idStr ) )
+            {
+                PA_DEBUG(( "%s: Ignoring ALSA plugin device %s of type %s\n", __FUNCTION__, idStr, tpStr ));
                 continue;
+            }
+
+            PA_DEBUG(( "%s: Found plugin %s of type %s\n", __FUNCTION__, idStr, tpStr ));
 
             PA_UNLESS( alsaDeviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
-                                                            strlen(s) + 6 ), paInsufficientMemory );
-            strcpy( alsaDeviceName, s );
+                                                            strlen(idStr) + 6 ), paInsufficientMemory );
+            strcpy( alsaDeviceName, idStr );
             PA_UNLESS( deviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
-                                                            strlen(s) + 1 ), paInsufficientMemory );
-            strcpy( deviceName, s );
+                                                            strlen(idStr) + 1 ), paInsufficientMemory );
+            strcpy( deviceName, idStr );
 
             ++numDeviceNames;
             if( !deviceNames || numDeviceNames > maxDeviceNames )
@@ -1085,9 +1106,9 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
     PaSampleFormat availableFormats;
     /* We are able to adapt to a number of channels less than what the device supports */
     unsigned int numHostChannels;
-    snd_pcm_hw_params_t *params;
-    snd_pcm_hw_params_alloca( &params );
-    
+    PaSampleFormat hostFormat;
+    snd_pcm_hw_params_t *hwParams;
+    snd_pcm_hw_params_alloca( &hwParams );
     
     if( !parameters->hostApiSpecificStreamInfo )
     {
@@ -1100,15 +1121,15 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
 
     PA_ENSURE( AlsaOpen( hostApi, parameters, streamMode, &pcm ) );
 
-    snd_pcm_hw_params_any( pcm, params );
+    snd_pcm_hw_params_any( pcm, hwParams );
 
-    if( SetApproximateSampleRate( pcm, params, sampleRate ) < 0 )
+    if( SetApproximateSampleRate( pcm, hwParams, sampleRate ) < 0 )
     {
         result = paInvalidSampleRate;
         goto error;
     }
 
-    if( snd_pcm_hw_params_set_channels( pcm, params, numHostChannels ) < 0 )
+    if( snd_pcm_hw_params_set_channels( pcm, hwParams, numHostChannels ) < 0 )
     {
         result = paInvalidChannelCount;
         goto error;
@@ -1116,7 +1137,10 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
 
     /* See if we can find a best possible match */
     availableFormats = GetAvailableFormats( pcm );
-    PA_ENSURE( PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
+    PA_ENSURE( hostFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
+    ENSURE_( snd_pcm_hw_params_set_format( pcm, hwParams, Pa2AlsaFormat( hostFormat ) ), paUnanticipatedHostError );
+
+    ENSURE_( snd_pcm_hw_params( pcm, hwParams ), paUnanticipatedHostError );
 
 end:
     if( pcm )
