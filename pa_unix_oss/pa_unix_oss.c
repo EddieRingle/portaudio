@@ -38,14 +38,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <sys/ioctl.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <alloca.h>
 #include <malloc.h>
 #include <assert.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/poll.h>
+#include <limits.h>
+#include <semaphore.h>
 
 #ifdef __linux__
 # include <linux/soundcard.h>
@@ -70,6 +75,7 @@
 */
 
 static int sysErr_;
+static pthread_t mainThread_;
 
 /* Check return value of system call, and map it to PaError */
 #define ENSURE_(expr, code) \
@@ -77,9 +83,8 @@ static int sysErr_;
         if( UNLIKELY( (sysErr_ = (expr)) < 0 ) ) \
         { \
             /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
-            if( (code) == paUnanticipatedHostError /* & pthread_self() == mainThread_*/ ) \
+            if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
             { \
-                perror( __FUNCTION__ ); \
                 PaUtil_SetLastHostErrorInfo( paALSA, sysErr_, strerror( errno ) ); \
             } \
             \
@@ -88,6 +93,21 @@ static int sysErr_;
             goto error; \
         } \
     } while( 0 );
+
+#ifndef AFMT_S16_NE
+#define AFMT_S16_NE  Get_AFMT_S16_NE()
+/*********************************************************************
+ * Some versions of OSS do not define AFMT_S16_NE. So check CPU.
+ * PowerPC is Big Endian. X86 is Little Endian.
+ */
+static int Get_AFMT_S16_NE( void )
+{
+    long testData = 1; 
+    char *ptr = (char *) &testData;
+    int isLittle = ( *ptr == 1 ); /* Does address point to least significant byte? */
+    return isLittle ? AFMT_S16_LE : AFMT_S16_BE;
+}
+#endif
 
 /* PaOSSHostApiRepresentation - host api datastructure specific to this implementation */
 
@@ -103,9 +123,31 @@ typedef struct
 }
 PaOSSHostApiRepresentation;
 
-/* PaOSSStream - a stream data structure specifically for this implementation */
+/** Per-direction structure for PaOssStream.
+ *
+ * Aspect Duplexity: In case the user requests to open the same device for both capture and playback,
+ * but with different number of channels we will have to adapt between the number of user and host
+ * channels for at least one direction, since the configuration space is the same for both directions
+ * of an OSS device.
+ */
+typedef struct
+{
+    int fd;
+    const char *devName;
+    int userChannelCount, hostChannelCount;
+    void *buffer;
+    PaSampleFormat userFormat, hostFormat;
+    double latency;
+    unsigned long hostFrames, numBufs;
+    struct pollfd *pfd;
+} PaOssStreamComponent;
 
-typedef struct PaOSSStream
+/** Implementation specific representation of a PaStream.
+ *
+ * Aspect Duplexity: Data for capture and playback parts of the stream are kept in separate components,
+ * as PaOssStreamComponentObjects.
+ */
+typedef struct PaOssStream
 {
     PaUtilStreamRepresentation streamRepresentation;
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
@@ -113,21 +155,12 @@ typedef struct PaOSSStream
 
     PaUtilThreading threading;
 
-    int deviceHandle;
+    int sharedDevice;
+    unsigned long framesPerHostBuffer;
+    int triggered;  /* Have the devices been triggered yet (first start) */
 
-    int stopSoon;
-    int stopNow;
     int isActive;
     int isStopped;
-    int isThreadValid;
-
-    int channelCount;
-    int inputChannelCount;
-    int outputChannelCount;
-    int nativeFormat;
-
-    void *inputBuffer;
-    void *outputBuffer;
 
     int lastPosPtr;
     double lastStreamBytes;
@@ -136,9 +169,16 @@ typedef struct PaOSSStream
 
     double sampleRate;
 
-    unsigned long framesPerHostCallback;
+    int callbackMode;
+    int callbackStop, callbackAbort;
+
+    PaOssStreamComponent *capture, *playback;
+    struct pollfd pfds[2];
+    int nfds;
+    int pollTimeout;
+    sem_t semaphore;
 }
-PaOSSStream;
+PaOssStream;
 
 typedef enum {
     StreamMode_In,
@@ -176,10 +216,12 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 static PaError BuildDeviceList( PaOSSHostApiRepresentation *hostApi );
 
 
-/** Initialize the OSS API implementation
+/** Initialize the OSS API implementation.
+ *
  * This function will initialize host API datastructures and query host devices for information.
  *
  * Aspect DeviceCapabilities: Enumeration of host API devices is initiated from here
+ *
  * Aspect FreeResources: If an error is encountered under way we have to free each resource allocated in this function,
  * this happens with the usual "error" label.
  */
@@ -187,8 +229,6 @@ PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
 {
     PaError result = paNoError;
     PaOSSHostApiRepresentation *ossHostApi = NULL;
-
-    PA_DEBUG(("PaOSS_Initialize\n"));
 
     PA_UNLESS( ossHostApi = (PaOSSHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaOSSHostApiRepresentation) ),
             paInsufficientMemory );
@@ -218,6 +258,8 @@ PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
                                       GetStreamTime, PaUtil_DummyGetCpuLoad,
                                       ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
+    mainThread_ = pthread_self();
+
     return result;
 
 error:
@@ -231,79 +273,6 @@ error:
                 
         PaUtil_FreeMemory( ossHostApi );
     }
-    return result;
-}
-
-#ifndef AFMT_S16_NE
-#define AFMT_S16_NE  Get_AFMT_S16_NE()
-/*********************************************************************
- * Some versions of OSS do not define AFMT_S16_NE. So check CPU.
- * PowerPC is Big Endian. X86 is Little Endian.
- */
-static int Get_AFMT_S16_NE( void )
-{
-    long testData = 1; 
-    char *ptr = (char *) &testData;
-    int isLittle = ( *ptr == 1 ); /* Does address point to least significant byte? */
-    return isLittle ? AFMT_S16_LE : AFMT_S16_BE;
-}
-#endif
-
-static PaError GetAvailableFormats( PaOSSStream *stream, int input, int output, PaSampleFormat *availableFormats )
-{
-    *availableFormats = 0;
-    *availableFormats |= paInt16;
-    return paNoError;
-}
-
-static PaError ConfigureStream( PaOSSStream *stream, int channelCount, double sampleRate, long bufferSize, unsigned long *framesPerHostBuffer )
-{
-    PaError result = paNoError;
-    int sr = (int)sampleRate;
-    int chans = channelCount;
-    int format = stream->nativeFormat;
-    int frgmt;
-    int numBufs;
-    int bytesPerBuf;
-
-    /* OSS demands at least 2 buffers, and 16 bytes per buffer */
-    numBufs = PA_MAX( bufferSize / *framesPerHostBuffer, 2 );
-    bytesPerBuf = PA_MAX( *framesPerHostBuffer * 2 * stream->channelCount, 16 );  /* TODO */
-
-    /* The fragment parameters are encoded like this:
-     * Most significant byte: number of fragments
-     * Least significant byte: exponent of fragment size (i.e., for 256, 8)
-     */
-    frgmt = (numBufs << 16) + ((int)(log10( bytesPerBuf ) / log10( 2 )) & 0xffff);
-    ENSURE_( ioctl( stream->deviceHandle, SNDCTL_DSP_SETFRAGMENT, &frgmt ), paUnanticipatedHostError );
-
-    /* A: according to the OSS programmer's guide parameters should be set in this order:
-     * format, channels, rate */
-
-    /* This format should be deemed good before we get this far */
-    ENSURE_( ioctl( stream->deviceHandle, SNDCTL_DSP_SETFMT, &format ), paUnanticipatedHostError );
-    PA_UNLESS( format == stream->nativeFormat, paInternalError );
-
-    /* try to set the sample rate */
-    ENSURE_( ioctl( stream->deviceHandle, SNDCTL_DSP_SPEED, &sr ), paInvalidSampleRate );
-
-    /* try to set the number of channels */
-    ENSURE_( ioctl( stream->deviceHandle, SNDCTL_DSP_CHANNELS, &chans ), paSampleFormatNotSupported );   /* XXX: Should be paInvalidChannelCount? */
-    PA_UNLESS( chans == stream->channelCount, paInvalidChannelCount );
-    
-    /* reject if there's no sample rate within 1% of the one requested */
-    if( (fabs( sampleRate - sr ) / sampleRate) > 0.01 )
-    {
-        PA_DEBUG(("%s: Wanted %f, closest sample rate was %d\n", __FUNCTION__, sampleRate, sr ));                 
-        PA_ENSURE( paInvalidSampleRate );
-    }
-
-    ENSURE_( ioctl( stream->deviceHandle, SNDCTL_DSP_GETBLKSIZE, &bytesPerBuf ), paUnanticipatedHostError );
-    *framesPerHostBuffer = bytesPerBuf / 2 / stream->channelCount;
-
-    stream->sampleRate = sr;
-
-error:
     return result;
 }
 
@@ -336,45 +305,23 @@ error:
     return result;
 }
 
-/** Query OSS device
- * This is where PaDeviceInfo objects are constructed and filled in with relevant information.
- *
- * Aspect DeviceCapabilities: The inferred device capabilities are recorded in a PaDeviceInfo object that is constructed
- * in place.
- */
-static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi, PaDeviceInfo **deviceInfo )
+static PaError QueryDirection( const char *deviceName, StreamMode mode, double *defaultSampleRate, int *maxChannelCount,
+        double *defaultLowLatency, double *defaultHighLatency )
 {
     PaError result = paNoError;
-    int tempDevHandle;
     int numChannels, maxNumChannels;
-    int sampleRate;
-    int format;
-    PaTime defaultLowInputLatency, defaultLowOutputLatency, defaultHighInputLatency, defaultHighOutputLatency;
+    int busy = 0;
+    int devHandle = -1;
+    *maxChannelCount = 0.;  /* Default value in case this fails */
 
-    /* douglas:
-       we have to do this querying in a slightly different order. apparently
-       some sound cards will give you different info based on their settins. 
-       e.g. a card might give you stereo at 22kHz but only mono at 44kHz.
-       the correct order for OSS is: format, channels, sample rate
-    */
-
-    if ( (tempDevHandle = open( deviceName, O_WRONLY|O_NONBLOCK ))  == -1 )
+    if ( (devHandle = open( deviceName, (mode == StreamMode_In ? O_RDONLY : O_WRONLY) | O_NONBLOCK ))  < 0 )
     {
-        PA_DEBUG(("QueryDevice: could not open %s\n", deviceName ));
-        return paDeviceUnavailable;
-    }
-
-    /* Attempt to set format to 16-bit */
-    format = AFMT_S16_NE;
-    if( ioctl( tempDevHandle, SNDCTL_DSP_SETFMT, &format ) == -1 ) {
-       PA_DEBUG(("QueryDevice: could not set format: %s\n", deviceName ));
-       result = paSampleFormatNotSupported;
-       goto error;
-    }
-    if( format != AFMT_S16_NE ) {
-       PA_DEBUG(("QueryDevice: device does not support AFMT_S16_NE: %s\n", deviceName ));
-       result = paSampleFormatNotSupported;
-       goto error;
+        if( errno == EBUSY || errno == EAGAIN )
+        {
+            PA_DEBUG(( "%s: Device %s busy\n", __FUNCTION__, deviceName ));
+            return paDeviceUnavailable;
+        }
+        ENSURE_( devHandle, paUnanticipatedHostError );
     }
 
     /* Negotiate for the maximum number of channels for this device. PLB20010927
@@ -386,28 +333,37 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
     for( numChannels = 1; numChannels <= 16; numChannels++ )
     {
         int temp = numChannels;
-        PA_DEBUG(("QueryDevice: use SNDCTL_DSP_CHANNELS, numChannels = %d\n", numChannels ))
-        if( ioctl( tempDevHandle, SNDCTL_DSP_CHANNELS, &temp ) < 0 )
+        if( ioctl( devHandle, SNDCTL_DSP_CHANNELS, &temp ) < 0 )
         {
+            busy = EAGAIN == errno || EBUSY == errno;
             /* ioctl() failed so bail out if we already have stereo */
-            if( numChannels > 2 ) break;
+            if( maxNumChannels >= 2 )
+                break;
         }
         else
         {
             /* ioctl() worked but bail out if it does not support numChannels.
              * We don't want to leave gaps in the numChannels supported.
              */
-            if( (numChannels > 2) && (temp != numChannels) ) break;
-            PA_DEBUG(("QueryDevice: temp = %d\n", temp ))
-            if( temp > maxNumChannels ) maxNumChannels = temp; /* Save maximum. */
+            if( (numChannels > 2) && (temp != numChannels) )
+                break;
+            if( temp > maxNumChannels )
+                maxNumChannels = temp; /* Save maximum. */
         }
+    }
+    /* A: We're able to open a device for capture if it's busy playing back and vice versa,
+     * but we can't configure anything */
+    if( maxNumChannels == 0 && busy )
+    {
+        result = paDeviceUnavailable;
+        goto error;
     }
 
     /* The above negotiation may fail for an old driver so try this older technique. */
     if( maxNumChannels < 1 )
     {
         int stereo = 1;
-        if( ioctl( tempDevHandle, SNDCTL_DSP_STEREO, &stereo ) < 0 )
+        if( ioctl( devHandle, SNDCTL_DSP_STEREO, &stereo ) < 0 )
         {
             maxNumChannels = 1;
         }
@@ -415,48 +371,92 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
         {
             maxNumChannels = (stereo) ? 2 : 1;
         }
-        PA_DEBUG(("QueryDevice: use SNDCTL_DSP_STEREO, maxNumChannels = %d\n", maxNumChannels ))
+        PA_DEBUG(( "%s: use SNDCTL_DSP_STEREO, maxNumChannels = %d\n", __FUNCTION__, maxNumChannels ))
     }
-
-    PA_DEBUG(("QueryDevice: maxNumChannels = %d\n", maxNumChannels))
-
-    /* FIXME - for now, assume maxInputChannels = maxOutputChannels.
-     *    Eventually do separate queries for O_WRONLY and O_RDONLY
-    */
 
     /* During channel negotiation, the last ioctl() may have failed. This can
      * also cause sample rate negotiation to fail. Hence the following, to return
      * to a supported number of channels. SG20011005 */
     {
-        int temp = maxNumChannels;
-        if( temp > 2 ) temp = 2; /* use most reasonable default value */
-        ioctl( tempDevHandle, SNDCTL_DSP_CHANNELS, &temp );
+        /* use most reasonable default value */
+        int temp = PA_MIN( maxNumChannels, 2 );
+        ENSURE_( ioctl( devHandle, SNDCTL_DSP_CHANNELS, &temp ), paUnanticipatedHostError );
     }
 
     /* Get supported sample rate closest to 44100 Hz */
-    sampleRate = 44100;
-    if( ioctl( tempDevHandle, SNDCTL_DSP_SPEED, &sampleRate ) == -1 )
+    if( *defaultSampleRate < 0 )
     {
-        result = paUnanticipatedHostError;
-        goto error;
+        *defaultSampleRate = 44100;
+        ENSURE_( ioctl( devHandle, SNDCTL_DSP_SPEED, defaultSampleRate ), paUnanticipatedHostError );
     }
 
+    *maxChannelCount = maxNumChannels;
     /* TODO */
-    defaultLowInputLatency = defaultLowOutputLatency = 512. / sampleRate;
-    defaultHighInputLatency = defaultHighOutputLatency = 2048. / sampleRate;
-    PA_UNLESS( *deviceInfo = PaUtil_GroupAllocateMemory( ossApi->allocations, sizeof (PaDeviceInfo) ), paInsufficientMemory );
-    PA_ENSURE( PaUtil_InitializeDeviceInfo( *deviceInfo, deviceName, ossApi->hostApiIndex, maxNumChannels, maxNumChannels,
-                defaultLowInputLatency, defaultLowOutputLatency, defaultHighInputLatency, defaultHighOutputLatency, sampleRate,
-                ossApi->allocations ) );
+    *defaultLowLatency = 512. / *defaultSampleRate;
+    *defaultHighLatency = 2048. / *defaultSampleRate;
 
 error:
-    /* We MUST close the handle here or we won't be able to reopen it later!!!  */
-    close( tempDevHandle );
+    if( devHandle >= 0 )
+        close( devHandle );
 
     return result;
 }
 
-/** Query host devices
+/** Query OSS device.
+ *
+ * This is where PaDeviceInfo objects are constructed and filled in with relevant information.
+ *
+ * Aspect DeviceCapabilities: The inferred device capabilities are recorded in a PaDeviceInfo object that is constructed
+ * in place.
+ */
+static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi, PaDeviceInfo **deviceInfo )
+{
+    PaError result = paNoError;
+    double sampleRate = -1.;
+    int maxInputChannels, maxOutputChannels;
+    PaTime defaultLowInputLatency, defaultLowOutputLatency, defaultHighInputLatency, defaultHighOutputLatency;
+    PaError tmpRes = paNoError;
+    int busy = 0;
+    *deviceInfo = NULL;
+
+    /* douglas:
+       we have to do this querying in a slightly different order. apparently
+       some sound cards will give you different info based on their settins. 
+       e.g. a card might give you stereo at 22kHz but only mono at 44kHz.
+       the correct order for OSS is: format, channels, sample rate
+    */
+
+    /* Aspect StreamChannels: The number of channels supported for a device may depend on the mode it is
+     * opened in, it may have more channels available for capture than playback and vice versa. Therefore
+     * we will open the device in both read- and write-only mode to determine the supported number.
+     */
+    if( (tmpRes = QueryDirection( deviceName, StreamMode_In, &sampleRate, &maxInputChannels, &defaultLowInputLatency,
+                &defaultHighInputLatency )) != paNoError )
+    {
+        if( tmpRes != paDeviceUnavailable )
+            PA_ENSURE( tmpRes );
+        busy = 1;
+    }
+    if( (tmpRes = QueryDirection( deviceName, StreamMode_Out, &sampleRate, &maxOutputChannels, &defaultLowOutputLatency,
+                &defaultHighOutputLatency )) != paNoError )
+    {
+        if( tmpRes != paDeviceUnavailable )
+            PA_ENSURE( tmpRes );
+        result = paDeviceUnavailable;
+        goto error;
+    }
+
+    PA_UNLESS( *deviceInfo = PaUtil_GroupAllocateMemory( ossApi->allocations, sizeof (PaDeviceInfo) ), paInsufficientMemory );
+    PA_ENSURE( PaUtil_InitializeDeviceInfo( *deviceInfo, deviceName, ossApi->hostApiIndex, maxInputChannels, maxOutputChannels,
+                defaultLowInputLatency, defaultLowOutputLatency, defaultHighInputLatency, defaultHighOutputLatency, sampleRate,
+                ossApi->allocations ) );
+
+error:
+    return result;
+}
+
+/** Query host devices.
+ *
  * Loop over host devices and query their capabilitiesu
  *
  * Aspect DeviceCapabilities: This function calls QueryDevice on each device entry and receives a filled in PaDeviceInfo object
@@ -484,17 +484,25 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
        char deviceName[32];
        PaDeviceInfo *deviceInfo;
        int testResult;
+       struct stat stbuf;
 
        if( i == 0 )
           snprintf(deviceName, sizeof (deviceName), "%s", DEVICE_NAME_BASE);
        else
           snprintf(deviceName, sizeof (deviceName), "%s%d", DEVICE_NAME_BASE, i);
 
-       PA_DEBUG(("PaOSS BuildDeviceList: trying device %s\n", deviceName ));
+       /* PA_DEBUG(("PaOSS BuildDeviceList: trying device %s\n", deviceName )); */
+       if( stat( deviceName, &stbuf ) < 0 )
+       {
+           if( ENOENT == errno )
+               continue;
+           ENSURE_( -1, paUnanticipatedHostError );
+       }
        if( (testResult = QueryDevice( deviceName, ossApi, &deviceInfo )) != paNoError )
        {
-           PA_UNLESS( testResult != paInsufficientMemory, paInsufficientMemory );
-           PA_DEBUG(("PaOSS BuildDeviceList: QueryDevice returned %d\n", testResult ));
+           if( testResult != paDeviceUnavailable )
+               PA_ENSURE( testResult );
+
            continue;
        }
 
@@ -505,8 +513,8 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
            PA_UNLESS( deviceInfos = (PaDeviceInfo **) realloc( deviceInfos, maxDeviceInfos * sizeof (PaDeviceInfo *) ),
                    paInsufficientMemory );
        }
-
        deviceInfos[numDevices - 1] = deviceInfo;
+
        if( commonApi->info.defaultInputDevice == paNoDevice && deviceInfo->maxInputChannels > 0 )
            commonApi->info.defaultInputDevice = i;
        if( commonApi->info.defaultOutputDevice == paNoDevice && deviceInfo->maxOutputChannels > 0 )
@@ -515,16 +523,17 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
 
     /* Make an array of PaDeviceInfo pointers out of the linked list */
 
-    PA_DEBUG(("PaOSS BuildDeviceList: Total number of devices found: %d\n", numDevices));
+    PA_DEBUG(("PaOSS %s: Total number of devices found: %d\n", __FUNCTION__, numDevices));
 
     commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
         ossApi->allocations, sizeof(PaDeviceInfo*) * numDevices );
     memcpy( commonApi->deviceInfos, deviceInfos, numDevices * sizeof (PaDeviceInfo *) );
-    free( deviceInfos );
 
     commonApi->info.deviceCount = numDevices;
 
 error:
+    free( deviceInfos );
+
     return result;
 }
 
@@ -646,8 +655,8 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     ENSURE_( tempDevHandle = open( deviceInfo->name, flags ), paDeviceUnavailable );
 
-    /* ConfigureStream will do the rest of the checking for us */
-    /* PA_ENSURE( ConfigureStream( tempDevHandle, deviceName, outputChannelCount, &sampleRate ) ); */
+    /* PaOssStream_Configure will do the rest of the checking for us */
+    /* PA_ENSURE( PaOssStream_Configure( tempDevHandle, deviceName, outputChannelCount, &sampleRate ) ); */
 
     /* everything succeeded! */
 
@@ -658,6 +667,10 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     return result;
 }
 
+/** Validate stream parameters.
+ *
+ * Aspect StreamChannels: We verify that the number of channels is within the allowed range for the device
+ */
 static PaError ValidateParameters( const PaStreamParameters *parameters, const PaDeviceInfo *deviceInfo, StreamMode mode )
 {
     int maxChans;
@@ -679,85 +692,399 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, const P
     return paNoError;
 }
 
-static PaError InitializeStream( PaOSSStream *stream, const char *deviceName, int inputChannelCount, int outputChannelCount,
-        PaStreamCallback callback, void *userData, PaStreamFlags streamFlags, PaOSSHostApiRepresentation *hostApi )
+static PaError PaOssStreamComponent_Initialize( PaOssStreamComponent *component, const PaStreamParameters *parameters, int fd,
+        const char *deviceName, struct pollfd *pfd )
+{
+    assert( component );
+
+    component->fd = fd;
+    component->devName = deviceName;
+    component->userChannelCount = parameters->channelCount;
+    component->userFormat = parameters->sampleFormat;
+    component->latency = parameters->suggestedLatency;
+
+    pfd->fd = fd;
+    pfd->events = pfd->revents = 0;
+    component->pfd = pfd;
+
+    return paNoError;
+}
+
+static void PaOssStreamComponent_Terminate( PaOssStreamComponent *component )
+{
+    assert( component );
+
+    if( component->fd >= 0 )
+        close( component->fd );
+    if( component->buffer )
+        PaUtil_FreeMemory( component->buffer );
+
+    PaUtil_FreeMemory( component );
+}
+
+static PaError ModifyBlocking( int fd, int blocking )
 {
     PaError result = paNoError;
-    int flags = O_NONBLOCK;
+    int fflags;
 
-    assert( stream );
-    assert( deviceName );
+    ENSURE_( fflags = fcntl( fd, F_GETFL ), paUnanticipatedHostError );
 
-    memset( stream, 0, sizeof (PaOSSStream) );
-    stream->deviceHandle = -1;
-    stream->isStopped = 1;
-    stream->inputChannelCount = inputChannelCount;
-    stream->outputChannelCount = outputChannelCount;
-    stream->channelCount = outputChannelCount;
-
-    if (inputChannelCount > 0 && outputChannelCount > 0)
-       flags |= O_RDWR;
-    else if (inputChannelCount > 0)
-       flags |= O_RDONLY;
+    if( blocking )
+        fflags &= ~O_NONBLOCK;
     else
-       flags |= O_WRONLY;
+        fflags |= O_NONBLOCK;
 
-    /* open first in nonblocking mode, in case it's busy...
-     * A: then unset the non-blocking attribute */
-    ENSURE_( stream->deviceHandle = open( deviceName, flags ), paDeviceUnavailable );
-    ENSURE_( flags = fcntl( stream->deviceHandle, F_GETFL, 0 ), paUnanticipatedHostError );
-    ENSURE_( fcntl( stream->deviceHandle, F_SETFL, flags & ~O_NONBLOCK ), paUnanticipatedHostError );
-
-    PA_ENSURE( PaUtil_InitializeThreading( &stream->threading ) );
-
-    if( callback != NULL )
-    {
-        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &hostApi->callbackStreamInterface, callback, userData );
-    }
-    else
-    {
-        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &hostApi->blockingStreamInterface, callback, userData );
-    }    
+    ENSURE_( fcntl( fd, F_SETFL, fflags ), paUnanticipatedHostError );
 
 error:
     return result;
 }
 
-static int Pa2OssFormat( PaSampleFormat format )
+static PaError OpenDevices( const char *idevName, const char *odevName, int *idev, int *odev )
 {
-    switch( format )
+    PaError result = paNoError;
+    int flags = O_NONBLOCK, duplex = 0;
+    int enableBits = 0;
+    *idev = *odev = -1;
+
+    if( idevName && odevName )
     {
-        case paInt16:
-            return AFMT_S16_NE;
+        duplex = 1;
+        flags |= O_RDWR;
+    }
+    else if( idevName )
+        flags |= O_RDONLY;
+    else
+        flags |= O_WRONLY;
+
+    /* open first in nonblocking mode, in case it's busy...
+     * A: then unset the non-blocking attribute */
+    assert( flags & O_NONBLOCK );
+    if( idevName )
+    {
+        ENSURE_( *idev = open( idevName, flags ), paDeviceUnavailable );
+        PA_ENSURE( ModifyBlocking( *idev, 1 ) ); /* Blocking */
+
+        /* Initially disable */
+        enableBits = ~PCM_ENABLE_INPUT;
+        ENSURE_( ioctl( *idev, SNDCTL_DSP_SETTRIGGER, &enableBits ), paUnanticipatedHostError );
+    }
+    if( odevName )
+    {
+        if( !idevName )
+        {
+            ENSURE_( *odev = open( odevName, flags ), paDeviceUnavailable );
+            PA_ENSURE( ModifyBlocking( *odev, 1 ) ); /* Blocking */
+
+            /* Initially disable */
+            enableBits = ~PCM_ENABLE_OUTPUT;
+            ENSURE_( ioctl( *odev, SNDCTL_DSP_SETTRIGGER, &enableBits ), paUnanticipatedHostError );
+        }
+        else
+        {
+            ENSURE_( *odev = dup( *idev ), paUnanticipatedHostError );
+        }
     }
 
-    return AFMT_S16_NE;
+error:
+    return result;
 }
 
-static void CleanUpStream( PaOSSStream *stream )
+static PaError PaOssStream_Initialize( PaOssStream *stream, const PaStreamParameters *inputParameters, const PaStreamParameters *outputParameters,
+        PaStreamCallback callback, void *userData, PaStreamFlags streamFlags,
+        PaOSSHostApiRepresentation *ossApi )
+{
+    PaError result = paNoError;
+    int idev, odev;
+    PaUtilHostApiRepresentation *hostApi = &ossApi->inheritedHostApiRep;
+    const char *idevName = NULL, *odevName = NULL;
+
+    assert( stream );
+
+    memset( stream, 0, sizeof (PaOssStream) );
+    stream->isStopped = 1;
+
+    PA_ENSURE( PaUtil_InitializeThreading( &stream->threading ) );
+
+    if( inputParameters && outputParameters )
+    {
+        if( inputParameters->device == outputParameters->device )
+            stream->sharedDevice = 1;
+    }
+
+    if( inputParameters )
+        idevName = hostApi->deviceInfos[inputParameters->device]->name;
+    if( outputParameters )
+        odevName = hostApi->deviceInfos[outputParameters->device]->name;
+    PA_ENSURE( OpenDevices( idevName, odevName, &idev, &odev ) );
+    if( inputParameters )
+    {
+        PA_UNLESS( stream->capture = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->capture, inputParameters, idev, idevName, &stream->pfds[
+                    stream->nfds++] ) );
+    }
+    if( outputParameters )
+    {
+        PA_UNLESS( stream->playback = PaUtil_AllocateMemory( sizeof (PaOssStreamComponent) ), paInsufficientMemory );
+        PA_ENSURE( PaOssStreamComponent_Initialize( stream->playback, outputParameters, odev, odevName, &stream->pfds[
+                    stream->nfds++] ) );
+    }
+
+    if( callback != NULL )
+    {
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &ossApi->callbackStreamInterface, callback, userData );
+        stream->callbackMode = 1;
+    }
+    else
+    {
+        PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
+                                               &ossApi->blockingStreamInterface, callback, userData );
+    }    
+
+    ENSURE_( sem_init( &stream->semaphore, 0, 0 ), paInternalError );
+
+error:
+    return result;
+}
+
+static void PaOssStream_Terminate( PaOssStream *stream )
 {
     assert( stream );
 
     PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
     PaUtil_TerminateThreading( &stream->threading );
 
-    if( stream->deviceHandle >= 0 )
-        close( stream->deviceHandle );
+    if( stream->capture )
+        PaOssStreamComponent_Terminate( stream->capture );
+    if( stream->playback )
+        PaOssStreamComponent_Terminate( stream->playback );
 
-    if( stream->inputBuffer )
-        PaUtil_FreeMemory( stream->inputBuffer );
-    if( stream->outputBuffer )
-        PaUtil_FreeMemory( stream->outputBuffer );
+    sem_destroy( &stream->semaphore );
 
     PaUtil_FreeMemory( stream );
+}
+
+/** Translate from PA format to OSS native.
+ *
+ */
+static PaError Pa2OssFormat( PaSampleFormat paFormat, int *ossFormat )
+{
+    switch( paFormat )
+    {
+        case paUInt8:
+            *ossFormat = AFMT_U8;
+            break;
+        case paInt8:
+            *ossFormat = AFMT_S8;
+            break;
+        case paInt16:
+            *ossFormat = AFMT_S16_NE;
+            break;
+        default:
+            return paInternalError;     /* This shouldn't happen */
+    }
+
+    return paNoError;
+}
+
+/** Return the PA-compatible formats that this device can support.
+ *
+ */
+static PaError GetAvailableFormats( PaOssStreamComponent *component, PaSampleFormat *availableFormats )
+{
+    PaError result = paNoError;
+    int mask;
+    PaSampleFormat frmts = 0;
+
+    ENSURE_( ioctl( component->fd, SNDCTL_DSP_GETFMTS, &mask ), paUnanticipatedHostError );
+    if( mask & AFMT_U8 )
+        frmts |= paUInt8;
+    if( mask & AFMT_S8 )
+        frmts |= paInt8;
+    if( mask & AFMT_S16_NE )
+        frmts |= paInt16;
+    else
+        result = paSampleFormatNotSupported;
+    
+    *availableFormats = frmts;
+
+error:
+    return result;
+}
+
+static unsigned int PaOssStreamComponent_FrameSize( PaOssStreamComponent *component )
+{
+    return Pa_GetSampleSize( component->hostFormat ) * component->hostChannelCount;
+}
+
+static unsigned long PaOssStreamComponent_BufferSize( PaOssStreamComponent *component )
+{
+    return PaOssStreamComponent_FrameSize( component ) * component->hostFrames * component->numBufs;
+}
+
+static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, double sampleRate, unsigned long framesPerBuffer,
+        StreamMode streamMode, PaOssStreamComponent *master )
+{
+    PaError result = paNoError;
+    int temp, nativeFormat;
+    int sr = (int)sampleRate;
+    PaSampleFormat availableFormats, hostFormat;
+    int chans = component->userChannelCount;
+    int frgmt;
+    int numBufs;
+    int bytesPerBuf;
+    double bufSz;
+    unsigned long fragSz;
+    audio_buf_info bufInfo;
+
+    /* We may have a situation where only one component (the master) is configured, if both point to the same device.
+     * In that case, the second component will copy settings from the other */
+    if( !master )
+    {
+        /* Aspect BufferSettings: If framesPerBuffer is unspecified we have to infer a suitable fragment size.
+         * The hardware need not respect the requested fragment size, so we may have to adapt.
+         */
+        if( framesPerBuffer == paFramesPerBufferUnspecified )
+        { 
+            bufSz = component->latency * sampleRate;
+            fragSz = bufSz / 4;
+        }
+        else
+        {
+            fragSz = framesPerBuffer;
+            bufSz = component->latency * sampleRate + fragSz; /* Latency + 1 buffer */
+        }
+
+        PA_ENSURE( GetAvailableFormats( component, &availableFormats ) );
+        hostFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, component->userFormat );
+
+        /* OSS demands at least 2 buffers, and 16 bytes per buffer */
+        numBufs = PA_MAX( bufSz / fragSz, 2 );
+        bytesPerBuf = PA_MAX( fragSz * Pa_GetSampleSize( hostFormat ) * chans, 16 );
+
+        /* The fragment parameters are encoded like this:
+         * Most significant byte: number of fragments
+         * Least significant byte: exponent of fragment size (i.e., for 256, 8)
+         */
+        frgmt = (numBufs << 16) + ((int)(log10( bytesPerBuf ) / log10( 2 )) & 0xffff);
+        ENSURE_( ioctl( component->fd, SNDCTL_DSP_SETFRAGMENT, &frgmt ), paUnanticipatedHostError );
+
+        /* A: according to the OSS programmer's guide parameters should be set in this order:
+         * format, channels, rate */
+
+        /* This format should be deemed good before we get this far */
+        PA_ENSURE( Pa2OssFormat( hostFormat, &temp ) );
+        nativeFormat = temp;
+        ENSURE_( ioctl( component->fd, SNDCTL_DSP_SETFMT, &temp ), paUnanticipatedHostError );
+        PA_UNLESS( temp == nativeFormat, paInternalError );
+
+        /* try to set the number of channels */
+        ENSURE_( ioctl( component->fd, SNDCTL_DSP_CHANNELS, &chans ), paSampleFormatNotSupported );   /* XXX: Should be paInvalidChannelCount? */
+        /* It's possible that the minimum number of host channels is greater than what the user requested */
+        PA_UNLESS( chans >= component->userChannelCount, paInvalidChannelCount );
+
+        /* try to set the sample rate */
+        ENSURE_( ioctl( component->fd, SNDCTL_DSP_SPEED, &sr ), paInvalidSampleRate );
+
+        /* reject if there's no sample rate within 1% of the one requested */
+        if( (fabs( sampleRate - sr ) / sampleRate) > 0.01 )
+        {
+            PA_DEBUG(("%s: Wanted %f, closest sample rate was %d\n", __FUNCTION__, sampleRate, sr ));                 
+            PA_ENSURE( paInvalidSampleRate );
+        }
+
+        /* This needs to be the last ioctl call before the first read/write, according to the OSS programmer's guide */
+        ENSURE_( ioctl( component->fd, SNDCTL_DSP_GETBLKSIZE, &bytesPerBuf ), paUnanticipatedHostError );
+
+        component->hostFrames = bytesPerBuf / 2 / chans;
+        component->hostChannelCount = chans;
+        component->hostFormat = hostFormat;
+    }
+    else
+    {
+        component->hostFormat = master->hostFormat;
+        component->hostFrames = master->hostFrames;
+        component->hostChannelCount = master->hostChannelCount;
+    }
+
+    ENSURE_( ioctl( component->fd, streamMode == StreamMode_In ? SNDCTL_DSP_GETISPACE : SNDCTL_DSP_GETOSPACE, &bufInfo ),
+            paUnanticipatedHostError );
+    component->numBufs = bufInfo.fragstotal;
+
+    PA_UNLESS( component->buffer = PaUtil_AllocateMemory( PaOssStreamComponent_BufferSize( component ) ),
+            paInsufficientMemory );
+
+error:
+    return result;
+}
+
+/** Configure the stream according to input/output parameters.
+ *
+ * Aspect StreamChannels: The minimum number of channels supported by the device may exceed that requested by
+ * the user, if so we'll record the actual number of host channels and adapt later.
+ */
+static PaError PaOssStream_Configure( PaOssStream *stream, double sampleRate, unsigned long framesPerBuffer,
+        double *inputLatency, double *outputLatency )
+{
+    PaError result = paNoError;
+    int duplex = stream->capture && stream->playback;
+    unsigned long framesPerHostBuffer = 0;
+
+    /* We should request full duplex first thing after opening the device */
+    if( duplex && stream->sharedDevice )
+        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_SETDUPLEX, 0 ), paUnanticipatedHostError );
+
+    if( stream->capture )
+    {
+        PaOssStreamComponent *component = stream->capture;
+        PaOssStreamComponent_Configure( component, sampleRate, framesPerBuffer, StreamMode_In, NULL );
+
+        assert( component->hostChannelCount > 0 );
+        assert( component->hostFrames > 0 );
+
+        *inputLatency = component->hostFrames * (component->numBufs - 1) / sampleRate;
+    }
+    if( stream->playback )
+    {
+        PaOssStreamComponent *component = stream->playback, *master = stream->sharedDevice ? stream->capture : NULL;
+        PA_ENSURE( PaOssStreamComponent_Configure( component, sampleRate, framesPerBuffer, StreamMode_Out,
+                    master ) );
+
+        assert( component->hostChannelCount > 0 );
+        assert( component->hostFrames > 0 );
+
+        *outputLatency = component->hostFrames * (component->numBufs - 1) / sampleRate;
+    }
+
+    if( duplex )
+        framesPerHostBuffer = PA_MIN( stream->capture->hostFrames, stream->playback->hostFrames );
+    else if( stream->capture )
+        framesPerHostBuffer = stream->capture->hostFrames;
+    else if( stream->playback )
+        framesPerHostBuffer = stream->playback->hostFrames;
+
+    stream->framesPerHostBuffer = framesPerHostBuffer;
+    stream->pollTimeout = (int) ceil( 1000 * framesPerHostBuffer / sampleRate );    /* Period in msecs, rounded up */
+
+error:
+    return result;
 }
 
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
 /** Open a PA OSS stream.
- * Aspect BufferSettings: 
+ *
+ * Aspect StreamChannels: The number of channels is specified per direction (in/out), and can differ between the
+ * two. However, OSS doesn't support separate configuration spaces for capture and playback so if both
+ * directions are the same device we will demand the same number of channels. The number of channels can range
+ * from 1 to the maximum supported by the device.
+ *
+ * Aspect BufferSettings: If framesPerBuffer != paFramesPerBufferUnspecified the number of frames per callback
+ * must reflect this, in addition the host latency per device should approximate the corresponding
+ * suggestedLatency. Based on these constraints we need to determine a number of frames per host buffer that
+ * both capture and playback can agree on (they can be different devices), the buffer processor can adapt
+ * between host and user buffer size, but the ratio should preferably be integral.
  */
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -771,15 +1098,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 {
     PaError result = paNoError;
     PaOSSHostApiRepresentation *ossHostApi = (PaOSSHostApiRepresentation*)hostApi;
-    PaOSSStream *stream = NULL;
-    const PaDeviceInfo *deviceInfo;
-    audio_buf_info bufinfo;
-    int deviceHandle = 0;
-    unsigned long framesPerHostBuffer;
-    int inputChannelCount = 0, outputChannelCount = 0, commonChannelCount = 0;
-    PaSampleFormat hostSampleFormat, availableFormats, inputSampleFormat, outputSampleFormat;
+    PaOssStream *stream = NULL;
+    int inputChannelCount = 0, outputChannelCount = 0;
+    PaSampleFormat inputSampleFormat = 0, outputSampleFormat = 0, inputHostFormat = 0, outputHostFormat = 0;
     const PaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
     int bpInitialized = 0;
+    double inLatency, outLatency;
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -792,7 +1116,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         inputDeviceInfo = hostApi->deviceInfos[inputParameters->device];
         PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, StreamMode_In ) );
 
-        commonChannelCount = inputChannelCount = inputParameters->channelCount;
+        inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
     }
     if( outputParameters )
@@ -800,100 +1124,56 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         outputDeviceInfo = hostApi->deviceInfos[outputParameters->device];
         PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, StreamMode_Out ) );
 
-        commonChannelCount = outputChannelCount = outputParameters->channelCount;
+        outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
     }
 
-    PA_UNLESS( inputChannelCount > 0 || outputChannelCount > 0, paInvalidChannelCount );
-
-    /* if full duplex, make sure that they're the same device */
+    /* Aspect StreamChannels: We currently demand that number of input and output channels are the same, if the same
+     * device is opened for both directions
+     */
     if( inputChannelCount > 0 && outputChannelCount > 0 )
     {
-        if( inputParameters->device != outputParameters->device )
-            return paBadIODeviceCombination;
-        /* if full duplex, also make sure that they're the same number of channels */
-        if( inputChannelCount != outputChannelCount )
-            return paInvalidChannelCount;
+        if( inputParameters->device == outputParameters->device )
+        {
+            if( inputParameters->channelCount != outputParameters->channelCount )
+                return paInvalidChannelCount;
+        }
     }
-
-    /* note that inputParameters and outputParameters device indices are
-     * already in host format */
-    deviceInfo = inputChannelCount > 0 ? inputDeviceInfo : outputDeviceInfo;
     
     /* allocate and do basic initialization of the stream structure */
-    PA_UNLESS( stream = (PaOSSStream*)PaUtil_AllocateMemory( sizeof(PaOSSStream) ), paInsufficientMemory );
-    InitializeStream( stream, deviceInfo->name, inputChannelCount, outputChannelCount, streamCallback, userData,
-            streamFlags, ossHostApi );    /* Initialize structure */
+    PA_UNLESS( stream = (PaOssStream*)PaUtil_AllocateMemory( sizeof(PaOssStream) ), paInsufficientMemory );
+    PaOssStream_Initialize( stream, inputParameters, outputParameters, streamCallback, userData, streamFlags, ossHostApi );
 
-    hostSampleFormat = outputChannelCount > 0 ? outputParameters->sampleFormat : inputParameters->sampleFormat;
-    PA_ENSURE( GetAvailableFormats( stream, inputChannelCount > 0,
-            outputChannelCount > 0, &availableFormats ) );
-    hostSampleFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, hostSampleFormat );
-    stream->nativeFormat = Pa2OssFormat( hostSampleFormat );
-
-    {
-        double latency = 0.;
-        double bufSz;
-
-        if( inputChannelCount )
-            latency = inputParameters->suggestedLatency;
-        if( outputChannelCount )
-            latency = PA_MIN( latency, outputParameters->suggestedLatency );
-
-        if( framesPerBuffer == paFramesPerBufferUnspecified )
-        { 
-            bufSz = latency * sampleRate;
-            framesPerHostBuffer = bufSz / 4;
-        }
-        else
-        {
-            framesPerHostBuffer = framesPerBuffer;
-            bufSz = latency * sampleRate + framesPerHostBuffer; /* Latency + 1 buffer */
-        }
-        PA_ENSURE( ConfigureStream( stream, commonChannelCount, sampleRate, bufSz, &framesPerHostBuffer ) );
-    }
-
-    if( inputChannelCount > 0 )
-    {
-        if( ioctl( deviceHandle, SNDCTL_DSP_GETISPACE, &bufinfo ) == 0 )
-            stream->streamRepresentation.streamInfo.inputLatency =
-                bufinfo.fragsize * (bufinfo.fragstotal - 1) / sampleRate;
-    }
-    if( outputChannelCount > 0 )
-    {
-        if( ioctl( deviceHandle, SNDCTL_DSP_GETOSPACE, &bufinfo ) == 0 )
-            stream->streamRepresentation.streamInfo.outputLatency =
-                bufinfo.fragsize * (bufinfo.fragstotal - 1) / sampleRate;
-    }    
+    PA_ENSURE( PaOssStream_Configure( stream, sampleRate, framesPerBuffer, &inLatency, &outLatency ) );
 
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
-
-    /* we assume a fixed host buffer size in this example, but the buffer processor
-        can also support bounded and unknown host buffer sizes by passing 
-        paUtilBoundedHostBufferSize or paUtilUnknownHostBufferSize instead of
-        paUtilFixedHostBufferSize below. */
         
+    if( inputParameters )
+    {
+        inputHostFormat = stream->capture->hostFormat;
+        stream->streamRepresentation.streamInfo.inputLatency = inLatency +
+            PaUtil_GetBufferProcessorInputLatency( &stream->bufferProcessor ) / sampleRate;
+    }
+    if( outputParameters )
+    {
+        outputHostFormat = stream->playback->hostFormat;
+        stream->streamRepresentation.streamInfo.outputLatency = outLatency +
+            PaUtil_GetBufferProcessorOutputLatency( &stream->bufferProcessor ) / sampleRate;
+    }
+
+    /* Initialize buffer processor with fixed host buffer size.
+     * Aspect StreamSampleFormat: Here we commit the user and host sample formats, PA infrastructure will
+     * convert between the two.
+     */
     PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              inputChannelCount, inputSampleFormat, hostSampleFormat,
-              outputChannelCount, outputSampleFormat, hostSampleFormat,
-              sampleRate, streamFlags, framesPerBuffer,
-              framesPerHostBuffer, paUtilFixedHostBufferSize,
-              streamCallback, userData ) );
+              inputChannelCount, inputSampleFormat, inputHostFormat, outputChannelCount, outputSampleFormat,
+              outputHostFormat, sampleRate, streamFlags, framesPerBuffer, stream->framesPerHostBuffer,
+              paUtilFixedHostBufferSize, streamCallback, userData ) );
     bpInitialized = 1;
 
-    stream->framesPerHostCallback = framesPerHostBuffer;
-
-    /* TODO: Non-hardcoded sample sizes */
-    if( inputChannelCount > 0 )
-        stream->inputBuffer = PaUtil_AllocateMemory( 2 * framesPerHostBuffer * inputChannelCount );
-    if( outputChannelCount > 0 )
-        stream->outputBuffer = PaUtil_AllocateMemory( 2 * framesPerHostBuffer * outputChannelCount );
-
     *s = (PaStream*)stream;
-
-    result = paNoError;
 
     return result;
 
@@ -901,142 +1181,410 @@ error:
     if( bpInitialized )
         PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
     if( stream )
-        CleanUpStream( stream );
+        PaOssStream_Terminate( stream );
 
     return result;
 }
 
-static void *PaOSS_AudioThreadProc(void *userData)
+/*! Poll on I/O filedescriptors.
+
+  Poll till we've determined there's data for read or write. In the full-duplex case,
+  we don't want to hang around forever waiting for either input or output frames, so
+  whenever we have a timed out filedescriptor we check if we're nearing under/overrun
+  for the other direction (critical limit set at one buffer). If so, we exit the waiting
+  state, and go on with what we got. We align the number of frames on a host buffer
+  boundary because it is possible that the buffer size differs for the two directions and
+  the host buffer size is a compromise between the two.
+  */
+static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *frames )
 {
-    PaOSSStream *stream = (PaOSSStream*)userData;
+    PaError result = paNoError;
+    int pollPlayback = 0, pollCapture = 0;
+    int captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
+    audio_buf_info bufInfo;
+    int ofs = 0, nfds = stream->nfds;
 
-    while( (stream->stopNow == 0) && (stream->stopSoon == 0) ) {
-        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* TODO: IMPLEMENT ME */
-        int callbackResult;
-        unsigned long framesProcessed;
-        int bytesRequested;
-        int bytesRead, bytesWritten;
-        int delta;
-        int result;
-        count_info info;
+    assert( stream );
+    assert( frames );
 
-        PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
-    
-        PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
-                0 /* @todo pass underflow/overflow flags when necessary */ );
-        
-        /*
-          depending on whether the host buffers are interleaved, non-interleaved
-          or a mixture, you will want to call PaUtil_SetInterleaved*Channels(),
-          PaUtil_SetNonInterleaved*Channel() or PaUtil_Set*Channel() here.
-        */
-
-        if ( stream->inputBuffer )
-        {
-            bytesRequested = stream->framesPerHostCallback * 2 * stream->inputChannelCount;
-            bytesRead = read( stream->deviceHandle, stream->inputBuffer, bytesRequested );
-            
-            PaUtil_SetInputFrameCount( &stream->bufferProcessor, bytesRead/(2*stream->inputChannelCount));
-            PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor,
-                                                0, /* first channel of inputBuffer is channel 0 */
-                                                stream->inputBuffer,
-                                                0 ); /* 0 - use inputChannelCount passed to init buffer processor */
-        }
-        if ( stream->outputBuffer )
-        {
-           PaUtil_SetOutputFrameCount( &stream->bufferProcessor, 0 /* default to host buffer size */ );
-           PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor,
-                                                0, /* first channel of outputBuffer is channel 0 */
-                                                stream->outputBuffer,
-                                                0 ); /* 0 - use outputChannelCount passed to init buffer processor */
-        }
-
-        callbackResult = paContinue;
-        framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor, &callbackResult );
-
-        PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
-        
-        if( callbackResult == paContinue )
-        {
-           /* nothing special to do */
-        }
-        else if( callbackResult == paAbort )
-        {
-            /* once finished, call the finished callback */
-            if( stream->streamRepresentation.streamFinishedCallback != 0 )
-                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-
-            stream->isActive = 0;
-            return NULL; /* return from the loop */
-        }
-        /*
-         * all other conditions should behave like paComplete to maximize backwards compatibility.
-         * (see notes for proposal 010)
-         *
-         */
-        else /*if ( callbackResult == paComplete )*/
-        {
-            /* User callback has asked us to stop with paComplete or other non-zero value */
-           
-            /* once finished, call the finished callback */
-            if( stream->streamRepresentation.streamFinishedCallback != 0 )
-                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
-
-            stream->stopSoon = 1;
-        }
-
-        if ( stream->outputChannelCount > 0 ) {
-            /* write output samples AFTER we've checked the callback result code */
-
-            bytesRequested = stream->framesPerHostCallback * 2 * stream->outputChannelCount;
-            bytesWritten = write( stream->deviceHandle, stream->outputBuffer, bytesRequested );
-
-            /* TODO: handle bytesWritten != bytesRequested (slippage?) */
-        }
-
-        /* Update current stream time (using a double so that
-           we don't wrap around like info.bytes does) */
-        if( stream->outputChannelCount > 0 )
-            result = ioctl( stream->deviceHandle, SNDCTL_DSP_GETOPTR, &info );
-        else
-            result = ioctl( stream->deviceHandle, SNDCTL_DSP_GETIPTR, &info );
-
-        if (result == 0) {
-            delta = ( info.bytes - stream->lastPosPtr ) & 0x000FFFFF;
-            stream->lastStreamBytes += delta;
-            stream->lastPosPtr = info.bytes;
-        }
-
-        stream->framesProcessed += stream->framesPerHostCallback;
+    if( stream->capture )
+    {
+        pollCapture = 1;
+        stream->capture->pfd->events = POLLIN;
+    }
+    if( stream->playback )
+    {
+        pollPlayback = 1;
+        stream->playback->pfd->events = POLLOUT;
     }
 
-    stream->isActive = 0;
-    return NULL;
+    while( pollPlayback || pollCapture )
+    {
+        pthread_testcancel();
+
+        if( poll( stream->pfds + ofs, nfds, stream->pollTimeout ) < 0 )
+        {
+            /*  XXX: Depend on preprocessor condition? */
+            if( errno == EINTR ) {  /* gdb */
+                continue;
+            }
+
+            ENSURE_( -1, paUnanticipatedHostError );
+        }
+        pthread_testcancel();
+
+        if( pollCapture )
+        {
+            if( stream->capture->pfd->revents & POLLIN )
+            {
+                --nfds;
+                ++ofs;
+                pollCapture = 0;
+            }
+            else if( stream->playback ) /* Timed out, go on with playback? */ 
+            {
+                /*PA_DEBUG(( "%s: Trying to poll again for capture frames, pollTimeout: %d\n",
+                            __FUNCTION__, stream->pollTimeout ));*/
+            }
+        }
+        if( pollPlayback )
+        {
+            if( stream->playback->pfd->revents & POLLOUT )
+            {
+                --nfds;
+                pollPlayback = 0;
+            }
+            else if( stream->capture )  /* Timed out, go on with capture? */
+            {
+                /*PA_DEBUG(( "%s: Trying to poll again for playback frames, pollTimeout: %d\n\n",
+                            __FUNCTION__, stream->pollTimeout ));*/
+            }
+        }
+    }
+
+    if( stream->capture )
+    {
+        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &bufInfo ), paUnanticipatedHostError );
+        captureAvail = bufInfo.fragments * stream->capture->hostFrames;
+        if( !captureAvail )
+            PA_DEBUG(( "%s: captureAvail: 0\n", __FUNCTION__ ));
+
+        captureAvail = captureAvail == 0 ? INT_MAX : captureAvail;      /* Disregard if zero */
+    }
+    if( stream->playback )
+    {
+        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_GETOSPACE, &bufInfo ), paUnanticipatedHostError );
+        playbackAvail = bufInfo.fragments * stream->playback->hostFrames;
+        if( !playbackAvail )
+        {
+            /* PA_DEBUG(( "%s: playbackAvail: 0\n", __FUNCTION__ )); */
+        }
+
+        playbackAvail = playbackAvail == 0 ? INT_MAX : playbackAvail;      /* Disregard if zero */
+    }
+
+    commonAvail = PA_MIN( captureAvail, playbackAvail );
+    if( commonAvail == INT_MAX )
+        commonAvail = 0;
+    commonAvail -= commonAvail % stream->framesPerHostBuffer;
+
+    assert( commonAvail != INT_MAX );
+    assert( commonAvail >= 0 );
+    *frames = commonAvail;
+
+error:
+    return result;
 }
 
-/*
-    When CloseStream() is called, the multi-api layer ensures that
-    the stream has already been stopped or aborted.
-*/
+/** Prepare stream for capture/playback.
+ *
+ * In order to synchronize capture and playback properly we use the SETTRIGGER command.
+ */
+static PaError PaOssStream_Prepare( PaOssStream *stream )
+{
+    PaError result = paNoError;
+    int enableBits;
+
+    if( stream->triggered )
+        return result;
+
+    if( stream->playback )
+    {
+        size_t bufSz = PaOssStreamComponent_BufferSize( stream->playback );
+        memset( stream->playback->buffer, 0, bufSz );
+
+        /* Looks like we have to turn off blocking before we try this, but if we don't fill the buffer
+         * OSS will complain. */
+        PA_ENSURE( ModifyBlocking( stream->playback->fd, 0 ) );
+        while (1)
+        {
+            if( write( stream->playback->fd, stream->playback->buffer, bufSz ) < 0 )
+                break;
+        }
+        PA_ENSURE( ModifyBlocking( stream->playback->fd, 1 ) );
+    }
+
+    if( stream->sharedDevice )
+    {
+        enableBits = PCM_ENABLE_INPUT | PCM_ENABLE_OUTPUT;
+        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_SETTRIGGER, &enableBits ), paUnanticipatedHostError );
+    }
+    else
+    {
+        if( stream->capture )
+        {
+            enableBits = PCM_ENABLE_INPUT;
+            ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_SETTRIGGER, &enableBits ), paUnanticipatedHostError );
+        }
+        if( stream->playback )
+        {
+            enableBits = PCM_ENABLE_OUTPUT;
+            ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_SETTRIGGER, &enableBits ), paUnanticipatedHostError );
+        }
+    }
+
+    /* Ok, we have triggered the stream */
+    stream->triggered = 1;
+    
+error:
+    return result;
+}
+
+/** Stop audio processing
+ *
+ */
+static PaError PaOssStream_Stop( PaOssStream *stream, int abort )
+{
+    PaError result = paNoError;
+
+    /* Looks like the only safe way to stop audio without reopening the device is SNDCTL_DSP_POST.
+     * Also disable capture/playback till the stream is started again */
+    if( stream->capture )
+    {
+        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_POST ), paUnanticipatedHostError );
+    }
+    if( stream->playback && !stream->sharedDevice )
+    {
+        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_POST ), paUnanticipatedHostError );
+    }
+
+error:
+    return result;
+}
+
+/** Clean up after thread exit.
+ *
+ * Aspect StreamState: If the user has registered a streamFinishedCallback it will be called here
+ */
+static void OnExit( void *data )
+{
+    PaOssStream *stream = (PaOssStream *) data;
+    assert( data );
+
+    PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
+
+    PaOssStream_Stop( stream, stream->callbackAbort );
+    
+    PA_DEBUG(( "OnExit: Stoppage\n" ));
+
+    /* Eventually notify user all buffers have played */
+    if( stream->streamRepresentation.streamFinishedCallback )
+        stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+
+    stream->callbackAbort = 0;      /* Clear state */
+    stream->isActive = 0;
+}
+
+static PaError SetUpBuffers( PaOssStream *stream, unsigned long framesAvail )
+{
+    PaError result = paNoError;
+
+    if( stream->capture )
+    {
+        PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, stream->capture->buffer,
+                stream->capture->hostChannelCount );
+        PaUtil_SetInputFrameCount( &stream->bufferProcessor, framesAvail );
+    }
+    if( stream->playback )
+    {
+        PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, stream->playback->buffer,
+                stream->playback->hostChannelCount );
+        PaUtil_SetOutputFrameCount( &stream->bufferProcessor, framesAvail );
+    }
+
+    return result;
+}
+
+static PaError PaOssStreamComponent_Read( PaOssStreamComponent *component, unsigned long *frames )
+{
+    PaError result = paNoError;
+    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
+    ssize_t bytesRead;
+
+    ENSURE_( bytesRead = read( component->fd, component->buffer, len ), paUnanticipatedHostError );
+    *frames = bytesRead / PaOssStreamComponent_FrameSize( component );
+
+error:
+    return result;
+}
+
+static PaError PaOssStreamComponent_Write( PaOssStreamComponent *component, unsigned long *frames )
+{
+    PaError result = paNoError;
+    size_t len = *frames * PaOssStreamComponent_FrameSize( component );
+    ssize_t bytesWritten;
+
+    ENSURE_( bytesWritten = write( component->fd, component->buffer, len ), paUnanticipatedHostError );
+    *frames = bytesWritten / PaOssStreamComponent_FrameSize( component );
+
+error:
+    return result;
+}
+
+/** Thread procedure for callback processing.
+ *
+ * Aspect StreamState: StartStream will wait on this to initiate audio processing, useful in case the
+ * callback should be used for buffer priming. When the stream is cancelled a separate function will
+ * take care of the transition to the Callback Finished state (the stream isn't considered Stopped
+ * before StopStream() or AbortStream() are called).
+ */
+static void *PaOSS_AudioThreadProc( void *userData )
+{
+    PaError result = paNoError;
+    PaOssStream *stream = (PaOssStream*)userData;
+    unsigned long framesAvail, framesProcessed;
+    int callbackResult = paContinue;
+    int triggered = stream->triggered;
+    int startProcessing = triggered;    /* Already triggered? */
+    assert( stream );
+
+    pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
+
+    /* The first time the stream is started we use SNDCTL_DSP_TRIGGER to accurately start capture and
+     * playback in sync, when the stream is restarted after being stopped we simply start by reading/
+     * writing.
+     */
+    PA_ENSURE( PaOssStream_Prepare( stream ) );
+
+    while( 1 )
+    {
+        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* TODO: IMPLEMENT ME */
+
+        pthread_testcancel();
+
+        if( stream->callbackStop && callbackResult == paContinue )
+        {
+            PA_DEBUG(( "Setting callbackResult to paComplete\n" ));
+            callbackResult = paComplete;
+        }
+
+        /* Aspect StreamState: Because of the messy OSS scheme we can't explicitly trigger device start unless
+         * the stream has been recently started, we will have to go right ahead and read/write in blocking
+         * fashion to trigger operation. Therefore we begin with processing one host buffer before we switch
+         * to non-blocking mode.
+         */
+        if( !startProcessing )
+        {
+            PA_ENSURE( PaOssStream_WaitForFrames( stream, &framesAvail ) );  /* Wait on available frames */
+            assert( framesAvail % stream->framesPerHostBuffer == 0 );
+        }
+        else
+        {
+            framesAvail = stream->framesPerHostBuffer;
+        }
+
+        while( framesAvail > 0 )
+        {
+            unsigned long frames = framesAvail;
+
+            pthread_testcancel();
+
+            PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
+
+            /* Read data */
+            if ( stream->capture )
+            {
+                PA_ENSURE( PaOssStreamComponent_Read( stream->capture, &frames ) );
+                assert( frames == framesAvail );
+            }
+
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo,
+                    0 /* @todo pass underflow/overflow flags when necessary */ );
+            PA_ENSURE( SetUpBuffers( stream, framesAvail ) );
+
+            framesProcessed = PaUtil_EndBufferProcessing( &stream->bufferProcessor,
+                    &callbackResult );
+            assert( framesProcessed == framesAvail );
+            PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
+
+            if ( stream->playback )
+            {
+                frames = framesAvail;
+
+                PA_ENSURE( PaOssStreamComponent_Write( stream->playback, &frames ) );
+                assert( frames == framesAvail );
+
+                /* TODO: handle bytesWritten != bytesRequested (slippage?) */
+            }
+
+            if( callbackResult != paContinue )
+            {
+                stream->callbackAbort = callbackResult == paAbort;
+                if( stream->callbackAbort || PaUtil_IsBufferProcessorOutputEmpty( &stream->bufferProcessor ) )
+                    goto end;
+            }
+
+            framesAvail -= framesProcessed;
+            stream->framesProcessed += framesProcessed;
+        }
+
+        if( startProcessing || !triggered )
+        {
+            /* Non-blocking */
+            if( stream->capture )
+                PA_ENSURE( ModifyBlocking( stream->capture->fd, 0 ) );
+            if( stream->playback && !stream->sharedDevice )
+                PA_ENSURE( ModifyBlocking( stream->playback->fd, 0 ) );
+
+            startProcessing = 0;
+            sem_post( &stream->semaphore );
+        }
+    }
+
+    pthread_cleanup_pop( 1 );
+
+end:
+    pthread_exit( NULL );
+error:
+    goto end;
+}
+
+/** Close the stream.
+ *
+ */
 static PaError CloseStream( PaStream* s )
 {
     PaError result = paNoError;
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     assert( stream );
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
-
-    CleanUpStream( stream );
+    PaOssStream_Terminate( stream );
 
     return result;
 }
 
-
+/** Start the stream.
+ *
+ * Aspect StreamState: After returning, the stream shall be in the Active state, implying that an eventual
+ * callback will be repeatedly called in a separate thread. If a separate thread is started this function
+ * will block untill it has started processing audio, otherwise audio processing is started directly.
+ */
 static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     stream->isActive = 1;
     stream->isStopped = 0;
@@ -1044,85 +1592,98 @@ static PaError StartStream( PaStream *s )
     stream->lastStreamBytes = 0;
     stream->framesProcessed = 0;
 
-    PA_DEBUG(("PaOSS StartStream\n"));
-
     /* only use the thread for callback streams */
     if( stream->bufferProcessor.streamCallback )
     {
         PA_ENSURE( PaUtil_StartThreading( &stream->threading, &PaOSS_AudioThreadProc, stream ) );
-        stream->isThreadValid = 1;
+        sem_wait( &stream->semaphore );
     }
 
 error:
     return result;
 }
 
-static PaError RealStop( PaOSSStream *stream, int abort )
+static PaError RealStop( PaOssStream *stream, int abort )
 {
     PaError result = paNoError;
-    
-    if( abort)
-        stream->stopNow = 1;
+
+    if( stream->callbackMode )
+    {
+        if( abort )
+            stream->callbackAbort = 1;
+        else
+            stream->callbackStop = 1;
+
+        PA_ENSURE( PaUtil_CancelThreading( &stream->threading, !abort, NULL ) );
+
+        stream->callbackStop = stream->callbackAbort = 0;
+    }
     else
-        stream->stopSoon = 1;
+        PA_ENSURE( PaOssStream_Stop( stream, abort ) );
 
-    /* only use the thread for callback streams */
-    if( stream->bufferProcessor.streamCallback && stream->isThreadValid )
-        PA_ENSURE( PaUtil_CancelThreading( &stream->threading, 1, NULL ) );
-
-    stream->isThreadValid = 0;
-    stream->stopSoon = 0;
-    stream->stopNow = 0;
-    stream->isActive = 0;
     stream->isStopped = 1;
 
 error:
     return result;
 }
 
+/** Stop the stream.
+ *
+ * Aspect StreamState: This will cause the stream to transition to the Stopped state, playing all enqueued
+ * buffers.
+ */
 static PaError StopStream( PaStream *s )
 {
-    return RealStop( (PaOSSStream *)s, 0 );
+    return RealStop( (PaOssStream *)s, 0 );
 }
 
+/** Abort the stream.
+ *
+ * Aspect StreamState: This will cause the stream to transition to the Stopped state, discarding all enqueued
+ * buffers. Note that the buffers are not currently correctly discarded, this is difficult without closing
+ * the OSS device.
+ */
 static PaError AbortStream( PaStream *s )
 {
-    return RealStop( (PaOSSStream *)s, 1 );
+    return RealStop( (PaOssStream *)s, 1 );
 }
 
-
+/** Is the stream in the Stopped state.
+ *
+ */
 static PaError IsStreamStopped( PaStream *s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     return (stream->isStopped);
 }
 
-
+/** Is the stream in the Active state.
+ *
+ */
 static PaError IsStreamActive( PaStream *s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     return (stream->isActive);
 }
 
-
 static PaTime GetStreamTime( PaStream *s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
     count_info info;
     int delta;
 
-    if( stream->outputChannelCount > 0 ) {
-        if (ioctl( stream->deviceHandle, SNDCTL_DSP_GETOPTR, &info) == 0) {
+    if( stream->playback ) {
+        if( ioctl( stream->playback->fd, SNDCTL_DSP_GETOPTR, &info) == 0 ) {
             delta = ( info.bytes - stream->lastPosPtr ) & 0x000FFFFF;
-            return ( stream->lastStreamBytes + delta) / ( stream->outputChannelCount * 2 ) / stream->sampleRate;
+            return ( stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->playback ) / stream->sampleRate;
         }
     }
     else {
-        if (ioctl( stream->deviceHandle, SNDCTL_DSP_GETIPTR, &info) == 0) {
+        if (ioctl( stream->capture->fd, SNDCTL_DSP_GETIPTR, &info) == 0) {
             delta = (info.bytes - stream->lastPosPtr) & 0x000FFFFF;
-            return ( stream->lastStreamBytes + delta) / ( stream->inputChannelCount * 2 ) / stream->sampleRate;
+            return ( stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->capture ) / stream->sampleRate;
         }
     }
 
@@ -1134,7 +1695,7 @@ static PaTime GetStreamTime( PaStream *s )
 
 static double GetStreamCpuLoad( PaStream* s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
@@ -1151,7 +1712,7 @@ static PaError ReadStream( PaStream* s,
                            void *buffer,
                            unsigned long frames )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
     int bytesRequested, bytesRead;
     unsigned long framesRequested;
     void *userBuffer;
@@ -1162,26 +1723,23 @@ static PaError ReadStream( PaStream* s,
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->inputChannelCount;
+        int numBytes = sizeof (void *) * stream->capture->hostChannelCount;
         if( (userBuffer = alloca( numBytes )) == NULL )
             return paInsufficientMemory;
-        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->inputChannelCount );
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->capture->hostChannelCount );
     }
 
     while( frames )
     {
-	if( frames > stream->framesPerHostCallback )
-	    framesRequested = stream->framesPerHostCallback;
-	else
-	    framesRequested = frames;
+        framesRequested = PA_MIN( frames, stream->capture->hostFrames );
 
-	bytesRequested = framesRequested * 2 * stream->inputChannelCount;
-	bytesRead = read( stream->deviceHandle, stream->inputBuffer, bytesRequested );
+	bytesRequested = framesRequested * PaOssStreamComponent_FrameSize( stream->capture );
+	bytesRead = read( stream->capture->fd, stream->capture->buffer, bytesRequested );
 	if ( bytesRequested != bytesRead )
 	    return paUnanticipatedHostError;
 
-	PaUtil_SetInputFrameCount( &stream->bufferProcessor, stream->framesPerHostCallback );
-	PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, stream->inputBuffer, stream->inputChannelCount );
+	PaUtil_SetInputFrameCount( &stream->bufferProcessor, stream->capture->hostFrames );
+	PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, stream->capture->buffer, stream->capture->hostChannelCount );
         PaUtil_CopyInput( &stream->bufferProcessor, &userBuffer, framesRequested );
 	frames -= framesRequested;
     }
@@ -1193,7 +1751,7 @@ static PaError WriteStream( PaStream* s,
                             const void *buffer,
                             unsigned long frames )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
     int bytesRequested, bytesWritten;
     unsigned long framesConverted;
     const void *userBuffer;
@@ -1204,22 +1762,22 @@ static PaError WriteStream( PaStream* s,
         userBuffer = buffer;
     else /* Copy channels into local array */
     {
-        int numBytes = sizeof (void *) * stream->outputChannelCount;
+        int numBytes = sizeof (void *) * stream->playback->hostChannelCount;
         if( (userBuffer = alloca( numBytes )) == NULL )
             return paInsufficientMemory;
-        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->outputChannelCount );
+        memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playback->hostChannelCount );
     }
 
     while( frames )
     {
-	PaUtil_SetOutputFrameCount( &stream->bufferProcessor, stream->framesPerHostCallback );
-	PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, stream->outputBuffer, stream->outputChannelCount );
+	PaUtil_SetOutputFrameCount( &stream->bufferProcessor, stream->playback->hostFrames );
+	PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, stream->playback->buffer, stream->playback->hostChannelCount );
 
 	framesConverted = PaUtil_CopyOutput( &stream->bufferProcessor, &userBuffer, frames );
 	frames -= framesConverted;
 
-	bytesRequested = framesConverted * 2 * stream->outputChannelCount;
-	bytesWritten = write( stream->deviceHandle, stream->outputBuffer, bytesRequested );
+	bytesRequested = framesConverted * PaOssStreamComponent_FrameSize( stream->playback );
+	bytesWritten = write( stream->playback->fd, stream->playback->buffer, bytesRequested );
 
 	if ( bytesRequested != bytesWritten )
 	    return paUnanticipatedHostError;
@@ -1230,13 +1788,13 @@ static PaError WriteStream( PaStream* s,
 
 static signed long GetStreamReadAvailable( PaStream* s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
     audio_buf_info info;
 
-    if ( ioctl(stream->deviceHandle, SNDCTL_DSP_GETISPACE, &info) == 0)
+    if( ioctl( stream->capture->fd, SNDCTL_DSP_GETISPACE, &info ) == 0 )
     {
         int bytesAvailable = info.fragments * info.fragsize;
-        return ( bytesAvailable / 2 / stream->inputChannelCount );
+        return ( bytesAvailable / 2 / stream->capture->hostChannelCount );
     }
     else
         return 0; /* TODO: is this right for "don't know"? */
@@ -1245,14 +1803,14 @@ static signed long GetStreamReadAvailable( PaStream* s )
 
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
-    PaOSSStream *stream = (PaOSSStream*)s;
+    PaOssStream *stream = (PaOssStream*)s;
 
     audio_buf_info info;
 
-    if ( ioctl(stream->deviceHandle, SNDCTL_DSP_GETOSPACE, &info) == 0)
+    if( ioctl( stream->playback->fd, SNDCTL_DSP_GETOSPACE, &info ) == 0 )
     {
         int bytesAvailable = info.fragments * info.fragsize;
-        return ( bytesAvailable / 2 / stream->outputChannelCount );
+        return ( bytesAvailable / 2 / stream->playback->hostChannelCount );
     }
     else
         return 0; /* TODO: is this right for "don't know"? */
