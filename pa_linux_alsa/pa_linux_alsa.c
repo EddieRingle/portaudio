@@ -63,12 +63,19 @@
 #define MIN(x,y) ( (x) < (y) ? (x) : (y) )
 #define MAX(x,y) ( (x) > (y) ? (x) : (y) )
 
+/* Utilize GCC branch prediction for error tests */
+#if defined __GNUC__ && __GNUC__ >= 3
+#define UNLIKELY(expr) __builtin_expect( (expr), 0 )
+#else
+#define UNLIKELY(expr) (expr)
+#endif
+
 #define STRINGIZE_HELPER(expr) #expr
 #define STRINGIZE(expr) STRINGIZE_HELPER(expr)
 
 /* Check return value of ALSA function, and map it to PaError */
 #define ENSURE(expr, code) \
-    if( (aErr_ = (expr)) < 0 ) \
+    if( UNLIKELY( (aErr_ = (expr)) < 0 ) ) \
     { \
         /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
         if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
@@ -81,8 +88,8 @@
     }
 
 /* Check PaError */
-#define PA_ENSURE(expr) \
-    if( (paErr_ = (expr)) < paNoError ) \
+#define ENSURE_PA(expr) \
+    if( UNLIKELY( (paErr_ = (expr)) < paNoError ) ) \
     { \
         PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = paErr_; \
@@ -90,15 +97,19 @@
     }
 
 #define UNLESS(expr, code) \
-    if( (expr) == 0 ) \
+    if( UNLIKELY( (expr) == 0 ) ) \
     { \
         PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
         result = (code); \
         goto error; \
     }
 
+#define ASSERT_CALL(expr, success) \
+    aErr_ = (expr); \
+    assert( aErr_ == success );
+
 static int aErr_;               /* Used with ENSURE */
-static PaError paErr_;          /* Used with PA_ENSURE */
+static PaError paErr_;          /* Used with ENSURE_PA */
 static pthread_t mainThread_;
 
 typedef enum
@@ -160,12 +171,12 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t playback_offset;
 
     /* Used in communication between threads */
-    sig_atomic_t callback_finished; /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
-    sig_atomic_t callbackAbort;     /* Drop frames? */
-    sig_atomic_t isActive;          /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
-    pthread_mutex_t stateMtx;       /* Used to synchronize access to stream state */
-    pthread_mutex_t startMtx;       /* Used to synchronize stream start in callback mode */
-    pthread_cond_t startCond;       /* Wait untill audio is started in callback thread */
+    volatile sig_atomic_t callback_finished; /* bool: are we in the "callback finished" state? */
+    volatile sig_atomic_t callbackAbort;    /* Drop frames? */
+    volatile sig_atomic_t isActive;         /* Is stream in active state? (Between StartStream and StopStream || !paContinue) */
+    pthread_mutex_t stateMtx;               /* Used to synchronize access to stream state */
+    pthread_mutex_t startMtx;               /* Used to synchronize stream start in callback mode */
+    pthread_cond_t startCond;               /* Wait untill audio is started in callback thread */
 
     /* Used by callback thread for underflow/overflow handling */
     snd_pcm_sframes_t playbackAvail;
@@ -205,17 +216,14 @@ static void InitializeThreading( PaAlsaThreading *th, PaUtilCpuLoadMeasurer *clm
 {
     th->watchdogRunning = 0;
     th->rtSched = 0;
-    th->rtPrio = -1;
     th->callbackTime = 0;
     th->callbackCpuTime = 0;
     th->useWatchdog = 1;
     th->throttledSleepTime = 0;
     th->cpuLoadMeasurer = clm;
 
-    if (th->rtPrio < 0) {
-        th->rtPrio = (sched_get_priority_max( SCHED_FIFO ) - sched_get_priority_min( SCHED_FIFO )) / 2
+    th->rtPrio = (sched_get_priority_max( SCHED_FIFO ) - sched_get_priority_min( SCHED_FIFO )) / 2
             + sched_get_priority_min( SCHED_FIFO );
-    }
 }
 
 static PaError KillCallbackThread( PaAlsaThreading *th, PaError *exitResult, PaError *watchdogExitResult )
@@ -231,7 +239,7 @@ static PaError KillCallbackThread( PaAlsaThreading *th, PaError *exitResult, PaE
     if( th->watchdogRunning )
     {
         pthread_cancel( th->watchdogThread );
-        UNLESS( !pthread_join( th->watchdogThread, &pret ), paInternalError );
+        ASSERT_CALL( pthread_join( th->watchdogThread, &pret ), 0 );
 
         if( pret && pret != PTHREAD_CANCELED )
         {
@@ -241,8 +249,8 @@ static PaError KillCallbackThread( PaAlsaThreading *th, PaError *exitResult, PaE
         }
     }
 
-    pthread_cancel( th->callbackThread );
-    UNLESS( !pthread_join( th->callbackThread, &pret ), paInternalError );
+    pthread_cancel( th->callbackThread );   /* XXX: Safe to call this if the thread has exited on its own? */
+    ASSERT_CALL( pthread_join( th->callbackThread, &pret ), 0 );
 
     if( pret && pret != PTHREAD_CANCELED )
     {
@@ -251,19 +259,16 @@ static PaError KillCallbackThread( PaAlsaThreading *th, PaError *exitResult, PaE
         free( pret );
     }
 
-error:
     return result;
 }
 
 static void OnWatchdogExit( void *userData )
 {
-    int err;
     PaAlsaThreading *th = (PaAlsaThreading *) userData;
     struct sched_param spm = { 0 };
     assert( th );
 
-    err = pthread_setschedparam( th->callbackThread, SCHED_OTHER, &spm );    /* Lower before exiting */
-
+    ASSERT_CALL( pthread_setschedparam( th->callbackThread, SCHED_OTHER, &spm ), 0 );    /* Lower before exiting */
     PA_DEBUG(( "Watchdog exiting\n" ));
 }
 
@@ -277,7 +282,7 @@ static PaError BoostPriority( PaAlsaThreading *th )
 
     if( pthread_setschedparam( th->callbackThread, SCHED_FIFO, &spm ) != 0 )
     {
-        UNLESS( errno == EPERM, paInternalError );
+        UNLESS( errno == EPERM, paInternalError );  /* Lack permission to raise priority */
         PA_DEBUG(( "Failed bumping priority\n" ));
         result = 0;
     }
@@ -303,14 +308,13 @@ static void *WatchdogFunc( void *userData )
     pthread_cleanup_push( &OnWatchdogExit, th );	/* Execute OnWatchdogExit when exiting */
 
     /* Boost priority of callback thread */
-    PA_ENSURE( result = BoostPriority( th ) );
+    ENSURE_PA( result = BoostPriority( th ) );
     if( !result )
     {
         pthread_exit( NULL );   /* Boost failed, might as well exit */
     }
 
     cpuTimeThen = th->callbackCpuTime;
-
     {
         int policy;
         struct sched_param spm = { 0 };
@@ -419,7 +423,9 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*CallbackThread
     {
         if( mlockall( MCL_CURRENT | MCL_FUTURE ) < 0 )
         {
-            UNLESS( (errno == EPERM), paInternalError );
+            int savedErrno = errno;             /* In case errno gets overwritten */
+            assert( savedErrno != EINVAL );     /* Most likely a programmer error */
+            UNLESS( (savedErrno == EPERM), paInternalError );
             PA_DEBUG(( "%s: Failed locking memory\n", __FUNCTION__ ));
         }
         else
@@ -441,7 +447,8 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*CallbackThread
             int err;
             struct sched_param wdSpm = { 0 };
             /* Launch watchdog, watchdog sets callback thread priority */
-            wdSpm.sched_priority = MIN( th->rtPrio + 4, sched_get_priority_max( SCHED_FIFO ) );
+            int prio = MIN( th->rtPrio + 4, sched_get_priority_max( SCHED_FIFO ) );
+            wdSpm.sched_priority = prio;
 
             UNLESS( !pthread_attr_init( &attr ), paInternalError );
             UNLESS( !pthread_attr_setinheritsched( &attr, PTHREAD_EXPLICIT_SCHED ), paInternalError );
@@ -453,11 +460,22 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*CallbackThread
                 UNLESS( err == EPERM, paInternalError );
                 /* Permission error, go on without realtime privileges */
                 PA_DEBUG(( "Failed bumping priority\n" ));
-            } else
+            }
+            else
+            {
+                int policy;
                 th->watchdogRunning = 1;
+                ASSERT_CALL( pthread_getschedparam( th->watchdogThread, &policy, &wdSpm ), 0 );
+                /* Check if priority is right, policy could potentially differ from SCHED_FIFO (but that's alright) */
+                if( wdSpm.sched_priority != prio )
+                {
+                    PA_DEBUG(( "Watchdog priority not set correctly (%d)\n", wdSpm.sched_priority ));
+                    ENSURE_PA( paInternalError );
+                }
+            }
         }
         else
-            PA_ENSURE( BoostPriority( th ) );
+            ENSURE_PA( BoostPriority( th ) );
     }
 
 end:
@@ -552,7 +570,7 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       GetStreamReadAvailable,
                                       GetStreamWriteAvailable );
 
-    PA_ENSURE( BuildDeviceList( alsaHostApi ) );
+    ENSURE_PA( BuildDeviceList( alsaHostApi ) );
 
     mainThread_ = pthread_self();
 
@@ -801,9 +819,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
 
         /* Zero fields */
-        /*
         PaUtil_InitializeDeviceInfo( commonDeviceInfo );
-        */
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
@@ -1018,7 +1034,7 @@ static PaError TestParameters( const PaStreamParameters *parameters, const PaAls
     snd_pcm_hw_params_t *params;
     snd_pcm_hw_params_alloca( &params );
 
-    PA_ENSURE( AlsaOpen( &pcm, deviceInfo, streamInfo, streamType ) );
+    ENSURE_PA( AlsaOpen( &pcm, deviceInfo, streamInfo, streamType ) );
 
     snd_pcm_hw_params_any( pcm, params );
 
@@ -1027,7 +1043,7 @@ static PaError TestParameters( const PaStreamParameters *parameters, const PaAls
 
     /* See if we can find a best possible match */
     availableFormats = GetAvailableFormats( pcm );
-    PA_ENSURE( paFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
+    ENSURE_PA( paFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
 
 end:
     if( pcm )
@@ -1060,7 +1076,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
+        ENSURE_PA( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
 
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -1076,7 +1092,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
+        ENSURE_PA( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
 
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
@@ -1105,12 +1121,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     if( inputChannelCount )
     {
-        PA_ENSURE( TestParameters( inputParameters, inputDeviceInfo, inputStreamInfo, sampleRate, SND_PCM_STREAM_CAPTURE ) );
+        ENSURE_PA( TestParameters( inputParameters, inputDeviceInfo, inputStreamInfo, sampleRate, SND_PCM_STREAM_CAPTURE ) );
     }
 
     if ( outputChannelCount )
     {
-        PA_ENSURE( TestParameters( outputParameters, outputDeviceInfo, outputStreamInfo, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
+        ENSURE_PA( TestParameters( outputParameters, outputDeviceInfo, outputStreamInfo, sampleRate, SND_PCM_STREAM_PLAYBACK ) );
     }
 
     return paFormatIsSupported;
@@ -1264,9 +1280,9 @@ static void InitializeStream( PaAlsaStream *stream, int callback, PaStreamFlags 
     stream->callbackAbort = 0;
     stream->isActive = 0;
     stream->startThreshold = 0;
-    pthread_mutex_init( &stream->stateMtx, NULL );
-    pthread_mutex_init( &stream->startMtx, NULL );
-    pthread_cond_init( &stream->startCond, NULL );
+    ASSERT_CALL( pthread_mutex_init( &stream->stateMtx, NULL ), 0 );
+    ASSERT_CALL( pthread_mutex_init( &stream->startMtx, NULL ), 0 );
+    ASSERT_CALL( pthread_cond_init( &stream->startCond, NULL ), 0 );
     stream->neverDropInput = streamFlags & paNeverDropInput;
     stream->underrun = stream->overrun = 0.0;
 
@@ -1304,7 +1320,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
+        ENSURE_PA( ValidateParameters( inputParameters, inputDeviceInfo, streamIn, inputStreamInfo ) );
 
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -1319,7 +1335,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
 
-        PA_ENSURE( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
+        ENSURE_PA( ValidateParameters( outputParameters, outputDeviceInfo, streamOut, outputStreamInfo ) );
 
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
@@ -1352,7 +1368,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( numInputChannels > 0 )
     {
-        PA_ENSURE( AlsaOpen( &stream->pcm_capture, inputDeviceInfo, inputStreamInfo, SND_PCM_STREAM_CAPTURE ) );
+        ENSURE_PA( AlsaOpen( &stream->pcm_capture, inputDeviceInfo, inputStreamInfo, SND_PCM_STREAM_CAPTURE ) );
         stream->capture_nfds = snd_pcm_poll_descriptors_count( stream->pcm_capture );
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_capture ),
@@ -1361,7 +1377,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     if( numOutputChannels > 0 )
     {
-        PA_ENSURE( AlsaOpen( &stream->pcm_playback, outputDeviceInfo, outputStreamInfo, SND_PCM_STREAM_PLAYBACK ) );
+        ENSURE_PA( AlsaOpen( &stream->pcm_playback, outputDeviceInfo, outputStreamInfo, SND_PCM_STREAM_PLAYBACK ) );
         stream->playback_nfds = snd_pcm_poll_descriptors_count( stream->pcm_playback );
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( stream->pcm_playback ),
@@ -1495,7 +1511,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     framesPerHostBuffer = periodSize;
                 }
                 else    /* XXX: Some more descriptive error code might be appropriate */
-                    PA_ENSURE( paBadIODeviceCombination );
+                    ENSURE_PA( paBadIODeviceCombination );
             }
             else
             {
@@ -1546,7 +1562,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaSampleFormat plain_format = hostInputSampleFormat & ~paNonInterleaved;
 
         inputLatency = inputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
-        PA_ENSURE( ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
+        ENSURE_PA( ConfigureStream( stream->pcm_capture, numInputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->captureBufferSize,
                              &inputLatency, 0, stream->callback_mode ) );
 
@@ -1561,7 +1577,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         outputLatency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
 
-        PA_ENSURE( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
+        ENSURE_PA( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->playbackBufferSize,
                              &outputLatency, primeBuffers, stream->callback_mode ) );
 
@@ -1575,7 +1591,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* Time before watchdog unthrottles realtime thread == 1/4 of period time in msecs */
     stream->threading.throttledSleepTime = (unsigned long) (framesPerHostBuffer / sampleRate / 4 * 1000);
 
-    PA_ENSURE( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
+    ENSURE_PA( PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     numInputChannels, inputSampleFormat, hostInputSampleFormat,
                     numOutputChannels, outputSampleFormat, hostOutputSampleFormat,
                     sampleRate, streamFlags, framesPerBuffer, framesPerHostBuffer,
@@ -1693,7 +1709,7 @@ static int IsRunning( PaAlsaStream *stream )
 {
     int result = 0;
 
-    pthread_mutex_lock( &stream->stateMtx ); /* Synchronize access to pcm state */
+    ASSERT_CALL( pthread_mutex_lock( &stream->stateMtx ), 0 ); /* Synchronize access to pcm state */
     if( stream->pcm_capture )
     {
         snd_pcm_state_t capture_state = snd_pcm_state( stream->pcm_capture );
@@ -1719,7 +1735,7 @@ static int IsRunning( PaAlsaStream *stream )
     }
 
 end:
-    pthread_mutex_unlock( &stream->stateMtx );
+    ASSERT_CALL( pthread_mutex_unlock( &stream->stateMtx ), 0 );
 
     return result;
 }
@@ -1742,7 +1758,7 @@ static PaError StartStream( PaStream *s )
         PaTime pt = PaUtil_GetTime();
         struct timespec ts;
 
-        PA_ENSURE( CreateCallbackThread( &stream->threading, &CallbackThreadFunc, stream ) );
+        ENSURE_PA( CreateCallbackThread( &stream->threading, &CallbackThreadFunc, stream ) );
         streamStarted = 1;
 
         /* Wait for stream to be started */
@@ -1752,23 +1768,24 @@ static PaError StartStream( PaStream *s )
         /* Since we'll be holding a lock on the startMtx (when not waiting on the condition), IsRunning won't be checking
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
-        UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
-        while( !IsRunning( stream ) && res != ETIMEDOUT && IsStreamActive( s ) )
+        ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+        while( !IsRunning( stream ) && IsStreamActive( s ) && !res )    /* Due to possible spurious wakeups, we enclose in a loop */
         {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
-            UNLESS( !res || res == ETIMEDOUT, paInternalError );
         }
-        UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
+        ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
+
+        UNLESS( !res || res == ETIMEDOUT, paInternalError );
         PA_DEBUG(( "%s: Waited for %g seconds for stream to start\n", __FUNCTION__, PaUtil_GetTime() - pt ));
 
         if( res == ETIMEDOUT )
         {
-            PA_ENSURE( paTimedOut );
+            ENSURE_PA( paTimedOut );
         }
     }
     else
     {
-        PA_ENSURE( AlsaStart( stream, 0 ) );
+        ENSURE_PA( AlsaStart( stream, 0 ) );
         streamStarted = 1;
     }
 
@@ -1830,7 +1847,7 @@ static PaError RealStop( PaAlsaStream *stream, int abort )
         PaError threadRes, watchdogRes;
         stream->callbackAbort = abort;
 
-        PA_ENSURE( KillCallbackThread( &stream->threading, &threadRes, &watchdogRes ) );
+        ENSURE_PA( KillCallbackThread( &stream->threading, &threadRes, &watchdogRes ) );
         if( threadRes != paNoError )
             PA_DEBUG(( "Callback thread returned: %d\n", threadRes ));
         if( watchdogRes != paNoError )
@@ -1840,7 +1857,7 @@ static PaError RealStop( PaAlsaStream *stream, int abort )
     }
     else
     {
-        PA_ENSURE( AlsaStop( stream, abort ) );
+        ENSURE_PA( AlsaStop( stream, abort ) );
     }
 
     stream->isActive = 0;
@@ -1869,12 +1886,9 @@ static PaError AbortStream( PaStream *s )
 static PaError IsStreamStopped( PaStream *s )
 {
     PaAlsaStream *stream = (PaAlsaStream *)s;
-    PaError res;
 
     /* callback_finished indicates we need to join callback thread (ie. in Abort/StopStream) */
-    res = !IsStreamActive( s ) && !stream->callback_finished;
-
-    return res;
+    return !IsStreamActive( s ) && !stream->callback_finished;
 }
 
 static PaError IsStreamActive( PaStream *s )
@@ -1937,9 +1951,9 @@ static void CleanUpStream( PaAlsaStream *stream )
     }
 
     PaUtil_FreeMemory( stream->pfds );
-    pthread_mutex_destroy( &stream->stateMtx );
-    pthread_mutex_destroy( &stream->startMtx );
-    pthread_cond_destroy( &stream->startCond );
+    ASSERT_CALL( pthread_mutex_destroy( &stream->stateMtx ), 0 );
+    ASSERT_CALL( pthread_mutex_destroy( &stream->startMtx ), 0 );
+    ASSERT_CALL( pthread_cond_destroy( &stream->startCond ), 0 );
 
     PaUtil_FreeMemory( stream );
 }
@@ -1990,15 +2004,14 @@ static PaError AlsaRestart( PaAlsaStream *stream )
 
     PA_DEBUG(( "Restarting audio\n" ));
 
-    UNLESS( !pthread_mutex_lock( &stream->stateMtx ), paInternalError );
-    PA_ENSURE( AlsaStop( stream, 0 ) );
-    PA_ENSURE( AlsaStart( stream, 0 ) );
+    ASSERT_CALL( pthread_mutex_lock( &stream->stateMtx ), 0 );
+    ENSURE_PA( AlsaStop( stream, 0 ) );
+    ENSURE_PA( AlsaStart( stream, 0 ) );
 
     PA_DEBUG(( "Restarted audio\n" ));
 
 end:
-    if( pthread_mutex_unlock( &stream->stateMtx ) != 0 )
-        result = paInternalError;
+    ASSERT_CALL( pthread_mutex_unlock( &stream->stateMtx ), 0 );
     return result;
 error:
    goto end;
@@ -2032,7 +2045,7 @@ static PaError HandleXrun( PaAlsaStream *stream )
         }
     }
 
-    PA_ENSURE( AlsaRestart( stream ) );
+    ENSURE_PA( AlsaRestart( stream ) );
 
 end:
     return result;
@@ -2094,7 +2107,7 @@ static PaError Wait( PaAlsaStream *stream, snd_pcm_uframes_t *frames )
                 continue;
             }
 
-            PA_ENSURE( paInternalError );
+            ENSURE_PA( paInternalError );
         }
 
         pthread_testcancel();
@@ -2378,10 +2391,10 @@ static void *CallbackThreadFunc( void *userData )
 
     if( startThreshold <= 0 )
     {
-        UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
-        PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
-        UNLESS( !pthread_cond_signal( &stream->startCond ), paInternalError );
-        UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
+        ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+        ENSURE_PA( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
+        ASSERT_CALL( pthread_cond_signal( &stream->startCond ), 0 );
+        ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
     }
     else /* Priming output? Prepare first */
     {
@@ -2457,7 +2470,7 @@ static void *CallbackThreadFunc( void *userData )
             stream->overrun = 0.0;
         }
 
-        PA_ENSURE( Wait( stream, &framesAvail ) );
+        ENSURE_PA( Wait( stream, &framesAvail ) );
         while( framesAvail > 0 )
         {
             pthread_testcancel();
@@ -2475,7 +2488,7 @@ static void *CallbackThreadFunc( void *userData )
              * to read/write. */
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
-            PA_ENSURE( SetUpBuffers( stream, framesAvail, 1, &framesGot ) );
+            ENSURE_PA( SetUpBuffers( stream, framesAvail, 1, &framesGot ) );
             /* Check for under/overflow */
             if( stream->pcm_playback && stream->pcm_capture )
             {
@@ -2539,10 +2552,10 @@ static void *CallbackThreadFunc( void *userData )
             {
                 if( (startThreshold -= framesGot) <= 0 )
                 {
-                    UNLESS( !pthread_mutex_lock( &stream->startMtx ), paInternalError );
-                    PA_ENSURE( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
-                    UNLESS( !pthread_cond_signal( &stream->startCond ), paInternalError );
-                    UNLESS( !pthread_mutex_unlock( &stream->startMtx ), paInternalError );
+                    ASSERT_CALL( pthread_mutex_lock( &stream->startMtx ), 0 );
+                    ENSURE_PA( AlsaStart( stream, 1 ) );    /* Buffer will be zeroed */
+                    ASSERT_CALL( pthread_cond_signal( &stream->startCond ), 0 );
+                    ASSERT_CALL( pthread_mutex_unlock( &stream->startMtx ), 0 );
                 }
             }
 
@@ -2604,7 +2617,7 @@ static PaError ReadStream( PaStream* s,
     stream->pcm_playback = NULL;
 
     if( !stream->pcm_capture )
-        PA_ENSURE( paCanNotReadFromAnOutputOnlyStream );
+        ENSURE_PA( paCanNotReadFromAnOutputOnlyStream );
 
 
     if( stream->overrun )
@@ -2633,14 +2646,14 @@ static PaError ReadStream( PaStream* s,
     {
         if( (err = GetStreamReadAvailable( stream )) == paInputOverflowed )
             err = 0;    /* Wait will detect the (unlikely) xrun, and restart capture */
-        PA_ENSURE( err );
+        ENSURE_PA( err );
         framesAvail = (snd_pcm_uframes_t) err;
 
         if( framesAvail == 0 )
-            PA_ENSURE( Wait( stream, &framesAvail ) );
+            ENSURE_PA( Wait( stream, &framesAvail ) );
         framesAvail = MIN( framesAvail, frames );
 
-        PA_ENSURE( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
+        ENSURE_PA( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
         framesGot = PaUtil_CopyInput( &stream->bufferProcessor, &userBuffer, framesGot );
         ENSURE( snd_pcm_mmap_commit( stream->pcm_capture, stream->capture_offset, framesGot ),
                 paUnanticipatedHostError );
@@ -2673,7 +2686,7 @@ static PaError WriteStream( PaStream* s,
 
     assert( stream );
     if( !stream->pcm_playback )
-        PA_ENSURE( paCanNotWriteToAnInputOnlyStream );
+        ENSURE_PA( paCanNotWriteToAnInputOnlyStream );
 
     if( stream->underrun )
     {
@@ -2695,13 +2708,13 @@ static PaError WriteStream( PaStream* s,
     {
         snd_pcm_uframes_t hwAvail;
 
-        PA_ENSURE( err = GetStreamWriteAvailable( stream ) );
+        ENSURE_PA( err = GetStreamWriteAvailable( stream ) );
         framesAvail = err;
         if( framesAvail == 0 )
-            PA_ENSURE( Wait( stream, &framesAvail ) );
+            ENSURE_PA( Wait( stream, &framesAvail ) );
         framesAvail = MIN( framesAvail, frames );
 
-        PA_ENSURE( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
+        ENSURE_PA( SetUpBuffers( stream, framesAvail, 0, &framesGot ) );
         framesGot = PaUtil_CopyOutput( &stream->bufferProcessor, &userBuffer, framesGot );
         ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, framesGot ),
                 paUnanticipatedHostError );
@@ -2709,7 +2722,7 @@ static PaError WriteStream( PaStream* s,
         frames -= framesGot;
 
         /* Frames residing in buffer */
-        PA_ENSURE( err = GetStreamWriteAvailable( stream ) );
+        ENSURE_PA( err = GetStreamWriteAvailable( stream ) );
         framesAvail = err;
         hwAvail = stream->playbackBufferSize - framesAvail;
 
@@ -2740,12 +2753,12 @@ static signed long GetStreamReadAvailable( PaStream* s )
     {
         if( avail == -EPIPE )
         {
-            PA_ENSURE( HandleXrun( stream ) );
+            ENSURE_PA( HandleXrun( stream ) );
             avail = snd_pcm_avail_update( stream->pcm_capture );
         }
 
         if( avail == -EPIPE )
-            PA_ENSURE( paInputOverflowed );
+            ENSURE_PA( paInputOverflowed );
         ENSURE( avail, paUnanticipatedHostError );
     }
 
@@ -2767,7 +2780,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
     {
         if( avail == -EPIPE )
         {
-            PA_ENSURE( HandleXrun( stream ) );
+            ENSURE_PA( HandleXrun( stream ) );
             avail = snd_pcm_avail_update( stream->pcm_playback );
         }
 
