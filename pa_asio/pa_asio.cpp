@@ -1513,30 +1513,33 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     ? suggestedInputLatencyFrames : suggestedOutputLatencyFrames),
             &driverInfo );
 
-    /*
-        Some buggy drivers (like the Hoontech DSP24) give incorrect
-        [min, preferred, max] values They should work with the preferred size
-        value, thus if Pa_ASIO_CreateBuffers fails with the hostBufferSize
-        computed in SelectHostBufferSize, we try again with the preferred size.
-    */                 
-
     asioError = ASIOCreateBuffers( stream->asioBufferInfos,
             numInputChannels+numOutputChannels,
             framesPerHostBuffer, &asioCallbacks_ );
-    if( asioError != ASE_OK )
+
+    if( asioError != ASE_OK && framesPerHostBuffer != driverInfo.bufferPreferredSize )
     {
+        /*
+            Some buggy drivers (like the Hoontech DSP24) give incorrect
+            [min, preferred, max] values They should work with the preferred size
+            value, thus if Pa_ASIO_CreateBuffers fails with the hostBufferSize
+            computed in SelectHostBufferSize, we try again with the preferred size.
+        */
+
         framesPerHostBuffer = driverInfo.bufferPreferredSize;
 
         ASIOError asioError2 = ASIOCreateBuffers( stream->asioBufferInfos,
                 numInputChannels+numOutputChannels,
                  framesPerHostBuffer, &asioCallbacks_ );
+        if( asioError2 == ASE_OK )
+            asioError = ASE_OK;
+    }
 
-        if( asioError2 != ASE_OK )
-        {
-            result = paUnanticipatedHostError;
-            PA_ASIO_SET_LAST_ASIO_ERROR( asioError ); /* use error result from first call to ASIOCreateBuffers() */
-            goto error;
-        }
+    if( asioError != ASE_OK )
+    {
+        result = paUnanticipatedHostError;
+        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        goto error;
     }
 
     asioBuffersCreated = 1;
