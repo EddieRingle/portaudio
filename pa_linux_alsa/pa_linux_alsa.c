@@ -2634,8 +2634,6 @@ static void *CallbackThreadFunc( void *userData )
                 framesAvail = MIN( framesAvail, startThreshold );
             }
 
-            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
-
             /* now we know the soundcard is ready to produce/receive at least
              * one period.  we just need to get the buffers for the client
              * to read/write. */
@@ -2663,6 +2661,7 @@ static void *CallbackThreadFunc( void *userData )
                     }
                 }
             }
+            PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
             CallbackUpdate( &stream->threading );   /* Report to watchdog */
 
