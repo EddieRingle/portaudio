@@ -138,7 +138,8 @@ static void TerminateHostApis( void )
     hostApisCount_ = 0;
     deviceCount_ = 0;
 
-    PaUtil_FreeMemory( hostApis_ );
+    if( hostApis_ != 0 )
+        PaUtil_FreeMemory( hostApis_ );
     hostApis_ = 0;
 }
 
@@ -151,6 +152,11 @@ static PaError InitializeHostApis( void )
     initializerCount = CountHostApiInitializers();
 
     hostApis_ = PaUtil_AllocateMemory( sizeof(PaUtilHostAPI) * initializerCount );
+    if( !hostApis_ )
+    {
+        result = paInsufficientMemory;
+        goto error; 
+    }
 
     hostApisCount_ = 0;
     deviceCount_ = 0;
