@@ -1558,15 +1558,11 @@ static void *PaOSS_AudioThreadProc( void *userData )
                 /* TODO: handle bytesWritten != bytesRequested (slippage?) */
             }
 
-            if( callbackResult != paContinue )
-            {
-                stream->callbackAbort = callbackResult == paAbort;
-                if( stream->callbackAbort || PaUtil_IsBufferProcessorOutputEmpty( &stream->bufferProcessor ) )
-                    goto end;
-            }
-
             framesAvail -= framesProcessed;
             stream->framesProcessed += framesProcessed;
+
+            if( callbackResult != paContinue )
+                break;
         }
 
         if( initiateProcessing || !triggered )
@@ -1580,14 +1576,19 @@ static void *PaOSS_AudioThreadProc( void *userData )
             initiateProcessing = 0;
             sem_post( &stream->semaphore );
         }
+
+        if( callbackResult != paContinue )
+        {
+            stream->callbackAbort = callbackResult == paAbort;
+            if( stream->callbackAbort || PaUtil_IsBufferProcessorOutputEmpty( &stream->bufferProcessor ) )
+                break;
+        }
     }
 
     pthread_cleanup_pop( 1 );
 
-end:
-    pthread_exit( NULL );
 error:
-    goto end;
+    pthread_exit( NULL );
 }
 
 /** Close the stream.
