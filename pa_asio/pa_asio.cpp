@@ -256,6 +256,17 @@ static const char* PaAsio_GetAsioErrorText( ASIOError asioError )
 #endif
 
 
+
+typedef struct PaAsioDriverInfo
+{
+    ASIODriverInfo asioDriverInfo;
+    long numInputChannels, numOutputChannels;
+    long bufferMinSize, bufferMaxSize, bufferPreferredSize, bufferGranularity;
+    bool postOutput;
+}
+PaAsioDriverInfo;
+
+
 /* PaAsioHostApiRepresentation - host api datastructure specific to this implementation */
 
 typedef struct
@@ -275,8 +286,12 @@ typedef struct
 
         openAsioDeviceIndex will be PaNoDevice if there is no device open
         and a valid pa_asio (not global) device index otherwise.
+
+        openAsioDriverInfo is populated with the driver info for the
+        currently open device (if any)
     */
     PaDeviceIndex openAsioDeviceIndex;
+    PaAsioDriverInfo openAsioDriverInfo;
 }
 PaAsioHostApiRepresentation;
 
@@ -881,15 +896,6 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
 
 
 
-typedef struct PaAsioDriverInfo
-{
-    ASIODriverInfo asioDriverInfo;
-    long numInputChannels, numOutputChannels;
-    long bufferMinSize, bufferMaxSize, bufferPreferredSize, bufferGranularity;
-    bool postOutput;
-}
-PaAsioDriverInfo;
-
 /*
     load the asio driver named by <driverName> and return statistics about
     the driver in info. If no error occurred, the driver will remain open
@@ -1067,7 +1073,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 for( int j=0; j < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++j )
                 {
                     ASIOError asioError = ASIOCanSampleRate( defaultSampleRateSearchOrder_[j] );
-                    if( asioError != ASE_NoClock && asioError != ASE_NotPresent ){
+                    if( asioError != ASE_NoClock && asioError != ASE_NotPresent )
+                    {
                         deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[j];
                         foundDefaultSampleRate = true;
                         break;
@@ -1206,23 +1213,39 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
+    PaError result = paNoError;
+    PaAsioHostApiRepresentation *asioHostApi = (PaAsioHostApiRepresentation*)hostApi;
+    PaAsioDriverInfo *driverInfo = &asioHostApi->openAsioDriverInfo;
     int numInputChannels, numOutputChannels;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
+    PaDeviceIndex asioDeviceIndex;                                  
+    ASIOError asioError;
+    
+    if( inputParameters && outputParameters )
+    {
+        /* full duplex ASIO stream must use the same device for input and output */
 
+        if( inputParameters->device != outputParameters->device )
+            return paBadIODeviceCombination;
+    }
+    
     if( inputParameters )
     {
         numInputChannels = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
 
+        /* all standard sample formats are supported by the buffer adapter,
+            this implementation doesn't support any custom sample formats */
+        if( inputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
+            
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that input device can support numInputChannels */
-        if( numInputChannels > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
-            return paInvalidChannelCount;
+        asioDeviceIndex = inputParameters->device;
 
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
@@ -1238,15 +1261,18 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         numOutputChannels = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
 
+        /* all standard sample formats are supported by the buffer adapter,
+            this implementation doesn't support any custom sample formats */
+        if( outputSampleFormat & paCustomFormat )
+            return paSampleFormatNotSupported;
+            
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support numInputChannels */
-        if( numOutputChannels > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
-            return paInvalidChannelCount;
+        asioDeviceIndex = outputParameters->device;
 
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
@@ -1257,28 +1283,68 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         numOutputChannels = 0;
     }
 
-    /*
-        IMPLEMENT ME:
 
-            - if a full duplex stream is requested, check that the combination
-                of input and output parameters is supported if necessary
 
-            - check that the device supports sampleRate
+    /* if an ASIO device is open we can only get format information for the currently open device */
 
-        Because the buffer adapter handles conversion between all standard
-        sample formats, the following checks are only required if paCustomFormat
-        is implemented, or under some other unusual conditions.
+    if( asioHostApi->openAsioDeviceIndex != paNoDevice 
+			&& asioHostApi->openAsioDeviceIndex != asioDeviceIndex )
+    {
+        return paDeviceUnavailable;
+    }
 
-            - check that input device can support inputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
 
-            - check that output device can support outputSampleFormat, or that
-                we have the capability to convert from outputSampleFormat to
-                a native format
-    */
+    /* NOTE: we load the driver and use its current settings
+        rather than the ones in our device info structure which may be stale */
 
-    return paFormatIsSupported;
+    /* open the device if it's not already open */
+    if( asioHostApi->openAsioDeviceIndex == paNoDevice )
+    {
+        result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+                driverInfo, asioHostApi->systemSpecific );
+        if( result != paNoError )
+            return result;
+    }
+
+    /* check that input device can support numInputChannels */
+    if( numInputChannels > 0 )
+    {
+        if( numInputChannels > driverInfo->numInputChannels )
+        {
+            result = paInvalidChannelCount;
+            goto done;
+        }
+    }
+
+    /* check that output device can support numOutputChannels */
+    if( numOutputChannels )
+    {
+        if( numOutputChannels > driverInfo->numOutputChannels )
+        {
+            result = paInvalidChannelCount;
+            goto done;
+        }
+    }
+    
+    /* query for sample rate support */
+    asioError = ASIOCanSampleRate( sampleRate );
+    if( asioError == ASE_NoClock || asioError == ASE_NotPresent )
+    {
+        result = paInvalidSampleRate;
+        goto done;
+    }
+
+done:
+    /* close the device if it wasn't already open */
+    if( asioHostApi->openAsioDeviceIndex == paNoDevice )
+    {
+        ASIOExit(); /* not sure if we should check for errors here */
+    }
+
+    if( result == paNoError )
+        return paFormatIsSupported;
+    else
+        return result;
 }
 
 
@@ -1441,14 +1507,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int asioIsInitialized = 0;
     int asioBuffersCreated = 0;
     int completedBuffersPlayedEventInited = 0;
-    PaAsioDriverInfo driverInfo;
     int i;
+    PaAsioDriverInfo *driverInfo;
 
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
     if( asioHostApi->openAsioDeviceIndex != paNoDevice )
         return paDeviceUnavailable;
 
+    if( inputParameters && outputParameters )
+    {
+        /* full duplex ASIO stream must use the same device for input and output */
+
+        if( inputParameters->device != outputParameters->device )
+            return paBadIODeviceCombination;
+    }
 
     if( inputParameters )
     {
@@ -1496,19 +1569,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         suggestedOutputLatencyFrames = 0;
     }
 
-
-    if( inputParameters && outputParameters )
-    {
-        /* full duplex ASIO stream must use the same device for input and output */
-
-        if( inputParameters->device != outputParameters->device )
-            return paBadIODeviceCombination;
-    }
+    driverInfo = &asioHostApi->openAsioDriverInfo;
 
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name, &driverInfo, asioHostApi->systemSpecific );
+    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+            driverInfo, asioHostApi->systemSpecific );
     if( result == paNoError )
         asioIsInitialized = 1;
     else
@@ -1517,7 +1584,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* check that input device can support numInputChannels */
     if( numInputChannels > 0 )
     {
-        if( numInputChannels > driverInfo.numInputChannels )
+        if( numInputChannels > driverInfo->numInputChannels )
         {
             result = paInvalidChannelCount;
             goto error;
@@ -1527,7 +1594,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* check that output device can support numOutputChannels */
     if( numOutputChannels )
     {
-        if( numOutputChannels > driverInfo.numOutputChannels )
+        if( numOutputChannels > driverInfo->numOutputChannels )
         {
             result = paInvalidChannelCount;
             goto error;
@@ -1618,14 +1685,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     framesPerHostBuffer = SelectHostBufferSize(
             (( suggestedInputLatencyFrames > suggestedOutputLatencyFrames )
                     ? suggestedInputLatencyFrames : suggestedOutputLatencyFrames),
-            &driverInfo );
+            driverInfo );
 
     asioError = ASIOCreateBuffers( stream->asioBufferInfos,
             numInputChannels+numOutputChannels,
             framesPerHostBuffer, &asioCallbacks_ );
 
     if( asioError != ASE_OK
-            && framesPerHostBuffer != (unsigned long)driverInfo.bufferPreferredSize )
+            && framesPerHostBuffer != (unsigned long)driverInfo->bufferPreferredSize )
     {
         /*
             Some buggy drivers (like the Hoontech DSP24) give incorrect
@@ -1634,7 +1701,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             computed in SelectHostBufferSize, we try again with the preferred size.
         */
 
-        framesPerHostBuffer = driverInfo.bufferPreferredSize;
+        framesPerHostBuffer = driverInfo->bufferPreferredSize;
 
         ASIOError asioError2 = ASIOCreateBuffers( stream->asioBufferInfos,
                 numInputChannels+numOutputChannels,
@@ -1778,7 +1845,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     stream->numInputChannels = numInputChannels;
     stream->numOutputChannels = numOutputChannels;
-    stream->postOutput = driverInfo.postOutput;
+    stream->postOutput = driverInfo->postOutput;
     stream->isActive = 0;
 
     asioHostApi->openAsioDeviceIndex = asioDeviceIndex;
@@ -2411,7 +2478,7 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
 
     asioHostApi = (PaAsioHostApiRepresentation*)hostApi;
     if( asioHostApi->openAsioDeviceIndex != paNoDevice )
-        {
+    {
         result = paDeviceUnavailable;
         goto error;
     }
