@@ -999,7 +999,7 @@ const PaStreamInfo* Pa_GetStreamInfo( PaStream *stream );
  to generate buffer timestamps. This time may be used for syncronising other
  events to the audio stream, for example synchronizing audio to MIDI.
                                         
- @return The stream's current time in seconds.
+ @return The stream's current time in seconds, or 0 if an error occurred.
 
  @see PaTime, PaStreamCallback
 */
@@ -1020,7 +1020,7 @@ PaTime Pa_GetStreamTime( PaStream *stream );
  to maintain real-time operation. A value of 0.5 would imply that PortAudio and
  the stream callback was consuming roughly 50% of the available CPU time. The
  return value may exceed 1.0. A value of 0.0 will always be returned for a
- blocking read/write stream.
+ blocking read/write stream, or if an error occurrs.
 */
 double Pa_GetStreamCpuLoad( PaStream* stream );
 
