@@ -621,6 +621,7 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
     unsigned int bufTime;
     unsigned int numPeriods;
     snd_pcm_uframes_t threshold = 0;
+    snd_pcm_uframes_t bufSz;
 
     assert(pcm);
 
@@ -698,6 +699,10 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
     /* snd_pcm_uframes_t boundary; */
     ENSURE( snd_pcm_sw_params_current( pcm, swParams ), paUnanticipatedHostError );
 
+    ENSURE( snd_pcm_sw_params_set_start_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_hw_params_get_buffer_size( hwParams, &bufSz ), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_stop_threshold( pcm, swParams, bufSz ), paUnanticipatedHostError );
+
     /* If the user wants to prime the buffer before stream start, the start threshold will equal buffer size */
     threshold = 0;
     if( primeBuffers )
@@ -713,15 +718,9 @@ static PaError ConfigureStream( snd_pcm_t *pcm, int channels,
         ENSURE( snd_pcm_sw_params_set_silence_threshold( pcm, swParams, 0 ), paUnanticipatedHostError );
         ENSURE( snd_pcm_sw_params_set_silence_size( pcm, swParams, boundary ), paUnanticipatedHostError );
     }
-    ENSURE( snd_pcm_sw_params_set_start_threshold( pcm, swParams, threshold ), paUnanticipatedHostError );
         
     ENSURE( snd_pcm_sw_params_set_avail_min( pcm, swParams, *framesPerBuffer ), paUnanticipatedHostError );
-
-    /* until there's explicit xrun support in PortAudio, we'll configure ALSA
-     * devices never to stop on account of an xrun.  Basically, if the software
-     * falls behind and there are dropouts, we'll never even know about it.
-     */
-    ENSURE( snd_pcm_sw_params_set_stop_threshold( pcm, swParams, (snd_pcm_uframes_t)-1), paUnanticipatedHostError );
+    ENSURE( snd_pcm_sw_params_set_xfer_align(pcm, swParams, 1), paUnanticipatedHostError );
 
     /* Set the parameters! */
     ENSURE( snd_pcm_sw_params( pcm, swParams ), paUnanticipatedHostError );
@@ -852,9 +851,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( GetAvailableFormats(stream->pcm_playback),
                                                  outputSampleFormat );
-        stream->playback_hostsampleformat = hostOutputSampleFormat;
+        stream->playbackNativeFormat = Pa2AlsaFormat( hostOutputSampleFormat );
     }
-
 
     /* If the number of frames per buffer is unspecified, we have to come up with
      * one.  This is both a blessing and a curse: a blessing because we can optimize
@@ -1035,24 +1033,18 @@ static PaError CloseStream( PaStream* s )
     return result;
 }
 
-
 static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
     PaAlsaStream *stream = (PaAlsaStream*)s;
+    int tries = 4;
+    (void) tries;
+
+    /* Ready the processor */
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
 
     /* A: I've decided to try starting playback in main thread, at least we know pcm will be started
        before we spawn. Otherwise we may exit with an appropriate error code */
-    if( stream->pcm_playback )
-    {
-        ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
-        ENSURE( snd_pcm_start( stream->pcm_playback ), paUnanticipatedHostError );
-    }
-    if( stream->pcm_capture && !stream->pcmsSynced )
-    {
-        ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
-        ENSURE( snd_pcm_start( stream->pcm_capture ), paUnanticipatedHostError );
-    }
 
     if( stream->callback_mode )
     {
@@ -1077,8 +1069,19 @@ static PaError StartStream( PaStream *s )
      */
     while( !IsStreamActive( stream ) )
     {
-        PA_DEBUG(( "Not entered running state. Boo!\n" ));
-        Pa_Sleep( 100 );
+        PA_DEBUG(( "Waiting for stream to start\n" ));
+        Pa_Sleep( 25 );
+    }
+    if( !IsStreamActive( stream ) )
+    {
+        if( stream->callback_mode )
+        {
+            pthread_cancel( stream->callback_thread );
+            pthread_join( stream->callback_thread, NULL );
+        }
+
+        result = paTimedOut;
+        goto error;
     }
 
 end:
@@ -1095,7 +1098,7 @@ static PaError RealStop( PaStream *s, int abort )
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
     /* These two are used to obtain return value when joining thread */
-    int *pret;
+    void *pret;
     int retVal;
 
     /* First deal with the callback thread, cancelling and/or joining
@@ -1105,11 +1108,11 @@ static PaError RealStop( PaStream *s, int abort )
     {
         if( stream->callback_finished )
         {
-            pthread_join( stream->callback_thread, (void **) &pret );  /* Just wait for it to die */
+            pthread_join( stream->callback_thread, &pret );  /* Just wait for it to die */
             
             if( pret )  /* Message from dying thread */
             {
-                retVal = *pret;
+                retVal = *(int *) pret;
                 free(pret);
                 ENSURE(retVal, retVal);
             }
@@ -1302,6 +1305,42 @@ int GetExactSampleRate( snd_pcm_hw_params_t *hwParams, double *sampleRate )
     return err;
 }
 
+void SilenceBuffer( PaAlsaStream *stream )
+{
+    const snd_pcm_channel_area_t *areas;
+    snd_pcm_sframes_t frames = snd_pcm_avail_update( stream->pcm_playback );
+
+    snd_pcm_mmap_begin( stream->pcm_playback, &areas, &stream->playback_offset, &frames );
+    snd_pcm_areas_silence( areas, stream->playback_offset, stream->playback_channels, frames, stream->playbackNativeFormat );
+    snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, frames );
+}
+
+PaError AlsaStart( PaAlsaStream *stream, int priming )
+{
+    PaError result = paNoError;
+
+    if( stream->pcm_playback )
+    {
+        /* We're not priming buffer, so prepare and silence */
+        if( !priming )
+        {
+            ENSURE( snd_pcm_prepare( stream->pcm_playback ), paUnanticipatedHostError );
+            SilenceBuffer( stream );
+        }
+        ENSURE( snd_pcm_start( stream->pcm_playback ), paUnanticipatedHostError );
+    }
+    if( stream->pcm_capture && !stream->pcmsSynced )
+    {
+        if( snd_pcm_state( stream->pcm_capture ) != SND_PCM_STATE_PREPARED )
+            ENSURE( snd_pcm_prepare( stream->pcm_capture ), paUnanticipatedHostError );
+        ENSURE( snd_pcm_start( stream->pcm_capture ), paUnanticipatedHostError );
+    }
+
+end:
+    return result;
+error:
+    goto end;
+}
 
 PaError AlsaStop( PaAlsaStream *stream, int abort )
 {

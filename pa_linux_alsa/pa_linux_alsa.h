@@ -64,7 +64,7 @@ typedef struct PaAlsaStream
     int callback_finished;      /* bool: are we in the "callback finished" state? See if stream has been stopped in background */
 
     int frames_per_period;
-    int playback_hostsampleformat;
+    snd_pcm_uframes_t playbackNativeFormat;
 
     int capture_channels;
     int playback_channels;
@@ -85,12 +85,13 @@ typedef struct PaAlsaStream
     snd_pcm_uframes_t capture_offset;
     snd_pcm_uframes_t playback_offset;
 
-    int pcmsSynced;		/* Have we successfully synced pcms */
+    int pcmsSynced;	        /* Have we successfully synced pcms */
     int callbackAbort;		/* Drop frames? */
     snd_pcm_uframes_t startThreshold;
 }
 PaAlsaStream;
 
+PaError AlsaStart( PaAlsaStream *stream, int priming );
 PaError AlsaStop( PaAlsaStream *stream, int abort );
 
 #endif

@@ -5,7 +5,41 @@
 #include "pa_linux_alsa.h"
 
 void OnExit( void *data );
-char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
+unsigned char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset );
+
+/* Report xrun/restart audio */
+static void HandleXrun( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun )
+{
+    snd_pcm_status_t *st;
+    PaTime now = PaUtil_GetTime();
+    snd_timestamp_t t;
+
+    snd_pcm_status_alloca( &st );
+
+    if( stream->pcm_playback )
+    {
+        snd_pcm_status( stream->pcm_playback, st );
+        if( snd_pcm_status_get_state( st ) == SND_PCM_STATE_XRUN )
+        {
+            snd_pcm_status_get_trigger_tstamp( st, &t );
+            *underrun = now * 1000 - ((PaTime) t.tv_sec * 1000 + (PaTime) t.tv_usec / 1000);
+        }
+    }
+    if( stream->pcm_capture )
+    {
+        snd_pcm_status( stream->pcm_capture, st );
+        if( snd_pcm_status_get_state( st ) == SND_PCM_STATE_XRUN )
+        {
+            snd_pcm_status_get_trigger_tstamp( st, &t );
+            *overrun = now * 1000 - ((PaTime) t.tv_sec * 1000 + (PaTime) t.tv_usec / 1000);
+        }
+    }
+
+    /* PA_DEBUG(( "Stopping stream due to xrun\n" )); */
+    AlsaStop( stream, 0 );
+    AlsaStart( stream, 0 );
+    /* PA_DEBUG(( "Restarted stream due to xrun\n" )); */
+}
 
 /*!
   \brief Poll on I/O filedescriptors
@@ -13,15 +47,18 @@ char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offs
   We keep polling untill both all filedescriptors are ready (possibly both in and out), if either the capture
   or playback fd gets ready before the other we take it out of the equation
   */
-static snd_pcm_sframes_t Wait( PaAlsaStream *stream )
+static snd_pcm_sframes_t Wait( PaAlsaStream *stream, PaTime *underrun, PaTime *overrun )
 {
     PaError result = paNoError;
     int needCapture = 0, needPlayback = 0;
     snd_pcm_sframes_t captureAvail = INT_MAX, playbackAvail = INT_MAX, commonAvail;
     struct pollfd *pfds = stream->pfds;
     int totalFds = stream->capture_nfds + stream->playback_nfds;
+    int xrun = 0;   /* Under/overrun? */
 
     assert( stream );
+
+    *underrun = *overrun = 0.0;
 
     if( stream->pcm_capture )
         needCapture = 1;
@@ -50,7 +87,9 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream )
         {
             ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_capture, stream->pfds,
                         stream->capture_nfds, &revents ), paUnanticipatedHostError );
-            if( revents == POLLIN )
+            if( revents & POLLERR )
+                xrun = 1;
+            if( revents & POLLIN )
             {
                 needCapture = 0;
                 /* No need to keep polling on capture fd(s) */
@@ -64,7 +103,9 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream )
             unsigned short revents;
             ENSURE( snd_pcm_poll_descriptors_revents( stream->pcm_playback, stream->pfds +
                         stream->capture_nfds, stream->playback_nfds, &revents ), paUnanticipatedHostError );
-            if( revents == POLLOUT )
+            if( revents & POLLERR )
+                xrun = 1;
+            if( revents & POLLOUT )
             {
                 needPlayback = 0;
                 /* No need to keep polling on playback fd(s) */
@@ -78,13 +119,25 @@ static snd_pcm_sframes_t Wait( PaAlsaStream *stream )
     if( stream->pcm_capture )
     {
         captureAvail = snd_pcm_avail_update( stream->pcm_capture );
-        ENSURE( captureAvail, paUnanticipatedHostError );
+        if( captureAvail == -EPIPE )
+            xrun = 1;
+        else
+            ENSURE( captureAvail, paUnanticipatedHostError );
     }
 
     if( stream->pcm_playback )
     {
         playbackAvail = snd_pcm_avail_update( stream->pcm_playback );
-        ENSURE( playbackAvail, paUnanticipatedHostError );
+        if( playbackAvail == -EPIPE )
+            xrun = 1;
+        else
+            ENSURE( playbackAvail, paUnanticipatedHostError );
+    }
+
+    if( xrun )
+    {
+        HandleXrun( stream, underrun, overrun );
+        return 0;
     }
 
     commonAvail = MIN(captureAvail, playbackAvail);
@@ -102,7 +155,7 @@ snd_pcm_sframes_t SetUpBuffers( PaAlsaStream *stream, snd_pcm_uframes_t framesAv
     int i;
     snd_pcm_uframes_t captureFrames = INT_MAX, playbackFrames = INT_MAX, commonFrames;
     const snd_pcm_channel_area_t *areas, *area;
-    char *buffer;
+    unsigned char *buffer;
 
     assert( stream );
 
@@ -184,17 +237,22 @@ void *CallbackThread( void *userData )
     PaAlsaStream *stream = (PaAlsaStream*) userData;
     snd_pcm_sframes_t framesAvail, framesGot, framesProcessed;
     int *pres;
+    PaTime underrun = 0.0, overrun = 0.0;
 
     assert( userData );
 
-    pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit during exit */
+    pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, 44100.0 );
+
+    if( stream->startThreshold <= 0 )   /* Just fill buffer with silence before start */
+        PA_ENSURE( AlsaStart( stream, 0 ) );
 
     while(1)
     {
         PaError callbackResult;
 	PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* IMPLEMENT ME */
+        PaStreamCallbackFlags cbFlags = 0;
 
         pthread_testcancel();
         {
@@ -255,41 +313,40 @@ void *CallbackThread( void *userData )
             }
         }
 
-
-        /*
-            IMPLEMENT ME:
-                - handle buffer slips
-        */
-
         /*
             depending on whether the host buffers are interleaved, non-interleaved
             or a mixture, you will want to call PaUtil_ProcessInterleavedBuffers(),
             PaUtil_ProcessNonInterleavedBuffers() or PaUtil_ProcessBuffers() here.
         */
 
-        framesAvail = Wait( stream );
+        if( underrun != 0.0 )
+            cbFlags |= paOutputUnderflow;
+        if( overrun != 0.0 )
+            cbFlags |= paInputOverflow;
+
+        framesAvail = Wait( stream, &underrun, &overrun );
         ENSURE( framesAvail, framesAvail );     /* framesAvail might contain an error (negative value) */
         while( framesAvail > 0 )
         {
-            PaStreamCallbackFlags cbFlags = 0;
-
             pthread_testcancel();
 
             /* Priming output */
             if( stream->startThreshold > 0 )
-            {
-                if( stream->pcm_capture )
-                    PaUtil_SetNoInput( &stream->bufferProcessor );
                 framesAvail = MIN( framesAvail, stream->startThreshold );
-            }
 
-            /* Now we know the soundcard is ready to produce/receive at least
-             * one period.  We just need to get the buffers for the client
+            /* If we have a stream underrun, ignore callback and write silence */
+            /* now we know the soundcard is ready to produce/receive at least
+             * one period.  we just need to get the buffers for the client
              * to read/write. */
             PaUtil_BeginBufferProcessing( &stream->bufferProcessor, &timeInfo, cbFlags );
 
             framesGot = SetUpBuffers( stream, framesAvail );
             ENSURE( framesGot, framesGot );             /* framesGot might contain an error (negative) */
+            if( stream->startThreshold > 0 && stream->pcm_capture )
+            {
+                PaUtil_SetNoInput( &stream->bufferProcessor );
+                cbFlags |= paInputUnderflow;
+            }
 
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
@@ -307,14 +364,19 @@ void *CallbackThread( void *userData )
             if( stream->pcm_playback )
                 ENSURE( snd_pcm_mmap_commit( stream->pcm_playback, stream->playback_offset, framesGot ), paUnanticipatedHostError );
 
+            /* If threshold for starting stream specified (priming buffer), decrement and compare */
+            if( stream->startThreshold > 0 )
+            {
+                if( (stream->startThreshold -= framesGot) <= 0 )
+                    PA_ENSURE( AlsaStart( stream, 1 ) );
+            }
+
             if( callbackResult != paContinue )
                 break;
 
             framesAvail -= framesGot;
             if( stream->startThreshold > 0 )
                 stream->startThreshold -= framesGot;
-
-	    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
         }
 
 
@@ -367,7 +429,7 @@ void OnExit( void *data )
         stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
 }
 
-char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
+unsigned char *ExtractAddress( const snd_pcm_channel_area_t *area, snd_pcm_uframes_t offset )
 {
-    return (char *) area->addr + (area->first + offset * area->step) / 8;
+    return (unsigned char *) area->addr + (area->first + offset * area->step) / 8;
 }
