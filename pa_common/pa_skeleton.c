@@ -238,7 +238,6 @@ typedef struct PaSkeletonStream
 }
 PaSkeletonStream;
 
-
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
@@ -265,13 +264,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long framesPerHostBuffer = framesPerCallback; /* these may not be equivalent for all implementations */
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
 
+    /* check that input device can support numInputChannels */
+    if( (inputDevice != paNoDevice) &&
+            (numInputChannels > hostApi->deviceInfos[ inputDevice ]->maxInputChannels) )
+        return paInvalidChannelCount;
+
+
+    /* check that output device can support numInputChannels */
+    if( (outputDevice != paNoDevice) &&
+            (numOutputChannels > hostApi->deviceInfos[ outputDevice ]->maxOutputChannels) )
+        return paInvalidChannelCount;
+
     /*
         IMPLEMENT ME:
-            - check that input device can support numInputChannels
 
-            - check that output device can support numOutputChannels
-
-        ( the following two checks are taken care of by PaUtil_InitializeBufferProcessor() )
+        ( the following two checks are taken care of by PaUtil_InitializeBufferProcessor() FIXME - checks needed? )
 
             - check that input device can support inputSampleFormat, or that
                 we have the capability to convert from outputSampleFormat to
