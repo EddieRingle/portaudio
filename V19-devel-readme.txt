@@ -29,6 +29,7 @@ pa_common\pa_converters.c
 pa_common\pa_cpuload.c
 pa_common\pa_dither.c
 pa_common\pa_front.c
+pa_common\pa_allocation.h
 pa_win\pa_win_util.c
 pa_win\pa_win_hostapis.c
 pa_win_wmme\pa_win_wmme.c
@@ -75,6 +76,9 @@ pa_dither.c/h
 
 pa_process.c/h
     callback buffer processing facility including interleave and block adaption
+
+pa_allocation.c/h
+    allocation context for tracking groups of allocations
 
 pa_skeleton.c
     an skeleton implementation showing how the common code can be used.

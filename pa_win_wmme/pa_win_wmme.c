@@ -44,7 +44,7 @@
  PLB20010402 - sDevicePtrs now allocates based on sizeof(pointer)
  PLB20010413 - check for excessive numbers of channels
  PLB20010422 - apply Mike Berry's changes for CodeWarrior on PC
-               including condition including of memory.h,
+               including conditional inclusion of memory.h,
                and explicit typecasting on memory allocation
  PLB20010802 - use GlobalAlloc for sDevicesPtr instead of PaHost_AllocFastMemory
  PLB20010816 - pass process instead of thread to SetPriorityClass()
@@ -86,6 +86,7 @@ TODO:
 #include "portaudio.h"
 #include "pa_trace.h"
 #include "pa_util.h"
+#include "pa_allocation.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
 #include "pa_cpuload.h"
@@ -132,7 +133,7 @@ typedef struct PaWinMmeStream PaWinMmeStream;     /* forward reference */
 
 /* prototypes for functions declared in this file */
 
-PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** stream,
@@ -175,12 +176,14 @@ typedef struct
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
+    PaUtilAllocationContext *allocations;
+    
     int numInputDevices, numOutputDevices;
 }
 PaWinMmeHostApiRepresentation;
 
 
-static void InitializeDeviceCount( PaWinMmeHostApiRepresentation *hostApi )
+static void InitializeDeviceCountsAndDefaultDevices( PaWinMmeHostApiRepresentation *hostApi )
 {
     hostApi->numInputDevices = waveInGetNumDevs();
     if( hostApi->numInputDevices > 0 )
@@ -303,7 +306,8 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     if( inputWinMmeId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
-        deviceName = (char *) PaUtil_AllocateMemory( strlen( wic.szPname ) + 1 + sizeof(constInputMapperSuffix_) );
+        deviceName = (char *)PaUtil_ContextAllocateMemory(
+                    winMmeHostApi->allocations, strlen( wic.szPname ) + 1 + sizeof(constInputMapperSuffix_) );
         if( !deviceName )
         {
             result = paInsufficientMemory;
@@ -314,7 +318,8 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     }
     else
     {
-        deviceName = (char*)PaUtil_AllocateMemory( strlen( wic.szPname ) + 1 );
+        deviceName = (char*)PaUtil_ContextAllocateMemory(
+                    winMmeHostApi->allocations, strlen( wic.szPname ) + 1 );
         if( !deviceName )
         {
             result = paInsufficientMemory;
@@ -390,7 +395,8 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     if( outputWinMmeId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
-        deviceName = (char *) PaUtil_AllocateMemory( strlen( woc.szPname ) + 1 + sizeof(constOutputMapperSuffix_) );
+        deviceName = (char *)PaUtil_ContextAllocateMemory(
+                    winMmeHostApi->allocations, strlen( woc.szPname ) + 1 + sizeof(constOutputMapperSuffix_) );
         if( !deviceName )
         {
             result = paInsufficientMemory;
@@ -401,7 +407,8 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     }
     else
     {
-        deviceName = (char*)PaUtil_AllocateMemory( strlen( woc.szPname ) + 1 );
+        deviceName = (char*)PaUtil_ContextAllocateMemory(
+                    winMmeHostApi->allocations, strlen( woc.szPname ) + 1 );
         if( !deviceName )
         {
             result = paInsufficientMemory;
@@ -482,16 +489,23 @@ error:
 }
 
 
-PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index )
+PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
-    int i, deviceCount;
-    PaWinMmeHostApiRepresentation *winMmeHostApi = 0;
-    PaDeviceInfo *deviceInfoArray = 0;
+    int i;
+    PaWinMmeHostApiRepresentation *winMmeHostApi;
+    PaDeviceInfo *deviceInfoArray;
     double *sampleRates; /* non-const ptr */
 
     winMmeHostApi = (PaWinMmeHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinMmeHostApiRepresentation) );
     if( !winMmeHostApi )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+    winMmeHostApi->allocations = PaUtil_CreateAllocationContext();
+    if( !winMmeHostApi->allocations )
     {
         result = paInsufficientMemory;
         goto error;
@@ -502,53 +516,40 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     (*hostApi)->info.type = paWin32MME;
     (*hostApi)->info.name = "Windows MME";
 
-    InitializeDeviceCount( winMmeHostApi );
-    deviceCount = (*hostApi)->deviceCount;
+    InitializeDeviceCountsAndDefaultDevices( winMmeHostApi );
 
-    (*hostApi)->deviceInfos = 0;
-
-    if( deviceCount > 0 )
+    if( (*hostApi)->deviceCount > 0 )
     {
-        (*hostApi)->deviceInfos =
-            (PaDeviceInfo**)PaUtil_AllocateMemory( sizeof(PaDeviceInfo*) * deviceCount );
+        (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_ContextAllocateMemory(
+                winMmeHostApi->allocations, sizeof(PaDeviceInfo*) * (*hostApi)->deviceCount );
         if( !(*hostApi)->deviceInfos )
         {
             result = paInsufficientMemory;
             goto error;
         }
 
-        /* allocate all device info structs in a contiguous block
-            (*hostApi)->deviceInfos[0] points to start of block
-         */
-        (*hostApi)->deviceInfos[0] = 0;
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_AllocateMemory( sizeof(PaDeviceInfo) * deviceCount );
+        /* allocate all device info structs in a contiguous block */
+        deviceInfoArray = (PaDeviceInfo*)PaUtil_ContextAllocateMemory(
+                winMmeHostApi->allocations, sizeof(PaDeviceInfo) * (*hostApi)->deviceCount );
         if( !deviceInfoArray )
         {
             result = paInsufficientMemory;
             goto error;
         }
 
-        /* initializes buffer ptrs to zero so they can be deallocated on error */
-        for( i=0; i < deviceCount; ++i )
+        for( i=0; i < (*hostApi)->deviceCount; ++i )
         {
             PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
-            (*hostApi)->deviceInfos[i] = deviceInfo;
-            deviceInfo->name = 0;
-            deviceInfo->sampleRates = 0;
-        }
-
-        for( i=0; i < deviceCount; ++i )
-        {
-            PaDeviceInfo *deviceInfo = (*hostApi)->deviceInfos[i];
-
             deviceInfo->structVersion = 2;
-            deviceInfo->hostApi = index;
+            deviceInfo->hostApi = hostApiIndex;
 
             deviceInfo->maxInputChannels = 0;
             deviceInfo->maxOutputChannels = 0;
             deviceInfo->numSampleRates = 0;
 
-            sampleRates = (double*)PaUtil_AllocateMemory( PA_MAX_NUMSAMPLINGRATES_ * sizeof(double) );
+            /* allocate space for all possible sample rates */
+            sampleRates = (double*)PaUtil_ContextAllocateMemory(
+                    winMmeHostApi->allocations, PA_MAX_NUMSAMPLINGRATES_ * sizeof(double) );
             if( !sampleRates )
             {
                 result = paInsufficientMemory;
@@ -571,11 +572,9 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 if( result != paNoError )
                     goto error;
             }
+
+            (*hostApi)->deviceInfos[i] = deviceInfo;
         }
-    }
-    else
-    {
-        (*hostApi)->deviceInfos = 0;
     }
 
     InitializeDefaultDeviceIdsFromEnv( winMmeHostApi );
@@ -597,27 +596,12 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 error:
     if( winMmeHostApi )
     {
-        if( deviceCount > 0 )
+        if( winMmeHostApi->allocations )
         {
-            if( winMmeHostApi->commonHostApiRep.deviceInfos )
-            {
-                if( winMmeHostApi->commonHostApiRep.deviceInfos[0] )
-                {
-                    for( i=0; i < deviceCount; ++i )
-                    {
-                        if( winMmeHostApi->commonHostApiRep.deviceInfos[0]->name )
-                            PaUtil_FreeMemory( (void*)winMmeHostApi->commonHostApiRep.deviceInfos[0]->name );
-
-                        if( winMmeHostApi->commonHostApiRep.deviceInfos[0]->sampleRates )
-                            PaUtil_FreeMemory( (void*)winMmeHostApi->commonHostApiRep.deviceInfos[0]->sampleRates );
-                    }
-
-                    PaUtil_FreeMemory( winMmeHostApi->commonHostApiRep.deviceInfos[0] );
-                }
-
-                PaUtil_FreeMemory( winMmeHostApi->commonHostApiRep.deviceInfos );
-            }
+            PaUtil_FreeAllAllocations( winMmeHostApi->allocations );
+            PaUtil_DestroyAllocationContext( winMmeHostApi->allocations );
         }
+        
         PaUtil_FreeMemory( winMmeHostApi );
     }
 
@@ -628,19 +612,11 @@ error:
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
     PaWinMmeHostApiRepresentation *winMmeHostApi = (PaWinMmeHostApiRepresentation*)hostApi;
-    int deviceCount = winMmeHostApi->commonHostApiRep.deviceCount;
-    int i;
 
-    if( deviceCount > 0 )
+    if( winMmeHostApi->allocations )
     {
-        for( i=0; i < deviceCount; ++i )
-        {
-            PaUtil_FreeMemory( (void*)winMmeHostApi->commonHostApiRep.deviceInfos[i]->name );
-            PaUtil_FreeMemory( (void*)winMmeHostApi->commonHostApiRep.deviceInfos[i]->sampleRates );
-        }
-
-        PaUtil_FreeMemory( hostApi->deviceInfos[0] );
-        PaUtil_FreeMemory( hostApi->deviceInfos );
+        PaUtil_FreeAllAllocations( winMmeHostApi->allocations );
+        PaUtil_DestroyAllocationContext( winMmeHostApi->allocations );
     }
 
     PaUtil_FreeMemory( winMmeHostApi );
@@ -1696,8 +1672,6 @@ static PaError IsStreamStopped( PaStream *s )
     PaWinMmeStream *stream = (PaWinMmeStream*)s;
 
     return ( stream->processingThread != NULL );
-
-    return 0;
 }
 
 

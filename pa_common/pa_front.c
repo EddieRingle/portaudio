@@ -42,7 +42,7 @@
 #include "pa_trace.h"
 
 
-#define PA_LOG_API_CALLS
+//#define PA_LOG_API_CALLS
 /*
     The basic format for log messages is as follows:
  
@@ -184,10 +184,12 @@ error:
 
 /*
     FindHostApi() finds the index of the host api to which
-    <device> belongs. returns -1 if <device> is out of range.
+    <device> belongs and returns it. if <hostSpecificDeviceIndex> is
+    non-null, the host specific device index is returned in it.
+    returns -1 if <device> is out of range.
  
 */
-static int FindHostApi( PaDeviceIndex device )
+static int FindHostApi( PaDeviceIndex device, int *hostSpecificDeviceIndex )
 {
     int i=0;
 
@@ -207,6 +209,9 @@ static int FindHostApi( PaDeviceIndex device )
 
     if( i >= hostApisCount_ )
         return -1;
+
+    if( hostSpecificDeviceIndex )
+        *hostSpecificDeviceIndex = device;
 
     return i;
 }
@@ -685,7 +690,8 @@ PaDeviceIndex Pa_GetDefaultOutputDevice( void )
 
 const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
 {
-    int hostApiIndex = FindHostApi( device );
+    int hostSpecificDeviceIndex;
+    int hostApiIndex = FindHostApi( device, &hostSpecificDeviceIndex );
     PaDeviceInfo *result;
 
 
@@ -707,7 +713,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
     }
     else
     {
-        result = hostApis_[hostApiIndex].representation->deviceInfos[ device ];
+        result = hostApis_[hostApiIndex].representation->deviceInfos[ hostSpecificDeviceIndex ];
 
 #ifdef PA_LOG_API_CALLS
         PaUtil_DebugPrint("Pa_GetDeviceInfo returned:\n" );
@@ -722,7 +728,7 @@ const PaDeviceInfo* Pa_GetDeviceInfo( PaDeviceIndex device )
         PaUtil_DebugPrint("\t\tint numSampleRates: %d\n", result->numSampleRates );
 
         PaUtil_DebugPrint("\t\tconst double *sampleRates: { " );
-        for( i=0; i<(result->numSampleRates==-1)?2:result->numSampleRates; ++i )
+        for( i=0; i<((result->numSampleRates==-1)?2:result->numSampleRates); ++i )
         {
             if( i != 0 )
                 PaUtil_DebugPrint(", " );
@@ -854,12 +860,9 @@ static PaError ValidateOpenStreamParameters(
             if( inputDevice < 0 || inputDevice >= deviceCount_ )
                 return paInvalidDevice;
 
-            inputHostApiIndex = FindHostApi( inputDevice );
+            inputHostApiIndex = FindHostApi( inputDevice, hostApiInputDevice );
             if( inputHostApiIndex < 0 )
                 return paInternalError;
-
-            *hostApiInputDevice =
-                inputDevice - hostApis_[inputHostApiIndex].baseDeviceIndex;
 
             *hostApi = hostApis_[inputHostApiIndex].representation;
 
@@ -887,12 +890,9 @@ static PaError ValidateOpenStreamParameters(
             if( outputDevice < 0 || outputDevice >= deviceCount_ )
                 return paInvalidDevice;
 
-            outputHostApiIndex = FindHostApi( outputDevice );
+            outputHostApiIndex = FindHostApi( outputDevice, hostApiOutputDevice );
             if( outputHostApiIndex < 0 )
                 return paInternalError;
-
-            *hostApiOutputDevice =
-                outputDevice - hostApis_[outputHostApiIndex].baseDeviceIndex;
 
             *hostApi = hostApis_[outputHostApiIndex].representation;
 

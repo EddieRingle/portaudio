@@ -1,7 +1,7 @@
 #ifndef PA_UTIL_H
 #define PA_UTIL_H
 /*
- *
+ * Id:
  * Portable Audio I/O Library implementation utilities header
  * common implementation utilities and interfaces
  *
