@@ -644,7 +644,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputParameters->device != paUseHostApiSpecificDeviceSpecification )
         {
             assert( inputParameters->device < hostApi->info.deviceCount );
-            inputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ inputParameters->device ];
+            inputDeviceInfo = (PaAlsaDeviceInfo *)hostApi->deviceInfos[ inputParameters->device ];
         }
         else
             inputStreamInfo = inputParameters->hostApiSpecificStreamInfo;
@@ -660,7 +660,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device != paUseHostApiSpecificDeviceSpecification )
         {
             assert( outputParameters->device < hostApi->info.deviceCount );
-            outputDeviceInfo = (PaAlsaDeviceInfo*)hostApi->deviceInfos[ outputParameters->device ];
+            outputDeviceInfo = (PaAlsaDeviceInfo *)hostApi->deviceInfos[ outputParameters->device ];
         }
         else
             outputStreamInfo = outputParameters->hostApiSpecificStreamInfo;
@@ -1209,7 +1209,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         outputLatency = outputParameters->suggestedLatency; /* Real latency in seconds returned from ConfigureStream */
 
-        ( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
+        PA_ENSURE( ConfigureStream( stream->pcm_playback, numOutputChannels, &interleaved,
                              &sampleRate, plain_format, framesPerHostBuffer, &stream->playbackBufferSize,
                              &outputLatency, primeBuffers, stream->callback_mode ) );
 
