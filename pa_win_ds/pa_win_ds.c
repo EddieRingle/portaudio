@@ -1196,6 +1196,11 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD d
                 stream->stopProcessing = 1;
             }
         }
+
+        if( !stream->isActive ){
+            if( stream->streamRepresentation.streamFinishedCallback != 0 )
+                stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+        }
     }
 }
 

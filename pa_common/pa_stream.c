@@ -70,7 +70,10 @@ void PaUtil_InitializeStreamRepresentation( PaUtilStreamRepresentation *streamRe
     streamRepresentation->nextOpenStream = 0;
     streamRepresentation->streamInterface = streamInterface;
     streamRepresentation->streamCallback = streamCallback;
+    streamRepresentation->streamFinishedCallback = 0;
+
     streamRepresentation->userData = userData;
+
     streamRepresentation->streamInfo.inputLatency = 0.;
     streamRepresentation->streamInfo.outputLatency = 0.;
     streamRepresentation->streamInfo.sampleRate = 0.;

@@ -1986,6 +1986,9 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
     }
 
     stream->isActive = 0;
+
+    if( stream->streamRepresentation.streamFinishedCallback != 0 )
+        stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     
     return result;
 }

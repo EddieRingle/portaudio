@@ -763,6 +763,44 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
 PaError Pa_CloseStream( PaStream *stream );
 
 
+/** Functions of type PaStreamFinishedCallback are implemented by PortAudio 
+ clients. They can be registered with a stream using the Pa_SetStreamFinishedCallback
+ function. Once registered they are called when the stream becomes inactive
+ (ie once a call to Pa_StopStream() will not block).
+ A stream will become inactive after the stream callback returns non-zero,
+ or when Pa_StopStream or Pa_AbortStream is called. For a stream providing audio
+ output, if the stream callback returns paComplete, or Pa_StopStream is called,
+ the stream finished callback will not be called until all generated sample data
+ has been played.
+ 
+ @param userData The userData parameter supplied to Pa_OpenStream()
+
+ @see Pa_SetStreamFinishedCallback
+*/
+typedef void PaStreamFinishedCallback( void *userData );
+
+
+/** Register a stream finished callback function which will be called when the 
+ stream becomes inactive. See the description of PaStreamFinishedCallback for 
+ further details about when the callback will be called.
+
+ @param stream a pointer to a PaStream that is in the stopped state - if the
+ stream is not stopped, the stream's finished callback will remain unchanged 
+ and an error code will be returned.
+
+ @param streamFinishedCallback a pointer to a function with the same signature
+ as PaStreamFinishedCallback, that will be called when the stream becomes
+ inactive. Passing NULL for this parameter will un-register a previously
+ registered stream finished callback function.
+
+ @return on success returns paNoError, otherwise an error code indicating the cause
+ of the error.
+
+ @see PaStreamFinishedCallback
+*/
+PaError Pa_SetStreamFinishedCallback( PaStream *stream, PaStreamFinishedCallback* streamFinishedCallback ); 
+
+
 /** Commences audio processing.
 */
 PaError Pa_StartStream( PaStream *stream );

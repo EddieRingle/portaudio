@@ -460,7 +460,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamRepresentation.streamInfo.outputLatency = 0.;
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
@@ -561,12 +560,20 @@ static void ExampleHostProcessingLoop( void *inputBuffer, void *outputBuffer, vo
     else if( callbackResult == paAbort )
     {
         /* IMPLEMENT ME - finish playback immediately  */
+
+        /* once finished, call the finished callback */
+        if( stream->streamRepresentation.streamFinishedCallback != 0 )
+            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     }
     else
     {
         /* User callback has asked us to stop with paComplete or other non-zero value */
 
         /* IMPLEMENT ME - finish playback once currently queued audio has completed  */
+
+        /* once finished, call the finished callback */
+        if( stream->streamRepresentation.streamFinishedCallback != 0 )
+            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     }
 }
 

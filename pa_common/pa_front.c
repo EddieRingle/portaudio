@@ -1437,6 +1437,38 @@ PaError Pa_CloseStream( PaStream* stream )
 }
 
 
+PaError Pa_SetStreamFinishedCallback( PaStream *stream, PaStreamFinishedCallback* streamFinishedCallback )
+{
+    PaError result = ValidateStream( stream );
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_SetStreamFinishedCallback called:\n" );
+    PaUtil_DebugPrint("\tPaStream* stream: 0x%p\n", stream );
+    PaUtil_DebugPrint("\tPaStreamFinishedCallback* streamFinishedCallback: 0x%p\n", streamFinishedCallback );
+#endif
+
+    if( result == paNoError )
+    {
+        if( !PA_STREAM_INTERFACE(stream)->IsStopped( stream ) )
+        {
+            result = paStreamIsNotStopped ;
+        }
+        else
+        {
+            PA_STREAM_REP( stream )->streamFinishedCallback = streamFinishedCallback;
+        }
+    }
+
+#ifdef PA_LOG_API_CALLS
+    PaUtil_DebugPrint("Pa_SetStreamFinishedCallback returned:\n" );
+    PaUtil_DebugPrint("\tPaError: %d ( %s )\n\n", result, Pa_GetErrorText( result ) );
+#endif
+
+    return result;
+
+}
+
+
 PaError Pa_StartStream( PaStream *stream )
 {
     PaError result = ValidateStream( stream );

@@ -101,6 +101,7 @@ typedef struct PaUtilStreamRepresentation {
     struct PaUtilStreamRepresentation *nextOpenStream; /* field used by multi-api code */
     PaUtilStreamInterface *streamInterface;
     PaStreamCallback *streamCallback;
+    PaStreamFinishedCallback *streamFinishedCallback;
     void *userData;
     PaStreamInfo streamInfo;
 } PaUtilStreamRepresentation;

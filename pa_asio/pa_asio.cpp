@@ -91,6 +91,11 @@
             what cases we don't handle.
 
     @todo miscellaneous other FIXMEs
+
+    @todo implement the following somewhere:
+
+        if( stream->streamRepresentation.streamFinishedCallback != 0 )
+            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
 */
 
 
