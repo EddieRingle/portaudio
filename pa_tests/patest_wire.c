@@ -95,27 +95,28 @@ static int wireCallback( void *inputBuffer, void *outputBuffer,
 int main(void);
 int main(void)
 {
-    PortAudioStream *stream;
+    PaStream *stream;
     PaError err;
-    
+   
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
-    
-    printf("PortAudio Test: input device ID  = %d\n", Pa_GetDefaultInputDeviceID() );
-    printf("PortAudio Test: output device ID = %d\n", Pa_GetDefaultOutputDeviceID() );
+
+    printf("PortAudio Test: input device ID  = %d\n", Pa_GetDefaultInputDevice() );
+    printf("PortAudio Test: output device ID = %d\n", Pa_GetDefaultOutputDevice() );
     err = Pa_OpenStream(
               &stream,
-              Pa_GetDefaultInputDeviceID(), /* default output device */
+              Pa_GetDefaultInputDevice(), /* default output device */
               2,               /* stereo input */
               PA_SAMPLE_TYPE,
+              0,               /* input latency */
               NULL,
-              Pa_GetDefaultOutputDeviceID(), /* default output device */
+              Pa_GetDefaultOutputDevice(), /* default output device */
               2,               /* stereo output */
               PA_SAMPLE_TYPE,
+              0,               /* output latency */
               NULL,
               SAMPLE_RATE,
               FRAMES_PER_BUFFER,            /* frames per buffer */
-              0,               /* number of buffers, if zero then use default minimum */
               paClipOff,       /* we won't output out of range samples so don't bother clipping them */
               wireCallback,
               NULL );          /* no data */
