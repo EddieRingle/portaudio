@@ -81,6 +81,8 @@
     @todo implement IsFormatSupported
 
     @todo implement PaDeviceInfo.defaultSampleRate;
+
+    @todo define UNICODE and _UNICODE in the project settings and see what breaks
 */
 
 #include <stdio.h>
@@ -177,6 +179,31 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 static PaError UpdateStreamTime( PaWinMmeStream *stream );
 
 /* macros for setting last host error information */
+
+#ifdef UNICODE
+
+#define PA_MME_SET_LAST_WAVEIN_ERROR( mmresult ) \
+    {                                                                   \
+        wchar_t mmeErrorTextWide[ MAXERRORLENGTH ];                     \
+        char mmeErrorText[ MAXERRORLENGTH ];                            \
+        waveInGetErrorText( mmresult, mmeErrorTextWide, MAXERRORLENGTH );   \
+        WideCharToMultiByte( CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR,\
+            mmeErrorTextWide, -1, mmeErrorText, MAXERRORLENGTH, NULL, NULL );  \
+        PaUtil_SetLastHostErrorInfo( paMME, mmresult, mmeErrorText );   \
+    }
+
+#define PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult ) \
+    {                                                                   \
+        wchar_t mmeErrorTextWide[ MAXERRORLENGTH ];                     \
+        char mmeErrorText[ MAXERRORLENGTH ];                            \
+        waveOutGetErrorText( mmresult, mmeErrorTextWide, MAXERRORLENGTH );  \
+        WideCharToMultiByte( CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR,\
+            mmeErrorTextWide, -1, mmeErrorText, MAXERRORLENGTH, NULL, NULL );  \
+        PaUtil_SetLastHostErrorInfo( paMME, mmresult, mmeErrorText );   \
+    }
+    
+#else /* !UNICODE */
+
 #define PA_MME_SET_LAST_WAVEIN_ERROR( mmresult ) \
     {                                                                   \
         char mmeErrorText[ MAXERRORLENGTH ];                            \
@@ -190,6 +217,9 @@ static PaError UpdateStreamTime( PaWinMmeStream *stream );
         waveOutGetErrorText( mmresult, mmeErrorText, MAXERRORLENGTH );  \
         PaUtil_SetLastHostErrorInfo( paMME, mmresult, mmeErrorText );   \
     }
+
+#endif /* UNICODE */
+
 
 static void PaMme_SetLastSystemError( DWORD errorCode )
 {
@@ -222,37 +252,16 @@ typedef struct
     PaUtilAllocationGroup *allocations;
     
     int numInputDevices, numOutputDevices;
+
+    /** winMmeDeviceIds is an array of WinMme device ids.
+        fields in the range [0, numInputDevices) are input device ids,
+        and [numInputDevices, numInputDevices + numOutputDevices) are output
+        device ids.
+     */ 
+    int *winMmeDeviceIds;
 }
 PaWinMmeHostApiRepresentation;
 
-
-static void InitializeDeviceCountsAndDefaultDevices( PaWinMmeHostApiRepresentation *hostApi )
-{
-    hostApi->numInputDevices = waveInGetNumDevs();
-    if( hostApi->numInputDevices > 0 )
-    {
-        hostApi->numInputDevices += 1; /* add one extra for the WAVE_MAPPER */
-        hostApi->inheritedHostApiRep.info.defaultInputDevice = 0;
-    }
-    else
-    {
-        hostApi->inheritedHostApiRep.info.defaultInputDevice = paNoDevice;
-    }
-
-    hostApi->numOutputDevices = waveOutGetNumDevs();
-    if( hostApi->numOutputDevices > 0 )
-    {
-        hostApi->numOutputDevices += 1; /* add one extra for the WAVE_MAPPER */
-        hostApi->inheritedHostApiRep.info.defaultOutputDevice = hostApi->numInputDevices;
-    }
-    else
-    {
-        hostApi->inheritedHostApiRep.info.defaultOutputDevice = paNoDevice;
-    }
-
-    hostApi->inheritedHostApiRep.info.deviceCount =
-        hostApi->numInputDevices + hostApi->numOutputDevices;
-}
 
 /*************************************************************************
  * Returns recommended device ID.
@@ -273,12 +282,16 @@ static PaDeviceIndex GetEnvDefaultDeviceID( char *envName )
     DWORD   hresult;
     char    envbuf[PA_ENV_BUF_SIZE_];
 
+#ifndef WIN32_PLATFORM_PSPC /* no GetEnvironmentVariable on PocketPC */
+
     /* Let user determine default device by setting environment variable. */
     hresult = GetEnvironmentVariable( envName, envbuf, PA_ENV_BUF_SIZE_ );
     if( (hresult > 0) && (hresult < PA_ENV_BUF_SIZE_) )
     {
         recommendedIndex = atoi( envbuf );
     }
+#endif
+
     return recommendedIndex;
 }
 
@@ -306,44 +319,43 @@ static void InitializeDefaultDeviceIdsFromEnv( PaWinMmeHostApiRepresentation *ho
 }
 
 
-/** Convert external PA ID to an internal ID that includes WAVE_MAPPER
-    Note that WAVE_MAPPER is defined as -1
+/** Convert external PA ID to a windows multimedia device ID
 */
 static int LocalDeviceIndexToWinMmeDeviceId( PaWinMmeHostApiRepresentation *hostApi, PaDeviceIndex device )
 {
-    if( device < hostApi->numInputDevices )
-        return device - 1;
-    else
-        return device - hostApi->numInputDevices - 1;
+    assert( device >= 0 && device < hostApi->numInputDevices + hostApi->numOutputDevices );
+
+	return hostApi->winMmeDeviceIds[ device ];
 }
 
 
-#define PA_NUM_STANDARDSAMPLINGRATES_   3   /* 11.025, 22.05, 44.1 */
-#define PA_NUM_CUSTOMSAMPLINGRATES_     5   /* must be the same number of elements as in the array below */
-#define PA_MAX_NUMSAMPLINGRATES_        (PA_NUM_STANDARDSAMPLINGRATES_+PA_NUM_CUSTOMSAMPLINGRATES_)
-static DWORD customSamplingRates_[] = { 32000, 48000, 64000, 88200, 96000 };
-
-static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi, PaDeviceInfo *deviceInfo, PaDeviceIndex deviceIndex )
+static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
+        PaDeviceInfo *deviceInfo, int winMmeInputDeviceId, int *success )
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
-    int inputWinMmeId;
     MMRESULT mmresult;
     WAVEINCAPS wic;
-    int i;
 
-    inputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, deviceIndex );
+    *success = 0;
 
-    mmresult = waveInGetDevCaps( inputWinMmeId, &wic, sizeof( WAVEINCAPS ) );
-    if( mmresult != MMSYSERR_NOERROR )
+    mmresult = waveInGetDevCaps( winMmeInputDeviceId, &wic, sizeof( WAVEINCAPS ) );
+    if( mmresult == MMSYSERR_NOMEM )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+        result = paInsufficientMemory;
         goto error;
     }
+    else if( mmresult != MMSYSERR_NOERROR )
+    {
+        /* instead of returning paUnanticipatedHostError we return
+            paNoError, but leave success set as 0. This allows
+            Pa_Initialize to just ignore this device, without failing
+            the entire initialisation process.
+        */
+        return paNoError;
+    }           
 
-
-    if( inputWinMmeId == WAVE_MAPPER )
+    if( winMmeInputDeviceId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
         deviceName = (char *)PaUtil_GroupAllocateMemory(
@@ -376,37 +388,46 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
      */
     if( (deviceInfo->maxInputChannels < 1) || (deviceInfo->maxInputChannels > 256) )
     {
-        PA_DEBUG(("Pa_GetDeviceInfo: Num input channels reported as %d! Changed to 2.\n", deviceInfo->maxOutputChannels ));
+        PA_DEBUG(("Pa_GetDeviceInfo: Num input channels reported as %d! Changed to 2.\n", deviceInfo->maxInputChannels ));
         deviceInfo->maxInputChannels = 2;
     }
 
     deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
 
+    *success = 1;
+    
 error:
     return result;
 }
 
 
-static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi, PaDeviceInfo *deviceInfo, PaDeviceIndex deviceIndex )
+static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
+        PaDeviceInfo *deviceInfo, int winMmeOutputDeviceId, int *success )
 {
     PaError result = paNoError;
     char *deviceName; /* non-const ptr */
-    int outputWinMmeId;
     MMRESULT mmresult;
     WAVEOUTCAPS woc;
-    int i;
 
-    outputWinMmeId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, deviceIndex );
+    *success = 0;
 
-    mmresult = waveOutGetDevCaps( outputWinMmeId, &woc, sizeof( WAVEOUTCAPS ) );
-    if( mmresult != MMSYSERR_NOERROR )
+    mmresult = waveOutGetDevCaps( winMmeOutputDeviceId, &woc, sizeof( WAVEOUTCAPS ) );
+    if( mmresult == MMSYSERR_NOMEM )
     {
-        result = paUnanticipatedHostError;
-        PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+        result = paInsufficientMemory;
         goto error;
     }
+    else if( mmresult != MMSYSERR_NOERROR )
+    {
+        /* instead of returning paUnanticipatedHostError we return
+            paNoError, but leave success set as 0. This allows
+            Pa_Initialize to just ignore this device, without failing
+            the entire initialisation process.
+        */
+        return paNoError;
+    }
 
-    if( outputWinMmeId == WAVE_MAPPER )
+    if( winMmeOutputDeviceId == WAVE_MAPPER )
     {
         /* Append I/O suffix to WAVE_MAPPER device. */
         deviceName = (char *)PaUtil_GroupAllocateMemory(
@@ -439,40 +460,14 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
      */
     if( (deviceInfo->maxOutputChannels < 1) || (deviceInfo->maxOutputChannels > 256) )
     {
-#if 1
+        PA_DEBUG(("Pa_GetDeviceInfo: Num output channels reported as %d! Changed to 2.\n", deviceInfo->maxOutputChannels ));
         deviceInfo->maxOutputChannels = 2;
-#else
-        /* If channel max is goofy, then query for max channels. PLB20020228
-        * This doesn't seem to help. Disable code for now. Remove it later.
-        */
-        PA_DEBUG(("Pa_GetDeviceInfo: Num output channels reported as %d!", deviceInfo->maxOutputChannels ));
-        deviceInfo->maxOutputChannels = 0;
-        /* Attempt to find the correct maximum by querying the device. */
-        for( i=2; i<16; i += 2 )
-        {
-            WAVEFORMATEX wfx;
-            wfx.wFormatTag = WAVE_FORMAT_PCM;
-            wfx.nSamplesPerSec = 44100;
-            wfx.wBitsPerSample = 16;
-            wfx.cbSize = 0; /* ignored */
-            wfx.nChannels = (WORD) i;
-            wfx.nAvgBytesPerSec = wfx.nChannels * wfx.nSamplesPerSec * sizeof(short);
-            wfx.nBlockAlign = (WORD)(wfx.nChannels * sizeof(short));
-            if( waveOutOpen( NULL, outputWinMmeId, &wfx, 0, 0, WAVE_FORMAT_QUERY ) == MMSYSERR_NOERROR )
-            {
-                deviceInfo->maxOutputChannels = i;
-            }
-            else
-            {
-                break;
-            }
-        }
-#endif
-        PA_DEBUG((" Changed to %d.\n", deviceInfo->maxOutputChannels ));
     }
 
     deviceInfo->defaultSampleRate = 0.; /* @todo IMPLEMENT ME */
 
+    *success = 1;
+    
 error:
     return result;
 }
@@ -483,8 +478,9 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     PaError result = paNoError;
     int i;
     PaWinMmeHostApiRepresentation *winMmeHostApi;
+    int numInputDevices, numOutputDevices, maximumPossibleNumDevices;
     PaDeviceInfo *deviceInfoArray;
-    double *sampleRates; /* non-const ptr */
+    int deviceInfoInitializationSucceeded;
 
     winMmeHostApi = (PaWinMmeHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinMmeHostApiRepresentation) );
     if( !winMmeHostApi )
@@ -505,12 +501,33 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     (*hostApi)->info.type = paMME;
     (*hostApi)->info.name = "MME";
 
-    InitializeDeviceCountsAndDefaultDevices( winMmeHostApi );
+    
+    /* initialise device counts and default devices under the assumption that
+        there are no devices. These values are incremented below if and when
+        devices are successfully initialized.
+    */
+    (*hostApi)->info.deviceCount = 0;
+    (*hostApi)->info.defaultInputDevice = paNoDevice;
+    (*hostApi)->info.defaultOutputDevice = paNoDevice;
+    winMmeHostApi->numInputDevices = 0;
+    winMmeHostApi->numOutputDevices = 0;
 
-    if( (*hostApi)->info.deviceCount > 0 )
-    {
+
+    maximumPossibleNumDevices = 0;
+
+    numInputDevices = waveInGetNumDevs();
+    if( numInputDevices > 0 )
+    	maximumPossibleNumDevices += numInputDevices + 1;	/* assume there is a WAVE_MAPPER */
+
+    numOutputDevices = waveOutGetNumDevs();
+    if( numOutputDevices > 0 )
+	    maximumPossibleNumDevices += numOutputDevices + 1;	/* assume there is a WAVE_MAPPER */
+
+
+    if( maximumPossibleNumDevices > 0 ){
+
         (*hostApi)->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
-                winMmeHostApi->allocations, sizeof(PaDeviceInfo*) * (*hostApi)->info.deviceCount );
+                winMmeHostApi->allocations, sizeof(PaDeviceInfo*) * maximumPossibleNumDevices );
         if( !(*hostApi)->deviceInfos )
         {
             result = paInsufficientMemory;
@@ -519,54 +536,86 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
         /* allocate all device info structs in a contiguous block */
         deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
-                winMmeHostApi->allocations, sizeof(PaDeviceInfo) * (*hostApi)->info.deviceCount );
+                winMmeHostApi->allocations, sizeof(PaDeviceInfo) * maximumPossibleNumDevices );
         if( !deviceInfoArray )
         {
             result = paInsufficientMemory;
             goto error;
         }
 
-        for( i=0; i < (*hostApi)->info.deviceCount; ++i )
+        winMmeHostApi->winMmeDeviceIds = (int*)PaUtil_GroupAllocateMemory(
+                winMmeHostApi->allocations, sizeof(int) * maximumPossibleNumDevices );
+        if( !winMmeHostApi->winMmeDeviceIds )
         {
-            PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
-            deviceInfo->structVersion = 2;
-            deviceInfo->hostApi = hostApiIndex;
+            result = paInsufficientMemory;
+            goto error;
+        }
 
-            deviceInfo->maxInputChannels = 0;
-            deviceInfo->maxOutputChannels = 0;
+        if( numInputDevices > 0 ){
+            // -1 is the WAVE_MAPPER
+            for( i = -1; i < numInputDevices; ++i ){
+                PaDeviceInfo *deviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                deviceInfo->structVersion = 2;
+                deviceInfo->hostApi = hostApiIndex;
 
-            deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
-            deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
-            deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
-            deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->maxInputChannels = 0;
+                deviceInfo->maxOutputChannels = 0;
 
+                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
 
-            /* allocate space for all possible sample rates */
-            sampleRates = (double*)PaUtil_GroupAllocateMemory(
-                    winMmeHostApi->allocations, PA_MAX_NUMSAMPLINGRATES_ * sizeof(double) );
-            if( !sampleRates )
-            {
-                result = paInsufficientMemory;
-                goto error;
-            }
-
-            if( i < winMmeHostApi->numInputDevices )
-            {
-                result = InitializeInputDeviceInfo( winMmeHostApi, deviceInfo, i );
+                result = InitializeInputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
                     goto error;
 
+                if( deviceInfoInitializationSucceeded ){
+                    if( (*hostApi)->info.defaultInputDevice == paNoDevice )
+                        (*hostApi)->info.defaultInputDevice = i;
+
+                    winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = i;
+                    (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
+
+                    winMmeHostApi->numInputDevices++;
+                    (*hostApi)->info.deviceCount++;
+                }
             }
-            else
-            {
-                result = InitializeOutputDeviceInfo( winMmeHostApi, deviceInfo, i );
+        }
+
+        if( numOutputDevices > 0 ){
+            // -1 is the WAVE_MAPPER
+            for( i = -1; i < numOutputDevices; ++i ){
+                PaDeviceInfo *deviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                deviceInfo->structVersion = 2;
+                deviceInfo->hostApi = hostApiIndex;
+
+                deviceInfo->maxInputChannels = 0;
+                deviceInfo->maxOutputChannels = 0;
+
+                deviceInfo->defaultLowInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultLowOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighInputLatency = 0.;  /* @todo IMPLEMENT ME */
+                deviceInfo->defaultHighOutputLatency = 0.;  /* @todo IMPLEMENT ME */
+
+                result = InitializeOutputDeviceInfo( winMmeHostApi, deviceInfo, i, &deviceInfoInitializationSucceeded );
                 if( result != paNoError )
                     goto error;
-            }
 
-            (*hostApi)->deviceInfos[i] = deviceInfo;
+                if( deviceInfoInitializationSucceeded ){
+                    if( (*hostApi)->info.defaultOutputDevice == paNoDevice )
+                        (*hostApi)->info.defaultOutputDevice = i;
+
+                    winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = i;
+                    (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
+
+                    winMmeHostApi->numOutputDevices++;
+                    (*hostApi)->info.deviceCount++;
+                }
+            }
         }
     }
+    
 
     InitializeDefaultDeviceIdsFromEnv( winMmeHostApi );
 
@@ -2199,12 +2248,15 @@ static PaError StartStream( PaStream *s )
 
     if( !stream->noHighPriorityProcessClass )
     {
+#ifndef WIN32_PLATFORM_PSPC /* no SetPriorityClass or HIGH_PRIORITY_CLASS on PocketPC */
+
         if( !SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) ) /* PLB20010816 */
         {
             result = paUnanticipatedHostError;
             PA_MME_SET_LAST_SYSTEM_ERROR( GetLastError() );
             goto error;
         }
+#endif
     }
 
     if( stream->useTimeCriticalProcessingThreadPriority )
@@ -2552,6 +2604,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
 
 
 
