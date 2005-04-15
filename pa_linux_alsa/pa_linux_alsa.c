@@ -843,11 +843,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     }
 
     /* Iterate over plugin devices */
-    if( NULL == snd_config )
-    {
-        /* snd_config_update is called implicitly by some functions, if this hasn't happened snd_config will be NULL (bleh) */
-        snd_config_update();
-    }
+    snd_config_update();
     if( (res = snd_config_search( snd_config, "pcm", &topNode )) >= 0 )
     {
         snd_config_iterator_t i, next;
