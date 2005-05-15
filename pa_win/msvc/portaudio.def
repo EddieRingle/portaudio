@@ -39,3 +39,5 @@ Pa_Sleep                            @34
 PaAsio_GetAvailableLatencyValues    @50
 PaAsio_ShowControlPanel             @51
 PaUtil_InitializeX86PlainConverters @52
+PaAsio_GetInputChannelName          @53
+PaAsio_GetOutputChannelName         @54
