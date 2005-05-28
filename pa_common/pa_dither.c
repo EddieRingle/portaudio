@@ -35,6 +35,7 @@
 
 
 #include "pa_dither.h"
+#include "pa_types.h"
 
 #define PA_DITHER_BITS_   (15)
 
@@ -59,7 +60,7 @@ signed long PaUtil_Generate16BitTriangularDither( PaUtilTriangularDitherGenerato
      * Shift before adding to prevent overflow which would skew the distribution.
      * Also shift an extra bit for the high pass filter. 
      */
-#define DITHER_SHIFT_  ((32 - PA_DITHER_BITS_) + 1)
+#define DITHER_SHIFT_  ((SIZEOF_LONG*8 - PA_DITHER_BITS_) + 1)
     current = (((signed long)state->randSeed1)>>DITHER_SHIFT_) +
               (((signed long)state->randSeed2)>>DITHER_SHIFT_);
 
@@ -86,7 +87,7 @@ float PaUtil_GenerateFloatTriangularDither( PaUtilTriangularDitherGenerator *sta
      * Shift before adding to prevent overflow which would skew the distribution.
      * Also shift an extra bit for the high pass filter. 
      */
-#define DITHER_SHIFT_  ((32 - PA_DITHER_BITS_) + 1)
+#define DITHER_SHIFT_  ((SIZEOF_LONG*8 - PA_DITHER_BITS_) + 1)
     current = (((signed long)state->randSeed1)>>DITHER_SHIFT_) +
               (((signed long)state->randSeed2)>>DITHER_SHIFT_);
 
