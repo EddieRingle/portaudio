@@ -249,18 +249,22 @@ static PaError GetChannelInfo(PaDeviceInfo *deviceInfo, AudioDeviceID macCoreDev
         for (i = 0; i < buflist->mNumberBuffers; ++i) {
             numChannels += buflist->mBuffers[i].mNumberChannels;
         }
+		
+		if (isInput)
+			deviceInfo->maxInputChannels = numChannels;
+		else
+			deviceInfo->maxOutputChannels = numChannels;
+		
         int frameLatency;
         propSize = sizeof(UInt32);
         err = conv_err(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
         if (!err) {
             double secondLatency = frameLatency / deviceInfo->defaultSampleRate;
             if (isInput) {
-                deviceInfo->maxInputChannels = numChannels;
                 deviceInfo->defaultLowInputLatency = secondLatency;
                 deviceInfo->defaultHighInputLatency = secondLatency;
             }
             else {
-                deviceInfo->maxOutputChannels = numChannels;
                 deviceInfo->defaultLowOutputLatency = secondLatency;
                 deviceInfo->defaultHighOutputLatency = secondLatency;
             }
