@@ -71,15 +71,30 @@
             { \
                 PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
             } \
-            PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
+            PaUtil_DebugPrint( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" ); \
             result = (code); \
+            goto error; \
+        } \
+    } while( 0 );
+
+#define ENSURE_SYSTEM_(expr, success) \
+    do { \
+        if( UNLIKELY( (aErr_ = (expr)) != success ) ) \
+        { \
+            /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
+            if( pthread_self() != callbackThread_ ) \
+            { \
+                PaUtil_SetLastHostErrorInfo( paALSA, aErr_, strerror( aErr_ ) ); \
+            } \
+            PaUtil_DebugPrint( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" ); \
+            result = paUnanticipatedHostError; \
             goto error; \
         } \
     } while( 0 );
 
 #define ASSERT_CALL_(expr, success) \
     aErr_ = (expr); \
-    assert( aErr_ == success );
+    assert( success == aErr_ );
 
 static int aErr_;               /* Used with ENSURE_ */
 static pthread_t callbackThread_;
@@ -214,7 +229,7 @@ static PaError KillCallbackThread( PaAlsaThreading *th, int wait, PaError *exitR
     if( th->watchdogRunning )
     {
         pthread_cancel( th->watchdogThread );
-        ASSERT_CALL_( pthread_join( th->watchdogThread, &pret ), 0 );
+        ENSURE_SYSTEM_( pthread_join( th->watchdogThread, &pret ), 0 );
 
         if( pret && pret != PTHREAD_CANCELED )
         {
@@ -227,8 +242,11 @@ static PaError KillCallbackThread( PaAlsaThreading *th, int wait, PaError *exitR
     /* Only kill the thread if it isn't in the process of stopping (flushing adaptation buffers) */
     /* TODO: Make join time out */
     if( !wait )
+    {
         pthread_cancel( th->callbackThread );   /* XXX: Safe to call this if the thread has exited on its own? */
-    ASSERT_CALL_( pthread_join( th->callbackThread, &pret ), 0 );
+        PA_DEBUG(( "Canceled callback thread\n" ));
+    }
+    ENSURE_SYSTEM_( pthread_join( th->callbackThread, &pret ), 0 );
 
     if( pret && pret != PTHREAD_CANCELED )
     {
@@ -237,6 +255,40 @@ static PaError KillCallbackThread( PaAlsaThreading *th, int wait, PaError *exitR
         free( pret );
     }
 
+error:
+    return result;
+}
+
+/** Lock a pthread_mutex_t.
+ *
+ * @concern ThreadCancellation We're disabling thread cancellation while the thread is holding a lock, so mutexes are 
+ * properly unlocked at termination time.
+ */
+static PaError LockMutex( pthread_mutex_t *mtx )
+{
+    PaError result = paNoError;
+    int oldState;
+    
+    ENSURE_SYSTEM_( pthread_setcancelstate( PTHREAD_CANCEL_DISABLE, &oldState ), 0 );
+    ENSURE_SYSTEM_( pthread_mutex_lock( mtx ), 0 );
+
+error:
+    return result;
+}
+
+/** Unlock a pthread_mutex_t.
+ *
+ * @concern ThreadCancellation Thread cancellation is enabled again after the mutex is properly unlocked.
+ */
+static PaError UnlockMutex( pthread_mutex_t *mtx )
+{
+    PaError result = paNoError;
+    int oldState;
+
+    ENSURE_SYSTEM_( pthread_mutex_unlock( mtx ), 0 );
+    ENSURE_SYSTEM_( pthread_setcancelstate( PTHREAD_CANCEL_ENABLE, &oldState ), 0 );
+
+error:
     return result;
 }
 
@@ -445,7 +497,7 @@ static PaError CreateCallbackThread( PaAlsaThreading *th, void *(*callbackThread
             {
                 int policy;
                 th->watchdogRunning = 1;
-                ASSERT_CALL_( pthread_getschedparam( th->watchdogThread, &policy, &wdSpm ), 0 );
+                ENSURE_SYSTEM_( pthread_getschedparam( th->watchdogThread, &policy, &wdSpm ), 0 );
                 /* Check if priority is right, policy could potentially differ from SCHED_FIFO (but that's alright) */
                 if( wdSpm.sched_priority != prio )
                 {
@@ -843,7 +895,13 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     }
 
     /* Iterate over plugin devices */
-    snd_config_update();
+    if( NULL == snd_config )
+    {
+        /* snd_config_update is called implicitly by some functions, if this hasn't happened snd_config will be NULL (bleh) */
+        ENSURE_( snd_config_update(), paUnanticipatedHostError );
+        PA_DEBUG(( "Updating snd_config\n" ));
+    }
+    assert( snd_config );
     if( (res = snd_config_search( snd_config, "pcm", &topNode )) >= 0 )
     {
         snd_config_iterator_t i, next;
@@ -1689,7 +1747,7 @@ static PaError DetermineFramesPerBuffer( const PaAlsaStream *stream, double samp
             optimalPeriodSize = PA_MAX( desiredLatency / 4, minPeriodSize );
             optimalPeriodSize = PA_MIN( optimalPeriodSize, maxPeriodSize );
 
-            /* ConfigureStream should find individual period sizes acceptable for each device */
+            /* PaAlsaStream_Configure should find individual period sizes acceptable for each device */
             framesPerBuffer = optimalPeriodSize;
             /* PA_ENSURE( paBadIODeviceCombination ); */
         }
@@ -1829,7 +1887,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 error:
     if( stream )
+    {
+        PA_DEBUG(( "\nStream in error, terminating\n\n" ));
         PaAlsaStream_Terminate( stream );
+    }
 
     return result;
 }
@@ -1907,7 +1968,7 @@ static int IsRunning( PaAlsaStream *stream )
 {
     int result = 0;
 
-    ASSERT_CALL_( pthread_mutex_lock( &stream->stateMtx ), 0 ); /* Synchronize access to pcm state */
+    LockMutex( &stream->stateMtx );
     if( stream->capture.pcm )
     {
         snd_pcm_state_t capture_state = snd_pcm_state( stream->capture.pcm );
@@ -1933,7 +1994,7 @@ static int IsRunning( PaAlsaStream *stream )
     }
 
 end:
-    ASSERT_CALL_( pthread_mutex_unlock( &stream->stateMtx ), 0 );
+    ASSERT_CALL_( UnlockMutex( &stream->stateMtx ), paNoError );
 
     return result;
 }
@@ -1966,14 +2027,14 @@ static PaError StartStream( PaStream *s )
         /* Since we'll be holding a lock on the startMtx (when not waiting on the condition), IsRunning won't be checking
          * stream state at the same time as the callback thread affects it. We also check IsStreamActive, in the unlikely
          * case the callback thread exits in the meantime (the stream will be considered inactive after the thread exits) */
-        ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
+        PA_ENSURE( LockMutex( &stream->startMtx ) );
 
         /* Due to possible spurious wakeups, we enclose in a loop */
         while( !IsRunning( stream ) && IsStreamActive( s ) && !res )
         {
             res = pthread_cond_timedwait( &stream->startCond, &stream->startMtx, &ts );
         }
-        ASSERT_CALL_( pthread_mutex_unlock( &stream->startMtx ), 0 );
+        PA_ENSURE( UnlockMutex( &stream->startMtx ) );
 
         PA_UNLESS( !res || res == ETIMEDOUT, paInternalError );
         PA_DEBUG(( "%s: Waited for %g seconds for stream to start\n", __FUNCTION__, PaUtil_GetTime() - pt ));
@@ -2180,14 +2241,15 @@ static PaError AlsaRestart( PaAlsaStream *stream )
 {
     PaError result = paNoError;
 
-    ASSERT_CALL_( pthread_mutex_lock( &stream->stateMtx ), 0 );
+    PA_ENSURE( LockMutex( &stream->stateMtx ) );
     PA_ENSURE( AlsaStop( stream, 0 ) );
     PA_ENSURE( AlsaStart( stream, 0 ) );
 
     PA_DEBUG(( "%s: Restarted audio\n", __FUNCTION__ ));
 
 error:
-    ASSERT_CALL_( pthread_mutex_unlock( &stream->stateMtx ), 0 );
+    PA_ENSURE( UnlockMutex( &stream->stateMtx ) );
+
     return result;
 }
 
@@ -2934,10 +2996,10 @@ static void *CallbackThreadFunc( void *userData )
     }
     else
     {
-        ASSERT_CALL_( pthread_mutex_lock( &stream->startMtx ), 0 );
+        PA_ENSURE( LockMutex( &stream->startMtx ) );
         PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
-        ASSERT_CALL_( pthread_cond_signal( &stream->startCond ), 0 );
-        ASSERT_CALL_( pthread_mutex_unlock( &stream->startMtx ), 0 );
+        ENSURE_SYSTEM_( pthread_cond_signal( &stream->startCond ), 0 );
+        PA_ENSURE( UnlockMutex( &stream->startMtx ) );
 
         streamStarted = 1;
     }
