@@ -52,7 +52,11 @@
 #include <limits.h>
 #include <semaphore.h>
 
-#ifdef __linux__
+
+#ifdef __FreeBSD__
+# include <sys/soundcard.h>
+# define DEVICE_NAME_BASE            "/dev/dsp"
+#elif defined __linux__
 # include <linux/soundcard.h>
 # define DEVICE_NAME_BASE            "/dev/dsp"
 #else
@@ -1061,6 +1065,7 @@ static PaError PaOssStreamComponent_Read( PaOssStreamComponent *component, unsig
 
     ENSURE_( bytesRead = read( component->fd, component->buffer, len ), paUnanticipatedHostError );
     *frames = bytesRead / PaOssStreamComponent_FrameSize( component );
+    /* TODO: Handle condition where number of frames read doesn't equal number of frames requested */
 
 error:
     return result;
@@ -1074,6 +1079,7 @@ static PaError PaOssStreamComponent_Write( PaOssStreamComponent *component, unsi
 
     ENSURE_( bytesWritten = write( component->fd, component->buffer, len ), paUnanticipatedHostError );
     *frames = bytesWritten / PaOssStreamComponent_FrameSize( component );
+    /* TODO: Handle condition where number of frames written doesn't equal number of frames requested */
 
 error:
     return result;
@@ -1856,9 +1862,7 @@ static PaError ReadStream( PaStream* s,
 }
 
 
-static PaError WriteStream( PaStream* s,
-                            const void *buffer,
-                            unsigned long frames )
+static PaError WriteStream( PaStream *s, const void *buffer, unsigned long frames )
 {
     PaOssStream *stream = (PaOssStream*)s;
     int bytesRequested, bytesWritten;
@@ -1869,8 +1873,9 @@ static PaError WriteStream( PaStream* s,
      * so we copy the user provided pointers */
     if( stream->bufferProcessor.userOutputIsInterleaved )
         userBuffer = buffer;
-    else /* Copy channels into local array */
+    else
     {
+        /* Copy channels into local array */
         userBuffer = stream->playback->userBuffers;
         memcpy( (void *)userBuffer, buffer, sizeof (void *) * stream->playback->userChannelCount );
     }
