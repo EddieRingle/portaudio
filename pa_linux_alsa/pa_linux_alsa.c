@@ -2654,6 +2654,7 @@ static PaError PaAlsaStream_GetAvailableFrames( PaAlsaStream *self, int queryCap
     if( queryCapture && queryPlayback )
     {
         *available = PA_MIN( captureFrames, playbackFrames );
+        /*PA_DEBUG(("capture: %lu, playback: %lu, combined: %lu\n", captureFrames, playbackFrames, *available));*/
     }
     else if( queryCapture )
     {
@@ -2730,7 +2731,7 @@ static PaError PaAlsaStream_WaitForFrames( PaAlsaStream *self, unsigned long *fr
             PA_ENSURE( PaAlsaStreamComponent_BeginPolling( &self->playback, playbackPfds ) );
             totalFds += self->playback.nfds;
         }
-
+        
         if( poll( self->pfds, totalFds, pollTimeout ) < 0 )
         {
             /*  XXX: Depend on preprocessor condition? */
@@ -2903,7 +2904,24 @@ static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *num
     }
 
     commonFrames = PA_MIN( captureFrames, playbackFrames );
-    assert( commonFrames <= *numFrames );
+    /* assert( commonFrames <= *numFrames ); */
+    if( commonFrames > *numFrames )
+    {
+        /* Hmmm ... how come there are more frames available than we requested!? Blah. */
+        PA_DEBUG(( "%s: Common available frames are reported to be more than number requested: %lu, %lu\n", __FUNCTION__,
+                    commonFrames, *numFrames ));
+        if( self->capture.pcm )
+        {
+            PA_DEBUG(( "%s: captureFrames: %lu, capture.ready: %d\n", __FUNCTION__, captureFrames, self->capture.ready ));
+        }
+        if( self->playback.pcm )
+        {
+            PA_DEBUG(( "%s: playbackFrames: %lu, playback.ready: %d\n", __FUNCTION__, playbackFrames, self->playback.ready ));
+        }
+        
+        commonFrames = 0;
+        goto end;
+    }
 
     /* Inform PortAudio of the number of frames we got.
      * @concern FullDuplex We might be experiencing underflow in either end; if its an input underflow, we go on
