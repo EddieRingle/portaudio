@@ -2802,6 +2802,10 @@ error:
         PA_ENSURE( PaAlsaStream_HandleXrun( self ) );
         *framesAvail = 0;
     }
+    else
+    {
+        PA_UNLESS( self->capture.ready || self->playback.ready, paInternalError );
+    }
     *xrunOccurred = xrun;
 
     return result;
@@ -2880,6 +2884,14 @@ static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *num
     PaError result = paNoError;
     unsigned long captureFrames = ULONG_MAX, playbackFrames = ULONG_MAX, commonFrames = 0;
     int xrun = 0;
+
+    if( *xrunOccurred )
+    {
+        *numFrames = 0;
+        return result;
+    }
+    /* If we got here at least one of the pcm's should be marked ready */
+    PA_UNLESS( self->capture.ready || self->playback.ready, paInternalError );
 
     /* Extract per-channel ALSA buffer pointers and register them with the buffer processor.
      * It is possible that a direction is not marked ready however, because it is out of sync with the other.
@@ -3258,12 +3270,13 @@ static PaError WriteStream( PaStream* s, const void *buffer, unsigned long frame
             frames -= framesGot;
         }
 
+        /* Start stream after one period of samples worth */
+
         /* Frames residing in buffer */
         PA_ENSURE( err = GetStreamWriteAvailable( stream ) );
         framesAvail = err;
         hwAvail = stream->playback.bufferSize - framesAvail;
 
-        /* Start stream after one period of samples worth */
         if( snd_pcm_state( stream->playback.pcm ) == SND_PCM_STATE_PREPARED &&
                 hwAvail >= stream->playback.framesPerBuffer )
         {
