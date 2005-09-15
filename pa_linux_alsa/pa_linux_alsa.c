@@ -2920,8 +2920,8 @@ static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *num
     if( commonFrames > *numFrames )
     {
         /* Hmmm ... how come there are more frames available than we requested!? Blah. */
-        PA_DEBUG(( "%s: Common available frames are reported to be more than number requested: %lu, %lu\n", __FUNCTION__,
-                    commonFrames, *numFrames ));
+        PA_DEBUG(( "%s: Common available frames are reported to be more than number requested: %lu, %lu, callbackMode: %d\n", __FUNCTION__,
+                    commonFrames, *numFrames, self->callbackMode ));
         if( self->capture.pcm )
         {
             PA_DEBUG(( "%s: captureFrames: %lu, capture.ready: %d\n", __FUNCTION__, captureFrames, self->capture.ready ));
