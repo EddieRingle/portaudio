@@ -573,7 +573,6 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
             jack_port_t *p = jack_port_by_name( jackApi->jack_client, clientPorts[0] );
             curDevInfo->defaultLowInputLatency = curDevInfo->defaultHighInputLatency =
                 jack_port_get_latency( p ) / globalSampleRate;
-            free( p );
 
             for( i = 0; clientPorts[i] != NULL; i++)
             {
@@ -595,7 +594,6 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
             jack_port_t *p = jack_port_by_name( jackApi->jack_client, clientPorts[0] );
             curDevInfo->defaultLowOutputLatency = curDevInfo->defaultHighOutputLatency =
                 jack_port_get_latency( p ) / globalSampleRate;
-            free( p );
 
             for( i = 0; clientPorts[i] != NULL; i++)
             {
@@ -961,13 +959,11 @@ static void CleanUpStream( PaJackStream *stream, int terminateStreamRepresentati
     {
         if( stream->local_input_ports[i] )
             ASSERT_CALL( jack_port_unregister( stream->jack_client, stream->local_input_ports[i] ), 0 );
-        free( stream->remote_output_ports[i] );
     }
     for( i = 0; i < stream->num_outgoing_connections; ++i )
     {
         if( stream->local_output_ports[i] )
             ASSERT_CALL( jack_port_unregister( stream->jack_client, stream->local_output_ports[i] ), 0 );
-        free( stream->remote_input_ports[i] );
     }
 
     if( terminateStreamRepresentation )
