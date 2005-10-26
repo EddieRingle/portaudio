@@ -1,7 +1,7 @@
 dnl
 dnl portaudio V19 configure.in script
 dnl
-dnl Dominic Mazzoni
+dnl Dominic Mazzoni, Arve Knudsen
 dnl
 
 dnl Require autoconf >= 2.13
@@ -11,46 +11,14 @@ dnl Init autoconf and make sure configure is being called
 dnl from the right directory
 AC_INIT([pa_common/portaudio.h])
 
-dnl Checks for programs.
-AC_PROG_CC
-AC_PROG_RANLIB
-AC_PROG_INSTALL
-AC_PATH_PROG(AR, ar, no)
-if [[ $AR = "no" ]] ; then
-    AC_MSG_ERROR("Could not find ar - needed to create a library");
-fi
-
-dnl This must be one of the first tests we do or it will fail...
-AC_C_BIGENDIAN
-
-dnl extra variables
-AC_SUBST(OTHER_OBJS)
-AC_SUBST(PADLL)
-AC_SUBST(SHARED_FLAGS)
-AC_SUBST(DLL_LIBS)
-AC_SUBST(CXXFLAGS)
-AC_SUBST(NASM)
-AC_SUBST(NASMOPT)
-
-dnl checks for various host APIs and arguments to configure that
-dnl turn them on or off
-
-AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
-
-dnl Determine the host description for the subsequent test.
-dnl PKG_CHECK_MODULES seems to check and set the host variable also, but
-dnl that then requires pkg-config availability which is not standard on
-dnl MinGW systems and can be a pain to install.
-AC_CANONICAL_HOST
-
-PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
+dnl Specify options
 
 AC_ARG_WITH(alsa, 
-            [  --with-alsa (default=auto)],
+            [  --with-alsa (default=yes)],
             with_alsa=$withval, with_alsa="yes")
 
 AC_ARG_WITH(jack, 
-            [  --with-jack (default=auto)],
+            [  --with-jack (default=yes)],
             with_jack=$withval, with_jack="yes")
 
 AC_ARG_WITH(oss, 
@@ -77,20 +45,56 @@ AC_ARG_WITH(asiodir,
 AC_ARG_WITH(dxdir,
             [  --with-dxdir (default=/usr/local/dx7sdk)],
             with_dxdir=$withval, with_dxdir="/usr/local/dx7sdk")
+               
 
-CFLAGS="-g -O2 -Wall"
+dnl Checks for programs.
 
-if [[ $ac_cv_c_bigendian = "yes" ]] ; then
-   CFLAGS="$CFLAGS -DPA_BIG_ENDIAN"
-else
-   CFLAGS="$CFLAGS -DPA_LITTLE_ENDIAN"
+AC_PROG_CC
+AC_PROG_RANLIB
+AC_PROG_INSTALL
+AC_PATH_PROG(AR, ar, no)
+if [[ $AR = "no" ]] ; then
+    AC_MSG_ERROR("Could not find ar - needed to create a library");
 fi
+
+dnl This must be one of the first tests we do or it will fail...
+AC_C_BIGENDIAN
+
+dnl checks for various host APIs and arguments to configure that
+dnl turn them on or off
+
+AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
+
+dnl Determine the host description for the subsequent test.
+dnl PKG_CHECK_MODULES seems to check and set the host variable also, but
+dnl that then requires pkg-config availability which is not standard on
+dnl MinGW systems and can be a pain to install.
+AC_CANONICAL_HOST
+
+PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
 
 dnl sizeof checks: we will need a 16-bit and a 32-bit type
 
 AC_CHECK_SIZEOF(short)
 AC_CHECK_SIZEOF(int)
 AC_CHECK_SIZEOF(long)
+
+dnl extra variables
+AC_SUBST(OTHER_OBJS)
+AC_SUBST(PADLL)
+AC_SUBST(SHARED_FLAGS)
+AC_SUBST(DLL_LIBS)
+AC_SUBST(CXXFLAGS)
+AC_SUBST(NASM)
+AC_SUBST(NASMOPT)
+
+CFLAGS="-g -O2 -Wall -pedantic -pipe"
+
+if [[ $ac_cv_c_bigendian = "yes" ]] ; then
+   CFLAGS="$CFLAGS -DPA_BIG_ENDIAN"
+else
+   CFLAGS="$CFLAGS -DPA_LITTLE_ENDIAN"
+fi
 
 case "${host_os}" in
   darwin* )
@@ -228,7 +232,7 @@ case "${host_os}" in
 		LIBS="$LIBS $JACK_LIBS"
 		DLL_LIBS="$DLL_LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
-		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
+		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o pablio/ringbuffer.o"
                 AC_DEFINE(PA_USE_JACK)
 	fi
 
@@ -238,7 +242,7 @@ case "${host_os}" in
 	fi
 	LIBS="$LIBS -lm -lpthread";
 	PADLL="libportaudio.so";
-	SHARED_FLAGS="-shared";
+	SHARED_FLAGS="-shared -fPIC";
 
         OTHER_OBJS="$OTHER_OBJS pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o"
 esac
