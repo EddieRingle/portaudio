@@ -2781,8 +2781,8 @@ static PaError PaAlsaStream_WaitForFrames( PaAlsaStream *self, unsigned long *fr
     {
         /* Get the number of available frames for the pcms that are marked ready.
          * @concern FullDuplex If only one direction is marked ready (from poll), the number of frames available for
-         * the other direction is returned. This under the assumption that input is dropped earlier if paNeverDropInput
-         * is not specified.
+         * the other direction is returned. Output is normally preferred over capture however, so capture frames may be
+         * discarded to avoid overrun unless paNeverDropInput is specified.
          */
         int captureReady = self->capture.pcm ? self->capture.ready : 0,
             playbackReady = self->playback.pcm ? self->playback.ready : 0;
@@ -2792,9 +2792,18 @@ static PaError PaAlsaStream_WaitForFrames( PaAlsaStream *self, unsigned long *fr
         {
             if( !self->playback.ready && !self->neverDropInput )
             {
-                /* TODO: Drop input */
+                /* Drop input, a period's worth */
+                assert( self->capture.ready );
+                PaAlsaStreamComponent_EndProcessing( &self->capture, PA_MIN( self->capture.framesPerBuffer,
+                            *framesAvail ), &xrun );
+                *framesAvail = 0;
+                self->capture.ready = 0;
             }
         }
+        else if( self->capture.pcm )
+            assert( self->capture.ready );
+        else
+            assert( self->playback.ready );
     }
 
 end:
@@ -2964,7 +2973,7 @@ static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *num
         else
         {
             /* We have output underflow, but keeping input data (paNeverDropInput) */
-            /* assert( self->neverDropInput ); */
+            assert( self->neverDropInput );
             assert( self->capture.pcm != NULL );
             PA_DEBUG(( "%s: Setting output buffers to NULL\n", __FUNCTION__ ));
             PaUtil_SetNoOutput( &self->bufferProcessor );
