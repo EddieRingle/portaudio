@@ -1022,7 +1022,8 @@ end:
     return result;
 
 error:
-    goto end;   /* No particular action */
+    /* No particular action */
+    goto end;
 }
 
 /* Check against known device capabilities */
@@ -1046,8 +1047,10 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, PaUtilH
         PA_UNLESS( parameters->device == paUseHostApiSpecificDeviceSpecification, paInvalidDevice );
         PA_UNLESS( streamInfo->size == sizeof (PaAlsaStreamInfo) && streamInfo->version == 1,
                 paIncompatibleHostApiSpecificStreamInfo );
+        PA_UNLESS( streamInfo->deviceString != NULL, paInvalidDevice );
 
-        return paNoError;   /* Skip further checking */
+        /* Skip further checking */
+        return paNoError;
     }
 
     assert( deviceInfo );
@@ -1061,7 +1064,6 @@ error:
 }
 
 /* Given an open stream, what sample formats are available? */
-
 static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
 {
     PaSampleFormat available = 0;
@@ -1149,6 +1151,7 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
     else
         deviceName = streamInfo->deviceString;
 
+    PA_DEBUG(( "%s: Opening device %s\n", __FUNCTION__, deviceName ));
     if( (ret = snd_pcm_open( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
                     SND_PCM_NONBLOCK )) < 0 )
     {
@@ -2962,6 +2965,8 @@ static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *num
         {
             /* We have output underflow, but keeping input data (paNeverDropInput) */
             /* assert( self->neverDropInput ); */
+            assert( self->capture.pcm != NULL );
+            PA_DEBUG(( "%s: Setting output buffers to NULL\n", __FUNCTION__ ));
             PaUtil_SetNoOutput( &self->bufferProcessor );
         }
     }

@@ -1178,6 +1178,7 @@ static void CopyTempOutputBuffersToHostOutputBuffers( PaUtilBufferProcessor *bp)
 
          for( i=0; i<bp->outputChannelCount; ++i )
          {
+             assert( hostOutputChannels[i].data != NULL );
              bp->outputConverter(    hostOutputChannels[i].data,
                                      hostOutputChannels[i].stride,
                                      srcBytePtr, srcSampleStrideSamples,
