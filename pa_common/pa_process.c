@@ -131,6 +131,14 @@ PaError PaUtil_InitializeBufferProcessor( PaUtilBufferProcessor* bp,
     PaError bytesPerSample;
     unsigned long tempInputBufferSize, tempOutputBufferSize;
 
+    if( streamFlags & paNeverDropInput )
+    {
+        /* paNeverDropInput is only valid for full-duplex callback streams, with an unspecified number of frames per buffer. */
+        if( !streamCallback || !(inputChannelCount > 0 && outputChannelCount > 0) ||
+                framesPerUserBuffer != paFramesPerBufferUnspecified )
+            return paInvalidFlag;
+    }
+
     /* initialize buffer ptrs to zero so they can be freed if necessary in error */
     bp->tempInputBuffer = 0;
     bp->tempInputBufferPtrs = 0;
