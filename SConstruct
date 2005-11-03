@@ -15,23 +15,23 @@ def _DirectoryOption(path, help, default):
 
 def getPlatform():
     global __platform
-    try: __platform
+    try: return __platform
     except NameError:
         env = Environment()
         if env["PLATFORM"] == "posix":
             if sys.platform[:5] == "linux":
-                return "linux"
-            if sys.platform[:6] == "darwin":
-                return "darwin"
+                __platform = "linux"
+            elif sys.platform[:6] == "darwin":
+                __platform = "darwin"
             else:
                 # What does this identifier look like for SGI?
                 raise ConfigurationError("Unknown platform %s" % sys.platform)
-        if env["PLATFORM"] == "win32":
-            return "win32"
-        if env["PLATFORM"] == "cygwin":
-            return "cygwin"
         else:
-            raise ConfigurationError("Unknown platform %s" % env["PLATFORM"])
+            if not env["PLATFORM"] in ("win32", "cygwin"):
+                raise ConfigurationError("Unknown platform %s" % env["PLATFORM"])
+            __platform = env["PLATFORM"]
+
+    return __platform
 
 Posix = ("linux", "darwin")
 env = Environment(CPPPATH="pa_common")
