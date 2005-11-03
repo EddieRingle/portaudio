@@ -88,7 +88,7 @@ AC_SUBST(CXXFLAGS)
 AC_SUBST(NASM)
 AC_SUBST(NASMOPT)
 
-CFLAGS="-g -O2 -Wall -pedantic -pipe"
+CFLAGS="-g -O2 -Wall -pedantic -pipe -fPIC"
 
 if [[ $ac_cv_c_bigendian = "yes" ]] ; then
    CFLAGS="$CFLAGS -DPA_BIG_ENDIAN"
