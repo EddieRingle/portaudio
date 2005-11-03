@@ -11,7 +11,9 @@ def _BoolOption(opt, explanation, default="yes"):
     return BoolOption("enable%s" % opt[0].upper() + opt[1:], explanation, default)
 
 def _DirectoryOption(path, help, default):
-    return PathOption(path, help, default, PathOption.PathIsDir)
+    return PathOption(path, help, default)
+    # Incompatible with the latest stable SCons
+    # return PathOption(path, help, default, PathOption.PathIsDir)
 
 def getPlatform():
     global __platform
@@ -21,19 +23,18 @@ def getPlatform():
         if env["PLATFORM"] == "posix":
             if sys.platform[:5] == "linux":
                 __platform = "linux"
-            elif sys.platform[:6] == "darwin":
-                __platform = "darwin"
             else:
-                # What does this identifier look like for SGI?
                 raise ConfigurationError("Unknown platform %s" % sys.platform)
         else:
-            if not env["PLATFORM"] in ("win32", "cygwin"):
+            if not env["PLATFORM"] in ("win32", "cygwin") + Posix:
                 raise ConfigurationError("Unknown platform %s" % env["PLATFORM"])
             __platform = env["PLATFORM"]
 
     return __platform
 
-Posix = ("linux", "darwin")
+# sunos, aix, hpux, irix, sunos appear to be platforms known by SCons, assuming they're POSIX compliant
+Posix = ("linux", "darwin", "sunos", "aix", "hpux", "irix", "sunos")
+Windows = ("win32", "cygwin")
 env = Environment(CPPPATH="pa_common")
 
 Platform = getPlatform()
@@ -46,6 +47,9 @@ if Platform in Posix:
             _PackageOption("OSS"),
             _PackageOption("JACK"),
             )
+elif Platform in Windows:
+    if Platform == "cygwin":
+        opts.AddOptions(_DirectoryOption("prefix", "installation prefix", "/usr/local"))
 
 opts.AddOptions(
         _BoolOption("shared", "create shared library"),
