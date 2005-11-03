@@ -1690,7 +1690,7 @@ EOF
 		LIBS="$LIBS $JACK_LIBS"
 		DLL_LIBS="$DLL_LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
-		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o pablio/ringbuffer.o"
+		OTHER_OBJS="$OTHER_OBJS pa_jack/pa_jack.o"
                 cat >> confdefs.h <<\EOF
 #define PA_USE_JACK 1
 EOF
