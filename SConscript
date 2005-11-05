@@ -66,6 +66,15 @@ if Platform in Posix:
 else:
     raise ConfigurationError("unknown platform %s" % Platform)
 
+if Platform == "darwin":
+    env.Append(LINKFLAGS=["-framework CoreAudio", "-framework AudioToolBox"])
+    env.Append(CPPDEFINES=["PA_USE_COREAUDIO"])
+elif Platform == "cygwin":
+    env.Append(LIBS=["winmm"])
+elif Platform == "irix":
+    neededLibs +=  [("audio", "dmedia/audio.h", "alOpenPort"), ("dmedia", "dmedia/dmedia.h", "dmGetUST")]
+    env.Append(CPPDEFINES=["PA_USE_SGI"])
+
 def CheckCTypeSize(context, tp):
     context.Message("Checking the size of C type %s..." % tp)
     ret = context.TryRun("""
@@ -84,6 +93,15 @@ int main() {
     context.Result("%d" % sz)
     return sz
 
+if sys.byteorder == "little":
+    env.Append(CPPDEFINES=["PA_LITTLE_ENDIAN"])
+elif sys.byteorder == "big":
+    env.Append(CPPDEFINES=["PA_BIG_ENDIAN"])
+else:
+    raise ConfigurationError("unknown byte order: %s" % sys.byteorder)
+if env["enableDebugOutput"]:
+    env.Append(CPPDEFINES=["PA_ENABLE_DEBUG_OUTPUT"])
+
 conf = env.Configure(log_file="sconf.log", custom_tests={"CheckCTypeSize": CheckCTypeSize})
 env.Append(CPPDEFINES=["SIZEOF_SHORT=%d" % conf.CheckCTypeSize("short")])
 env.Append(CPPDEFINES=["SIZEOF_INT=%d" % conf.CheckCTypeSize("int")])
@@ -96,15 +114,6 @@ for name, val in optionalImpls.items():
         env.Append(CPPDEFINES=["PA_USE_%s=1" % name.upper()])
 
 env = conf.Finish()
-
-if sys.byteorder == "little":
-    env.Append(CPPDEFINES="PA_LITTLE_ENDIAN")
-elif sys.byteorder == "big":
-    env.Append(CPPDEFINES="PA_BIG_ENDIAN")
-else:
-    raise ConfigurationError("unknown byte order: %s" % sys.byteorder)
-if env["enableDebugOutput"]:
-    env.Append(CPPDEFINES="PA_ENABLE_DEBUG_OUTPUT")
 
 CommonSources = [os.path.join("pa_common", f) for f in "pa_allocation.c pa_converters.c pa_cpuload.c pa_dither.c pa_front.c \
         pa_process.c pa_skeleton.c pa_stream.c pa_trace.c".split()]
@@ -163,7 +172,7 @@ testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer"
         "patest_dither", "patest_hang", "patest_in_overflow", "patest_latency", "patest_leftright", "patest_longsine", \
         "patest_many", "patest_maxsines", "patest_multi_sine", "patest_out_underflow", "patest_pink", "patest_prime", \
         "patest_read_record", "patest_record", "patest_ringmix", "patest_saw", "patest_sine8", "patest_sine", \
-        "patest_sine_blocking", "patest_sine_formats", "patest_sine_time", "patest_start_stop", "patest_stop", "patest_sync", \
+        "patest_sine_time", "patest_start_stop", "patest_stop", "patest_sync", \
         "patest_toomanysines", "patest_underflow", "patest_wire", "patest_write_sine", "pa_devs", "pa_fuzz", "pa_minlat"]
 
 # The test directory ("bin") should be in the top-level PA directory, the calling script should ensure that SCons doesn't
