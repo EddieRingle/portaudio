@@ -1694,20 +1694,19 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
     {
         if( framesPerUserBuffer == paFramesPerBufferUnspecified )
         {
-            snd_pcm_uframes_t desiredLatency, e;
-            snd_pcm_uframes_t minPeriodSize, maxPeriodSize, optimalPeriodSize, periodSize;
-            unsigned int minCapture, minPlayback, maxCapture, maxPlayback;
+            snd_pcm_uframes_t desiredLatency, e, minPeriodSize, maxPeriodSize, optimalPeriodSize, periodSize,
+                              minCapture, minPlayback, maxCapture, maxPlayback;
 
             /* Come up with a common desired latency */
 
             dir = 0;
-            ENSURE_( snd_pcm_hw_params_get_periods_min( hwParamsCapture, &minCapture, &dir ), paUnanticipatedHostError );
+            ENSURE_( snd_pcm_hw_params_get_period_size_min( hwParamsCapture, &minCapture, &dir ), paUnanticipatedHostError );
             dir = 0;
-            ENSURE_( snd_pcm_hw_params_get_periods_min( hwParamsPlayback, &minPlayback, &dir ), paUnanticipatedHostError );
+            ENSURE_( snd_pcm_hw_params_get_period_size_min( hwParamsPlayback, &minPlayback, &dir ), paUnanticipatedHostError );
             dir = 0;
-            ENSURE_( snd_pcm_hw_params_get_periods_max( hwParamsCapture, &maxCapture, &dir ), paUnanticipatedHostError );
+            ENSURE_( snd_pcm_hw_params_get_period_size_max( hwParamsCapture, &maxCapture, &dir ), paUnanticipatedHostError );
             dir = 0;
-            ENSURE_( snd_pcm_hw_params_get_periods_max( hwParamsPlayback, &maxPlayback, &dir ), paUnanticipatedHostError );
+            ENSURE_( snd_pcm_hw_params_get_period_size_max( hwParamsPlayback, &maxPlayback, &dir ), paUnanticipatedHostError );
             minPeriodSize = PA_MAX( minPlayback, minCapture );
             maxPeriodSize = PA_MIN( maxPlayback, maxCapture );
             PA_UNLESS( minPeriodSize <= maxPeriodSize, paBadIODeviceCombination );
