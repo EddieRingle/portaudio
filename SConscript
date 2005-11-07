@@ -138,6 +138,8 @@ if env["enableDebug"]:
     env["CCFLAGS"] += " " + DebugCFlags
 if env["enableOptimize"]:
     env["CCFLAGS"] += " " + OptCFlags
+if not env["enableAsserts"]:
+    env.Append(CPPDEFINES=["-DNDEBUG"])
 if env["customCFlags"]:
     env["CCFLAGS"] += " " + env["customCFlags"]
 
