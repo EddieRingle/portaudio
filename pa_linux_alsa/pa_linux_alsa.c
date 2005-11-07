@@ -1890,6 +1890,13 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
                     outputLatency ) );
     }
 
+    if( self->capture.pcm )
+        PA_DEBUG(( "%s: Capture period size: %lu, input latency: %f\n", __FUNCTION__, self->capture.framesPerBuffer,
+                    *inputLatency ));
+    if( self->playback.pcm )
+        PA_DEBUG(( "%s: Playback period size: %lu, output latency: %f\n", __FUNCTION__, self->playback.framesPerBuffer,
+                    *outputLatency ));
+
     /* Should be exact now */
     self->streamRepresentation.streamInfo.sampleRate = realSr;
 
@@ -3312,7 +3319,7 @@ static void *CallbackThreadFunc( void *userData )
             if( stream->bufferProcessor.hostBufferSizeMode == paUtilFixedHostBufferSize )
             {
                 /* We've committed to a fixed host buffer size, stick to that */
-                framesGot -= framesGot % stream->maxFramesPerHostBuffer;
+                framesGot = framesGot >= stream->maxFramesPerHostBuffer ? stream->maxFramesPerHostBuffer : 0;
             }
             else
             {
