@@ -1563,7 +1563,7 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
             else
             {
                 snd_pcm_uframes_t newSz = framesPerUserBuffer;
-                while( newSz > bufferSize )
+                while( newSz / 2 >= bufferSize )
                 {
                     if( framesPerUserBuffer % (newSz / 2) != 0 )
                     {
@@ -1586,7 +1586,9 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
         /* It may be that the device only supports 2 periods for instance */
         dir = 0;
         ENSURE_( snd_pcm_hw_params_get_periods_max( hwParams, &maxPeriods, &dir ), paUnanticipatedHostError );
-        assert( maxPeriods != 0 );
+        assert( maxPeriods > 1 );
+        /* One period is not counted as latency */
+        maxPeriods -= 1;
         numPeriods = PA_MIN( maxPeriods, numPeriods );
 
         if( framesPerUserBuffer != paFramesPerBufferUnspecified )
@@ -1882,20 +1884,15 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
         assert( self->capture.framesPerBuffer != 0 );
         PA_ENSURE( PaAlsaStreamComponent_FinishConfigure( &self->capture, hwParamsCapture, inParams, self->primeBuffers, realSr,
                     inputLatency ) );
+        PA_DEBUG(( "%s: Capture period size: %lu, latency: %f\n", __FUNCTION__, self->capture.framesPerBuffer, *inputLatency ));
     }
     if( self->playback.pcm )
     {
         assert( self->playback.framesPerBuffer != 0 );
         PA_ENSURE( PaAlsaStreamComponent_FinishConfigure( &self->playback, hwParamsPlayback, outParams, self->primeBuffers, realSr,
                     outputLatency ) );
+        PA_DEBUG(( "%s: Playback period size: %lu, latency: %f\n", __FUNCTION__, self->playback.framesPerBuffer, *outputLatency ));
     }
-
-    if( self->capture.pcm )
-        PA_DEBUG(( "%s: Capture period size: %lu, input latency: %f\n", __FUNCTION__, self->capture.framesPerBuffer,
-                    *inputLatency ));
-    if( self->playback.pcm )
-        PA_DEBUG(( "%s: Playback period size: %lu, output latency: %f\n", __FUNCTION__, self->playback.framesPerBuffer,
-                    *outputLatency ));
 
     /* Should be exact now */
     self->streamRepresentation.streamInfo.sampleRate = realSr;
