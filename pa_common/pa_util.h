@@ -114,7 +114,7 @@ void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
 
 void PaUtil_DebugPrint( const char *format, ... );
 
-#if (0) /* set to 1 to print debug messages */
+#ifdef PA_ENABLE_DEBUG_OUTPUT
 #define PA_DEBUG(x) PaUtil_DebugPrint x ;
 #else
 #define PA_DEBUG(x)
