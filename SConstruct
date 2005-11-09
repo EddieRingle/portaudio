@@ -15,6 +15,10 @@ def _DirectoryOption(path, help, default):
     # Incompatible with the latest stable SCons
     # return PathOption(path, help, default, PathOption.PathIsDir)
 
+def _EnumOption(opt, explanation, allowedValues, default):
+    assert default in allowedValues
+    return EnumOption("with%s" % opt[0].upper() + opt[1:], explanation, default, allowed_values=allowedValues)
+
 def getPlatform():
     global __platform
     try: return __platform
@@ -50,12 +54,17 @@ if Platform in Posix:
 elif Platform in Windows:
     if Platform == "cygwin":
         opts.AddOptions(_DirectoryOption("prefix", "installation prefix", "/usr/local"))
+        opts.AddOptions(_EnumOption("winAPI", "Windows API to use", ("wmme", "directx", "asio"), "wmme"))
+
+if Platform == "darwin":
+    opts.AddOptions(_EnumOption("macAPI", "Mac API to use", ("asio", "core", "sm"), "core"))
 
 opts.AddOptions(
         _BoolOption("shared", "create shared library"),
         _BoolOption("static", "create static library"),
         _BoolOption("debug", "compile with debug symbols"),
         _BoolOption("optimize", "compile with optimization", default="no"),
+        _BoolOption("asserts", "runtime assertions are helpful for debugging, but can be detrimental to performance", default="yes"),
         _BoolOption("debugOutput", "enable debug output", default="no"),
         ("customCFlags", "customize compilation of C code", ""),
         )
