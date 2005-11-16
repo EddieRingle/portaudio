@@ -3,6 +3,17 @@ Notes about WDM-KS host API
 
 Status history
 --------------
+10th November 2005:
+Made following changes:
+ * OpenStream: Try all PaSampleFormats internally if the the chosen
+     format is not supported natively.  This fixed several problems
+     with soundcards that soundcards that did not take kindly to
+     using 24-bit 3-byte formats.
+ * OpenStream: Make the minimum framesPerHostIBuffer (and framesPerHostOBuffer)
+     the default frameSize for the playback/recording pin.
+ * ProcessingThread: Added a switch to only call PaUtil_EndBufferProcessing
+     if the total input frames equals the total output frames
+
 5th September 2004:
 This is the first public version of the code. It should be considered
 an alpha release with zero guarantee not to crash on any particular 
