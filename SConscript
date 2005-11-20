@@ -1,7 +1,11 @@
 import os.path, copy, sys
 
-def checkSymbol(conf, library, header, symbol=None, autoadd=True, critical=False, pkgName=None):
+def checkSymbol(conf, header, library=None, symbol=None, autoadd=True, critical=False, pkgName=None):
     env = conf.env
+    if library is None:
+        library = "c"   # Standard library
+        autoadd = False
+
     if pkgName is not None:
         origLibPath = copy.copy(env.get("LIBPATH", None))
         origLibs = copy.copy(env.get("LIBS", None))
@@ -17,7 +21,7 @@ def checkSymbol(conf, library, header, symbol=None, autoadd=True, critical=False
             # I see no other way of checking that the parsing succeeded, if it did add no more linking parameters
             if env["LIBS"] != origLibs:
                 autoadd = False
-    
+
     try:
         if not conf.CheckCHeader(header, include_quotes="<>"):
             raise ConfigurationError("missing header %s" % header)
@@ -89,6 +93,7 @@ int main() {
         context.Result(" Couldn't obtain size of type %s!" % tp)
         return None
 
+    assert ret[1]
     sz = int(ret[1])
     context.Result("%d" % sz)
     return sz
@@ -102,17 +107,25 @@ else:
 if env["enableDebugOutput"]:
     env.Append(CPPDEFINES=["PA_ENABLE_DEBUG_OUTPUT"])
 
+# Start configuration
+
 conf = env.Configure(log_file="sconf.log", custom_tests={"CheckCTypeSize": CheckCTypeSize})
 env.Append(CPPDEFINES=["SIZEOF_SHORT=%d" % conf.CheckCTypeSize("short")])
 env.Append(CPPDEFINES=["SIZEOF_INT=%d" % conf.CheckCTypeSize("int")])
 env.Append(CPPDEFINES=["SIZEOF_LONG=%d" % conf.CheckCTypeSize("long")])
+if checkSymbol(conf, "time.h", "rt", "clock_gettime"):
+    env.Append(CPPDEFINES=["HAVE_CLOCK_GETTIME"])
+if checkSymbol(conf, "time.h", "nanosleep"):
+    env.Append(CPPDEFINES=["HAVE_NANOSLEEP"])
+
 for lib, hdr, sym in neededLibs:
-    checkSymbol(conf, lib, hdr, sym, critical=True)
+    checkSymbol(conf, hdr, lib, sym, critical=True)
 for name, val in optionalImpls.items():
     lib, hdr, sym = val
-    if checkSymbol(conf, lib, hdr, sym, critical=False, pkgName=name.lower()):
+    if checkSymbol(conf, hdr, lib, sym, critical=False, pkgName=name.lower()):
         env.Append(CPPDEFINES=["PA_USE_%s=1" % name.upper()])
 
+# Configuration finished
 env = conf.Finish()
 
 CommonSources = [os.path.join("pa_common", f) for f in "pa_allocation.c pa_converters.c pa_cpuload.c pa_dither.c pa_front.c \

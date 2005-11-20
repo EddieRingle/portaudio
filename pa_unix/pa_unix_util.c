@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/time.h>
 #include <assert.h>
 #include <string.h> /* For memset */
@@ -86,12 +87,22 @@ int PaUtil_CountCurrentlyAllocatedBlocks( void )
 
 void Pa_Sleep( long msec )
 {
+#ifdef HAVE_NANOSLEEP
+    struct timespec req = {0}, rem = {0};
+    PaTime time = msec / 1.e3;
+    req.tv_sec = (time_t)time;
+    assert(time - req.tv_sec < 1.0);
+    req.tv_nsec = (long)((time - req.tv_sec) * 1.e9);
+    nanosleep(&req, &rem);
+    /* XXX: Try sleeping the remaining time (contained in rem) if interrupted by a signal? */
+#else
     while( msec > 999 )     /* For OpenBSD and IRIX, argument */
         {                   /* to usleep must be < 1000000.   */
         usleep( 999000 );
         msec -= 999;
         }
     usleep( msec * 1000 );
+#endif
 }
 
 /*            *** NOT USED YET: ***
@@ -107,9 +118,15 @@ void PaUtil_InitializeClock( void )
 
 PaTime PaUtil_GetTime( void )
 {
+#ifdef HAVE_CLOCK_GETTIME
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    return (PaTime)(tp.tv_sec + tp.tv_nsec / 1.e9);
+#else
     struct timeval tv;
     gettimeofday( &tv, NULL );
     return (PaTime) tv.tv_usec / 1000000. + tv.tv_sec;
+#endif
 }
 
 PaError PaUtil_InitializeThreading( PaUtilThreading *threading )
