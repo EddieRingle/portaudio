@@ -496,8 +496,8 @@ typedef struct PaStreamParameters
      configure their latency based on these parameters, otherwise they may
      choose the closest viable latency instead. Unless the suggested latency
      is greater than the absolute upper limit for the device implementations
-     shouldround the suggestedLatency up to the next practial value - ie to
-     provide an equal or higher latency than suggestedLatency whereever possibe.
+     should round the suggestedLatency up to the next practial value - ie to
+     provide an equal or higher latency than suggestedLatency wherever possibe.
      Actual latency values for an open stream may be retrieved using the
      inputLatency and outputLatency fields of the PaStreamInfo structure
      returned by Pa_GetStreamInfo().
