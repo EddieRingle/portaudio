@@ -1160,7 +1160,8 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
     if( (ret = snd_pcm_open( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
                     SND_PCM_NONBLOCK )) < 0 )
     {
-        *pcm = NULL;     /* Not to be closed */
+        /* Not to be closed */
+        *pcm = NULL;
         ENSURE_( ret, ret == -EBUSY ? paDeviceUnavailable : paBadIODeviceCombination );
     }
     ENSURE_( snd_pcm_nonblock( *pcm, 0 ), paUnanticipatedHostError );
@@ -1214,11 +1215,20 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
     PA_ENSURE( hostFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, parameters->sampleFormat ) );
     ENSURE_( snd_pcm_hw_params_set_format( pcm, hwParams, Pa2AlsaFormat( hostFormat ) ), paUnanticipatedHostError );
 
-    ENSURE_( snd_pcm_hw_params( pcm, hwParams ), paUnanticipatedHostError );
+    {
+        /* It happens that this call fails because the device is busy */
+        int ret = 0;
+        if( (ret = snd_pcm_hw_params( pcm, hwParams )) < 0)
+        {
+            ENSURE_( ret, ret == -EBUSY ? paDeviceUnavailable : paUnanticipatedHostError );
+        }
+    }
 
 end:
     if( pcm )
+    {
         snd_pcm_close( pcm );
+    }
     return result;
 
 error:
@@ -1538,6 +1548,16 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
     PaError result = paNoError;
     unsigned long bufferSize = params->suggestedLatency * sampleRate, framesPerHostBuffer;
     int dir = 0;
+    
+    {
+        snd_pcm_uframes_t tmp;
+        snd_pcm_hw_params_get_buffer_size_min(hwParams, &tmp);
+        bufferSize = PA_MAX(bufferSize, tmp);
+        snd_pcm_hw_params_get_buffer_size_max(hwParams, &tmp);
+        bufferSize = PA_MIN(bufferSize, tmp);
+    }
+
+    assert(bufferSize > 0);
 
     if( framesPerUserBuffer != paFramesPerBufferUnspecified )
     {
@@ -2043,7 +2063,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 error:
     if( stream )
     {
-        PA_DEBUG(( "\nStream in error, terminating\n\n" ));
+        PA_DEBUG(( "%s: Stream in error, terminating\n", __FUNCTION__ ));
         PaAlsaStream_Terminate( stream );
     }
 
@@ -3391,7 +3411,9 @@ static PaError ReadStream( PaStream* s, void *buffer, unsigned long frames )
     }
 
     if( stream->capture.userInterleaved )
+    {
         userBuffer = buffer;
+    }
     else
     {
         /* Copy channels into local array */
