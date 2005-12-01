@@ -161,6 +161,7 @@ static PaError conv_err(OSStatus error)
     return result;
 }
 
+/* This function is unused
 static AudioStreamBasicDescription *InitializeStreamDescription(const PaStreamParameters *parameters, double sampleRate)
 {
     struct AudioStreamBasicDescription *streamDescription = PaUtil_AllocateMemory(sizeof(AudioStreamBasicDescription));
@@ -208,6 +209,7 @@ static AudioStreamBasicDescription *InitializeStreamDescription(const PaStreamPa
     
     return streamDescription;
 }
+*/
 
 static PaStreamCallbackTimeInfo *InitializeTimeInfo(const AudioTimeStamp* now, const AudioTimeStamp* inputTime, const AudioTimeStamp* outputTime)
 {
@@ -410,6 +412,7 @@ static OSStatus CopyInputData(PaMacClientData* destination, const AudioBufferLis
         coreAudioBuffer += sizeof(Float32);
         portAudioBuffer += Pa_GetSampleSize(destination->inputSampleFormat) * channelSpacing;
     }
+    return noErr;
 }
 
 static OSStatus CopyOutputData(AudioBufferList* destination, PaMacClientData *source, unsigned long frameCount)
@@ -438,7 +441,8 @@ static OSStatus CopyOutputData(AudioBufferList* destination, PaMacClientData *so
         source->outputConverter(coreAudioBuffer, outputBuffer->mNumberChannels, portAudioBuffer, frameSpacing, frameCount, NULL);
         coreAudioBuffer += sizeof(Float32);
         portAudioBuffer += Pa_GetSampleSize(source->outputSampleFormat) * channelSpacing;
-    }    
+    }
+    return noErr;
 }
 
 static OSStatus AudioIOProc( AudioDeviceID inDevice,
@@ -470,10 +474,12 @@ static OSStatus AudioIOProc( AudioDeviceID inDevice,
     if (result == paComplete || result == paAbort) {
         Pa_StopStream(clientData->stream);
     }
+
+    PaUtil_FreeMemory( timeInfo );
+    return noErr;
 }
 
 // This is not for input-only streams, this is for streams where the input device is different from the output device
-// TODO: This needs to store the output data in a buffer, to be written to the device the next time AudioOutputProc is called
 static OSStatus AudioInputProc( AudioDeviceID inDevice,
                          const AudioTimeStamp* inNow,
                          const AudioBufferList* inInputData,
@@ -491,9 +497,13 @@ static OSStatus AudioInputProc( AudioDeviceID inDevice,
     unsigned long frameCount = inputBuffer->mDataByteSize / (inputBuffer->mNumberChannels * sizeof(Float32));
 
     CopyInputData(clientData, inInputData, frameCount);
-    clientData->callback(clientData->inputBuffer, NULL, frameCount, timeInfo, paNoFlag, clientData->userData);
+    PaStreamCallbackResult result = clientData->callback(clientData->inputBuffer, clientData->outputBuffer, frameCount, timeInfo, paNoFlag, clientData->userData);
     
     PaUtil_EndCpuLoadMeasurement( &clientData->stream->cpuLoadMeasurer, frameCount );
+    if( result == paComplete || result == paAbort )
+       Pa_StopStream(clientData->stream);
+    PaUtil_FreeMemory( timeInfo );
+    return noErr;
 }
 
 // This is not for output-only streams, this is for streams where the input device is different from the output device
@@ -506,18 +516,19 @@ static OSStatus AudioOutputProc( AudioDeviceID inDevice,
                           void* inClientData)
 {
     PaMacClientData *clientData = (PaMacClientData *)inClientData;
-    PaStreamCallbackTimeInfo *timeInfo = InitializeTimeInfo(inNow, inInputTime, inOutputTime);
+    //PaStreamCallbackTimeInfo *timeInfo = InitializeTimeInfo(inNow, inInputTime, inOutputTime);
 
     PaUtil_BeginCpuLoadMeasurement( &clientData->stream->cpuLoadMeasurer );
 
     AudioBuffer *outputBuffer = &outOutputData->mBuffers[0];
     unsigned long frameCount = outputBuffer->mDataByteSize / (outputBuffer->mNumberChannels * sizeof(Float32));
 
-    clientData->callback(NULL, clientData->outputBuffer, frameCount, timeInfo, paNoFlag, clientData->userData);
+    //clientData->callback(NULL, clientData->outputBuffer, frameCount, timeInfo, paNoFlag, clientData->userData);
 
     CopyOutputData(outOutputData, clientData, frameCount);
 
     PaUtil_EndCpuLoadMeasurement( &clientData->stream->cpuLoadMeasurer, frameCount );
+    return noErr;
 }
 
 static PaError SetSampleRate(AudioDeviceID device, double sampleRate, int isInput)
