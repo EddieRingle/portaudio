@@ -1,8 +1,22 @@
-Notes on Core Audio Implementation of PortAudio
+Notes on status of CoreAudio Implementation of PortAudio
+
+Document Last Updated December 4, 2005
+
+There are currently two implementations of PortAudio for Mac Core Audio.
+
+The default is in pa_mac_core.c. This is probably going to be superseded
+by pa_mac_core_auhal.c, which is newer and less developed, but uses Mac 
+OS X's AUHAL interface for IO. To compile the AUHAL version, simply replace 
+the pa_mac_core.c file with pa_mac_core_auhal.c ("mv pa_mac_core_auhal.c 
+pa_mac_core.c") and configure and make a usual.
+
+----------------------------------------
+
+Notes on Original/Default implementation:
 
 by Phil Burk and Darren Gibbs
 
-Document last updated March 20, 2002
+Last updated March 20, 2002
 
 WHAT WORKS
 
@@ -32,3 +46,42 @@ input, output or both.
 When we query devices, we first get a list of CoreAudio devices. Then 
 we scan the list and add a PortAudio device for each CoreAudio device 
 that supports input. Then we make a scan for output devices.
+
+-------------------------------------------
+
+Notes on Newer AUHAL implementation:
+
+by Bjorn Roche
+
+Last Updated December 4, 2005
+
+Known issues:
+
+- Latency: I've pretty much done nothing about latency. It seems to be very
+low latency and maybe the buffer processor handles it all for me, but aside
+from making a best effort to use the user's requested framesPerBuffer, I
+have done nothing. Latency when using separate devices for input and output
+is very bad (~(10*frames per buffer)), but I think this can be improved. One 
+HAL AU is used when the input and output devices match, so very low latency 
+should be achieved in that case.
+
+- Timing info. it reports on stream time, but I'm probably doing something
+wrong since patest_sine_time often reports negative latency numbers.
+
+- xrun detection: I do a little on input, that's about all.
+
+- Memory Leak: there's a memory leak I still need to fix.
+
+- abort/stop/drain issues: I haven't solved the problem of draining all the
+user data before stopping as opposed to aborting the stream immediately.
+This will probably cause some problems for some people (including me), so
+I'd like to fix it soon. Obviously this causes problems with a number of the
+tests, as well.
+
+- blocking interface: Nothin' done.
+
+- multichannel: I don't have a multichannel IO box, so I didn't test it. It
+should work though ;)
+
+- x86: I haven't tested it on an x86 Mac, but I tried to be aware of it, so
+it should work without too much trouble.
