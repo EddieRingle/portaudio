@@ -76,10 +76,10 @@
 #endif
 
 
-#define PRINT(x) /* { printf x; fflush(stdout); } */
+#define PRINT(x) PA_DEBUG(x);
 #define ERR_RPT(x) PRINT(x)
-#define DBUG(x)  /* PRINT(x) */
-#define DBUGX(x) /* PRINT(x) */
+#define DBUG(x)   PRINT(x)
+#define DBUGX(x)  PRINT(x)
 
 #define PA_USE_HIGH_LATENCY   (0)
 #if PA_USE_HIGH_LATENCY
@@ -366,6 +366,15 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
 }
 
 
+/* 
+    GUIDs for emulated devices which we blacklist below.
+    are there more than two of them??
+*/
+
+GUID IID_IRolandVSCEmulated1 = {0xc2ad1800, 0xb243, 0x11ce, 0xa8, 0xa4, 0x00, 0xaa, 0x00, 0x6c, 0x45, 0x01};
+GUID IID_IRolandVSCEmulated2 = {0xc2ad1800, 0xb243, 0x11ce, 0xa8, 0xa4, 0x00, 0xaa, 0x00, 0x6c, 0x45, 0x02};
+
+
 #define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_  (13) /* must match array length below */
 static double defaultSampleRateSearchOrder_[] =
     { 44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0, 192000.0,
@@ -404,6 +413,16 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     }
 
     
+    if( lpGUID )
+    {
+        if (IsEqualGUID (&IID_IRolandVSCEmulated1,lpGUID) ||
+            IsEqualGUID (&IID_IRolandVSCEmulated2,lpGUID) )
+        {
+            PA_DEBUG(("BLACKLISTED: %s \n",name));
+            return paNoError;
+        }
+    }
+
     /* Create a DirectSound object for the specified GUID
         Note that using CoCreateInstance doesn't work on windows CE.
     */
@@ -427,7 +446,23 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     
     if( hr != DS_OK )
     {
+        if (hr == DSERR_ALLOCATED)
+            PA_DEBUG(("AddOutputDeviceInfoFromDirectSound %s DSERR_ALLOCATED\n",name));
         DBUG(("Cannot create DirectSound for %s. Result = 0x%x\n", name, hr ));
+        DBUG(("%s's GUID: {0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x, 0x%x} \n",
+                 name,
+                 lpGUID->Data1,
+                 lpGUID->Data2,
+                 lpGUID->Data3,
+                 lpGUID->Data4[0],
+                 lpGUID->Data4[1],
+                 lpGUID->Data4[2],
+                 lpGUID->Data4[3],
+                 lpGUID->Data4[4],
+                 lpGUID->Data4[5],
+                 lpGUID->Data4[6],
+                 lpGUID->Data4[7]));
+
         deviceOK = FALSE;
     }
     else
@@ -491,7 +526,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                         */
                         deviceInfo->defaultSampleRate = 44100.0f;
 
-                        DBUG(("PA - Reported rates both zero. Setting to fake values for device #%d\n", sDeviceIndex ));
+                        DBUG(("PA - Reported rates both zero. Setting to fake values for device #%s\n", name ));
                     }
                     else
                     {
@@ -505,7 +540,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                     ** So when we see a ridiculous set of rates, assume it is a range.
                     */
                   deviceInfo->defaultSampleRate = 44100.0f;
-                  DBUG(("PA - Sample rate range used instead of two odd values for device #%d\n", sDeviceIndex ));
+                  DBUG(("PA - Sample rate range used instead of two odd values for device #%s\n", name ));
                 }
                 else deviceInfo->defaultSampleRate = caps.dwMaxSecondarySampleRate;
 
