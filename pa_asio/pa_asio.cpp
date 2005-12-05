@@ -1081,6 +1081,26 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
         for( i=0; i < driverCount; ++i )
         {
+
+            PA_DEBUG(("ASIO names[%d]:%s\n",i,names[i]));
+
+            // Since portaudio opens ALL ASIO drivers, and no one else does that,
+            // we face fact that some drivers were not meant for it, drivers which act
+            // like shells on top of REAL drivers, for instance.
+            // so we get duplicate handles, locks and other problems.
+            // so lets NOT try to load any such wrappers. 
+            // The ones i [davidv] know of so far are:
+
+            if (   strcmp (names[i],"ASIO DirectX Full Duplex Driver") == 0
+                || strcmp (names[i],"ASIO Multimedia Driver")          == 0
+                || strncmp(names[i],"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
+                || strncmp(names[i],"Adobe",5)                         == 0 ) //"Adobe Default Windows Sound 1.5"
+            {
+                PA_DEBUG(("BLACKLISTED!!!\n"));
+                continue;
+            }
+
+
             /* Attempt to load the asio driver... */
             if( LoadAsioDriver( names[i], &paAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
             {
