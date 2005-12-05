@@ -1753,16 +1753,52 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
     }
 
-    PA_DEBUG(("before ASIOSetSampleRate(%f)\n",sampleRate));
-    asioError = ASIOSetSampleRate( sampleRate );
-    /* Set sample rate */
+
+    // check that the device supports the requested sample rate 
+
+    ASIOError asioError = ASIOCanSampleRate( sampleRate );
+    PA_DEBUG(("ASIOCanSampleRate(%f):%d\n",sampleRate, asioError ));
+
     if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
-        PA_DEBUG(("ERROR: ASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: ASIOCanSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
-    PA_DEBUG(("after ASIOSetSampleRate(%f)\n",sampleRate));
+
+
+    // retrieve the current sample rate, we only change to the requested
+    // sample rate if the device is not already in that rate.
+
+    ASIOSampleRate oldRate;
+    asioError = ASIOGetSampleRate(&oldRate);
+    if( asioError != ASE_OK )
+    {
+        result = paInvalidSampleRate;
+        PA_DEBUG(("ERROR: ASIOGetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        goto error;
+    }
+    PA_DEBUG(("ASIOGetSampleRate:%f\n",oldRate));
+
+    if (oldRate != sampleRate){
+
+        PA_DEBUG(("before ASIOSetSampleRate(%f)\n",sampleRate));
+        asioError = ASIOSetSampleRate( sampleRate );
+        /* Set sample rate */
+        if( asioError != ASE_OK )
+        {
+            result = paInvalidSampleRate;
+            PA_DEBUG(("ERROR: ASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+            goto error;
+        }
+        PA_DEBUG(("after ASIOSetSampleRate(%f)\n",sampleRate));
+    }
+    else
+    {
+        PA_DEBUG(("No Need to change SR\n"));
+    }
+
+
     /*
         IMPLEMENT ME:
             - if a full duplex stream is requested, check that the combination
@@ -2055,6 +2091,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     return result;
 
 error:
+    PA_DEBUG(("goto errored\n"));
     if( stream )
     {
         if( completedBuffersPlayedEventInited )
