@@ -1756,7 +1756,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     // check that the device supports the requested sample rate 
 
-    ASIOError asioError = ASIOCanSampleRate( sampleRate );
+    asioError = ASIOCanSampleRate( sampleRate );
     PA_DEBUG(("ASIOCanSampleRate(%f):%d\n",sampleRate, asioError ));
 
     if( asioError != ASE_OK )
