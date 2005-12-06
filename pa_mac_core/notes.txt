@@ -8,7 +8,7 @@ The default is in pa_mac_core.c. This is probably going to be superseded
 by pa_mac_core_auhal.c, which is newer and less developed, but uses Mac 
 OS X's AUHAL interface for IO. To compile the AUHAL version, simply replace 
 the pa_mac_core.c file with pa_mac_core_auhal.c ("mv pa_mac_core_auhal.c 
-pa_mac_core.c") and configure and make a usual.
+pa_mac_core.c") and configure and make as usual.
 
 ----------------------------------------
 

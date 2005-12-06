@@ -55,9 +55,14 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
+#include "../pablio/ringbuffer.h"
 
 #ifndef MIN
 #define MIN(a, b)  (((a)<(b))?(a):(b))
+#endif
+
+#ifndef MAX
+#define MAX(a, b)  (((a)<(b))?(b):(a))
 #endif
 
 /* prototypes for functions declared in this file */
@@ -81,7 +86,9 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 #define OUTPUT_ELEMENT (0)
 
 /* Normal level of debugging */
-/*#define MAC_CORE_DEBUG*/
+/*
+ */
+#define MAC_CORE_DEBUG
 #ifdef MAC_CORE_DEBUG
 # define DBUG(MSG) do { printf("||PaMacCore (AUHAL)|| "); printf MSG ; fflush(stdout); } while(0)
 #else
@@ -89,23 +96,20 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 #endif
 
 /* Very verbose debugging */
-/*#define MAC_CORE_VERBOSE_DEBUG*/
+/*
+ */
+#define MAC_CORE_VERBOSE_DEBUG
 #ifdef MAC_CORE_VERBOSE_DEBUG
 # define VDBUG(MSG) do { printf("||PaMacCore (AUHAL)|| "); printf MSG ; fflush(stdout); } while(0)
 #else
 # define VDBUG(MSG)
 #endif
 
-/* FIXME: these are arbitrary and eventualy should be more dynamic/based
-          on latency or something. */
-#define RING_BUFFER_SIZE (20)
-#define RING_BUFFER_LAG  (10)
-
-
 /* Some utilities that sort of belong here, but were getting too unweildy */
 #include "pa_mac_core_utilities.c"
 /* Special purpose ring buffer just for pa_mac_core input processing. */
-#include "pa_mac_core_input_ring_buffer.c"
+/* #include "pa_mac_core_input_ring_buffer.c" */
+#include "../pablio/ringbuffer.c"
 
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
@@ -165,6 +169,7 @@ typedef struct PaMacCoreStream
     PaUtilBufferProcessor bufferProcessor;
 
     /* implementation specific data goes here */
+    bool bufferProcessorIsInitialized;
     AudioUnit inputUnit;
     AudioUnit outputUnit;
     AudioDeviceID inputDevice;
@@ -173,14 +178,23 @@ typedef struct PaMacCoreStream
     size_t userOutChan;
     size_t inputFramesPerBuffer;
     size_t outputFramesPerBuffer;
-    InputRingBuffer inputRingBuffer;
+    /*We use this ring buffer when input and out devs are different.*/
+    RingBuffer inputRingBuffer;
+    /*we need to preallocate an inputBuffer for reading data.*/
+    AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
-    bool isTimeSet;
-    PaStreamCallbackFlags xrunFlags;
-    enum {
-       STOPPED          = 0,
-       ACTIVE           = 1,
-       CALLBACK_STOPPED = 2
+    volatile bool isTimeSet;
+    volatile PaStreamCallbackFlags xrunFlags;
+    volatile enum {
+       STOPPED          = 0, /* playback is completely stopped,
+                                and the user has called StopStream(). */
+       CALLBACK_STOPPED = 1, /* callback has requested stop,
+                                but user has not yet called StopStream(). */
+       STOPPING         = 2, /* The stream is in the process of closing.
+                                This state is just used internally;
+                                externally it is indistinguishable from
+                                ACTIVE.*/
+       ACTIVE           = 3  /* The stream is active and running. */
     } state;
     double sampleRate;
 }
@@ -585,7 +599,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
        PaError err;
        PaStream *s;
        err = OpenStream( hostApi, &s, inputParameters, outputParameters,
-                           sampleRate, 1024, 0, NULL, NULL );
+                           sampleRate, 1024, 0, (PaStreamCallback *)1, NULL );
        if( err != paNoError && err != paInvalidSampleRate )
           DBUG( ( "OpenStream @ %g returned: %d: %s\n",
                   (float) sampleRate, err, Pa_GetErrorText( err ) ) );
@@ -779,20 +793,38 @@ static PaError OpenAndSetupOneAudioUnit(
        (eg. the callback might not be called). The idea of setting both this
        and the frames per buffer on the device is that we'll be most likely
        to actually get the frame size we requested in the callback. */
-    if( outStreamParams )
+    if( outStreamParams ) {
+       UInt32 size = sizeof( *actualOutputFramesPerBuffer );
        ERR_WRAP( AudioUnitSetProperty( *audioUnit,
                             kAudioUnitProperty_MaximumFramesPerSlice,
                             kAudioUnitScope_Input,
                             OUTPUT_ELEMENT,
                             actualOutputFramesPerBuffer,
                             sizeof(unsigned long) ) );
-    if( inStreamParams )
+       ERR_WRAP( AudioUnitGetProperty( *audioUnit,
+                            kAudioUnitProperty_MaximumFramesPerSlice,
+                            kAudioUnitScope_Global,
+                            OUTPUT_ELEMENT,
+                            actualOutputFramesPerBuffer,
+                            &size ) );
+    }
+    if( inStreamParams ) {
+       /*UInt32 size = sizeof( *actualInputFramesPerBuffer );*/
        ERR_WRAP( AudioUnitSetProperty( *audioUnit,
                             kAudioUnitProperty_MaximumFramesPerSlice,
                             kAudioUnitScope_Output,
                             INPUT_ELEMENT,
                             actualInputFramesPerBuffer,
                             sizeof(unsigned long) ) );
+/* Don't know why this causes problems
+       ERR_WRAP( AudioUnitGetProperty( *audioUnit,
+                            kAudioUnitProperty_MaximumFramesPerSlice,
+                            kAudioUnitScope_Global, //Output,
+                            INPUT_ELEMENT,
+                            actualInputFramesPerBuffer,
+                            &size ) );
+*/
+    }
 
     /* -- set IOProc (callback) -- */
     callbackKey = outStreamParams ? kAudioUnitProperty_SetRenderCallback
@@ -817,7 +849,6 @@ static PaError OpenAndSetupOneAudioUnit(
                 However, it is possible to use buffering and an AudioConverter
                 to actually convert the audio, if this is desired. For now,
                 Sample rate conversion happens on the output only. */
-    /* FIXME: there will probably be problems in the callback if the framesPerBuffer is different on input and output, either because the device combos wouldn't allow it or because of S/R conversion. This is an unusual case (since it requires IO from seperate devices), but it should be fixed anyway. The callback should be modified to read off whatever is available from the input stream and let the buffer processor deal with it (if the buffer processsor is equiped for that).*/
 
     /* initialize the audio unit */
     ERR_WRAP( AudioUnitInitialize(*audioUnit) );
@@ -833,6 +864,7 @@ static PaError OpenAndSetupOneAudioUnit(
 
     error:
        CloseComponent( *audioUnit );
+       *audioUnit = NULL;
        if( result )
           return PaMacCore_SetError( result, line, 1 );
        return paResult;
@@ -918,7 +950,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
         return paInvalidFlag; /* unexpected platform specific flag */
 
-
     stream = (PaMacCoreStream*)PaUtil_AllocateMemory( sizeof(PaMacCoreStream) );
     if( !stream )
     {
@@ -926,6 +957,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
     }
 
+    /* If we fail after this point, we my be left in a bad state, with
+       some data structures setup and others not. So, first thing we
+       do is initialize everything so that if we fail, we know what hasn't
+       been touched.
+     */
+
+    stream->inputAudioBufferList.mBuffers[0].mData = NULL;
+    stream->inputRingBuffer.buffer = NULL;
+    stream->inputUnit = NULL;
+    stream->outputUnit = NULL;
+    stream->inputFramesPerBuffer = 0;
+    stream->outputFramesPerBuffer = 0;
+    stream->bufferProcessorIsInitialized = FALSE;
+
+    assert( streamCallback ) ; /*we only do callback right now */
     if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
@@ -936,15 +982,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &auhalHostApi->blockingStreamInterface, streamCallback, userData );
     }
-
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
     /* -- Now we actually open and setup streams. -- */
-    stream->inputUnit = NULL;
-    stream->outputUnit = NULL;
-    stream->inputFramesPerBuffer = 0;
-    stream->outputFramesPerBuffer = 0;
     if( inputParameters && outputParameters && outputParameters->device == inputParameters->device )
     { /* full duplex. One device. */
        result = OpenAndSetupOneAudioUnit( inputParameters,
@@ -990,23 +1031,80 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
            goto error;
     }
 
-    /* FIXME: size/lag are arbitrary. use some latency values or something.
-              (size/lag only affects latency in full duplex/seperate devices)*/
     if( stream->inputUnit ) {
-       result = InitializeRingBuffer( &stream->inputRingBuffer,
-                                      RING_BUFFER_SIZE,
-                                      RING_BUFFER_LAG,
-                                      inputChannelCount,
-                                      stream->inputFramesPerBuffer );
-       if( result )
+       const size_t szfl = sizeof(float);
+       /* setup the AudioBufferList used for input */
+       bzero( &stream->inputAudioBufferList, sizeof( AudioBufferList ) );
+       stream->inputAudioBufferList.mNumberBuffers = 1;
+       stream->inputAudioBufferList.mBuffers[0].mNumberChannels
+                 = inputChannelCount;
+       stream->inputAudioBufferList.mBuffers[0].mDataByteSize
+                 = stream->inputFramesPerBuffer*inputChannelCount*szfl;
+       stream->inputAudioBufferList.mBuffers[0].mData
+                 = (float *) calloc(
+                               stream->inputFramesPerBuffer*inputChannelCount,
+                               szfl );
+       if( !stream->inputAudioBufferList.mBuffers[0].mData )
+       {
+          result = paInsufficientMemory;
           goto error;
+       }
+        
+       /*
+        * If input and output devs are different, we also need a
+        * ring buffer to store inpt data while waiting for output
+        * data.
+        */
+       if( stream->outputUnit && stream->inputUnit != stream->outputUnit )
+       {
+          /* Calculate an appropriate ring buffer size. It must be at least
+             3x framesPerBuffer and 2x suggested latency and it must be a
+             power of 2. FEEDBACK: too liberal/conservative/another way?*/
+          double latency;
+          int index, i;
+          void *data;
+          long ringSize;
+          latency = MAX( inputParameters->suggestedLatency,
+                         outputParameters->suggestedLatency );
+          ringSize = latency * sampleRate * 2 * inputChannelCount;
+          VDBUG( ( "suggested latency: %d\n", (int) (latency*sampleRate) ) );
+          if( ringSize < stream->inputFramesPerBuffer * 3 )
+             ringSize = stream->inputFramesPerBuffer * 3 * inputChannelCount;
+          if( ringSize < stream->outputFramesPerBuffer * 3 )
+             ringSize = stream->outputFramesPerBuffer * 3 * inputChannelCount;
+          VDBUG(("inFramesPerBuffer:%d\n",(int)stream->inputFramesPerBuffer));
+          VDBUG(("outFramesPerBuffer:%d\n",(int)stream->outputFramesPerBuffer));
+          VDBUG(("Ringbuffer size (1): %d\n", (int)ringSize ));
+
+          /* round up to the next power of 2 */
+          index = -1;
+          for( i=0; i<sizeof(long)*8; ++i )
+             if( ringSize >> i & 0x01 )
+                index = i;
+          assert( index > 0 );
+          if( ringSize <= ( 0x01 << index ) )
+             ringSize = 0x01 << index ;
+          else
+             ringSize = 0x01 << ( index + 1 );
+          VDBUG(( "Final Ringbuffer size (2): %d\n", (int)ringSize ));
+
+          /*now, we need to allocate memory for the ring buffer*/
+          data = calloc( ringSize, szfl );
+          if( !data )
+          {
+             result = paInsufficientMemory;
+             goto error;
+          }
+
+          /* now we can initialize the ring buffer */
+          assert( 0 ==
+            RingBuffer_Init( &stream->inputRingBuffer,
+                             ringSize*szfl, data ) );
+          /* advance the read point a little, so we are reading from the
+             middle of the buffer */
+          RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer, ringSize*szfl / 4 );
+       }
     }
-    /*FIXME: if input and output buffersize differ we will need to do things
-     *       a little differently in the callback. for now, force them to
-     *       the same size so the callback doesn't freak out (I think there is
-     *       another fixme that explains this better). */
-    if( inputParameters && outputParameters )
-       assert( stream->inputFramesPerBuffer == stream->outputFramesPerBuffer );
 
     /* -- initialize Buffer Processor -- */
     {
@@ -1030,11 +1128,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result != paNoError )
         goto error;
     }
+    stream->bufferProcessorIsInitialized = TRUE;
 
     /*
         IMPLEMENT ME: initialise the following fields with estimated or actual
         values.
         I think this is okay the way it is br 12/1/05
+        maybe need to change input latency estimate if IO devs differ
     */
     stream->streamRepresentation.streamInfo.inputLatency =
             PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor);
@@ -1055,10 +1155,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     return result;
 
 error:
-    /* FIXME: there is more to clean up here. ring buffers, units, etc.*/
-    if( stream )
-        PaUtil_FreeMemory( stream );
-
+    CloseStream( stream );
     return result;
 }
 
@@ -1173,18 +1270,13 @@ static OSStatus AudioIOProc( void *inRefCon,
       OSErr err = 0;
       unsigned long frames;
       int callbackResult;
-      /* Using the Ring buffer here just because it's there and it means
-         not having to allocate an additional AudioBufferList and keep
-         track of more variables. The cost of getting buffers is negligable.*/
       /* -- read input -- */
-      AudioBufferList *abl = GetBufferForWrite( &stream->inputRingBuffer );
-      assert( abl );
       err= AudioUnitRender(stream->inputUnit,
                        ioActionFlags,
                        inTimeStamp,
                        INPUT_ELEMENT,
                        inNumberFrames,
-                       abl );
+                       &stream->inputAudioBufferList );
       /* FEEDBACK: I'm not sure what to do when this call fails */
       assert( !err );
       /* -- start processing -- */
@@ -1208,10 +1300,10 @@ static OSStatus AudioIOProc( void *inRefCon,
       PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
       PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
                              0,
-                             abl->mBuffers[0].mData,
-                             abl->mBuffers[0].mNumberChannels);
+                             stream->inputAudioBufferList.mBuffers[0].mData,
+                             stream->inputAudioBufferList.mBuffers[0].mNumberChannels);
       /* -- complete processing -- */
-      callbackResult= stream->state == ACTIVE ? paContinue : paComplete ;
+      callbackResult = paContinue;
       framesProcessed =
                  PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                              &callbackResult );
@@ -1219,39 +1311,29 @@ static OSStatus AudioIOProc( void *inRefCon,
       {
       case paContinue: break;
       case paComplete:
+         stream->state = CALLBACK_STOPPED ;
          AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
          break;
       case paAbort:
+         stream->state = CALLBACK_STOPPED ;
          AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
          break;
       }
-
-      /* Because we used the ring buffer, we need to do a bit more work
-         to keep it straight. */
-      DoneWithWrite( &stream->inputRingBuffer );
-      assert( GetBufferForRead( &stream->inputRingBuffer ) );
-      DoneWithRead( &stream->inputRingBuffer );
    }
    else if( isRender )
    { /* -- handles duplex (seperate devices) and simplex output only -- */
-      AudioBufferList *abl = NULL;
       unsigned long frames;
       int callbackResult;
-      /* -- get previously stored input buffers (for duplex)-- */
-      if( stream->inputUnit ) {
-         abl = GetBufferForRead( &stream->inputRingBuffer );
-         if( !abl )
-            stream->xrunFlags |= paInputUnderflow;
-         if( !abl )
-            DBUG( ("Input underrun") );
-      }
 
+      /* Sometimes, when stopping a duplex stream we get erroneous
+         xrun flags, so if this is our last run, clear the flags. */
+      int xrunFlags = stream->xrunFlags;
+      if( stream->state == STOPPING || stream->state == CALLBACK_STOPPED )
+         xrunFlags = 0;
       /* -- start processing -- */
       PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
                                     &timeInfo,
-                                    stream->xrunFlags );
+                                    xrunFlags );
       stream->xrunFlags = 0; /* FIXME: we only send flags to Buf Proc once. Is that OKAY? */
 
       /* -- Copy and process output data -- */
@@ -1264,90 +1346,129 @@ static OSStatus AudioIOProc( void *inRefCon,
                                         0,
                                         ioData->mBuffers[0].mData,
                                         ioData->mBuffers[0].mNumberChannels);
-      /* -- copy and process input data -- */
+      callbackResult= paContinue ;
+      /* -- copy and process input data, and complete processing -- */
       if( stream->inputUnit ) {
-         if( abl ) {
-            /* FIXME: if input/out SR differ (eg. due to sr conversion, or buffer size issues)
-                      we may get ahead or behind here. */
-            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), stream->inputFramesPerBuffer );
+         const int flsz = sizeof( float );
+         /* we need to read data out of the ring buffer and into the
+            buffer processor */
+         void *data1, *data2;
+         long size1, size2;
+         int inChan = stream->inputAudioBufferList.mBuffers[0].mNumberChannels;
+         RingBuffer_GetReadRegions( &stream->inputRingBuffer,
+                                    inChan*frames*flsz,
+                                    &data1, &size1,
+                                    &data2, &size2 );
+         if( size1 / ( flsz * inChan ) == frames ) {
+            /* simplest case: all in first buffer */
+            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
             PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                                   0,
-                                   abl->mBuffers[0].mData,
-                                   abl->mBuffers[0].mNumberChannels);
-         } else {
-            /* FIXME: will this do the trick for an underrun? */
-            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), 0 );
-         }
-      }
-      /* -- complete processing -- */
-      callbackResult= stream->state == ACTIVE ? paContinue : paComplete ;
-      framesProcessed =
+                                0,
+                                data1,
+                                inChan );
+            framesProcessed =
                  PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                              &callbackResult );
+            RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1 );
+         } else if( ( size1 + size2 ) / ( flsz * inChan ) < frames ) {
+            /*we underflowed. take what data we can, zero the rest.*/
+            float data[frames*inChan];
+            if( size1 )
+               memcpy( data, data1, size1 );
+            if( size2 )
+               memcpy( data+size1, data2, size2 );
+            bzero( data+size1+size2, frames*flsz*inChan - size1 - size2 );
+
+            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
+            PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                0,
+                                data,
+                                inChan );
+            framesProcessed =
+                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                             &callbackResult );
+            RingBuffer_AdvanceReadIndex( &stream->inputRingBuffer,
+                                         size1+size2 );
+            /* flag underflow */
+            stream->xrunFlags |= paInputUnderflow;
+         } else {
+            /*we got all the data, but split between buffers*/
+            PaUtil_SetInputFrameCount( &(stream->bufferProcessor),
+                                       size1 / ( flsz * inChan ) );
+            PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                0,
+                                data1,
+                                inChan );
+            PaUtil_Set2ndInputFrameCount( &(stream->bufferProcessor),
+                                          size2 / ( flsz * inChan ) );
+            PaUtil_Set2ndInterleavedInputChannels( &(stream->bufferProcessor),
+                                0,
+                                data2,
+                                inChan );
+            framesProcessed =
+                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                             &callbackResult );
+            RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1+size2 );
+         }
+      } else {
+         framesProcessed =
+                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                             &callbackResult );
+      }
 
       switch( callbackResult )
       {
       case paContinue: break;
       case paComplete:
+         stream->state = CALLBACK_STOPPED ;
          if( stream->inputUnit )
             AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
          AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
          break;
       case paAbort:
+         stream->state = CALLBACK_STOPPED ;
          if( stream->inputUnit )
             AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
          AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
          break;
       }
-
-      /* complete the input read */
-      if( stream->inputUnit && abl )
-         DoneWithRead( &stream->inputRingBuffer );
    }
    else
    {
-      AudioBufferList *abl = GetBufferForWrite( &stream->inputRingBuffer );
-      assert( inNumberFrames == stream->inputFramesPerBuffer );
-      if( !abl )
-         DBUG( ("Input overrun") );
       if( stream->outputUnit )
       { /* -- handles input for seperate device, full duplex case -- */
          /*br 11/28/05: my understanding is that when the AudioIOProc is called
           *             it's just a signal that data is available. we need to
           *             call AudioUnitRender with our own buffer in order to
           *             get the input data. */
-         if( abl )
-         {
-            OSErr err = 0;
-            err= AudioUnitRender(stream->inputUnit,
-                       ioActionFlags,
-                       inTimeStamp,
-                       INPUT_ELEMENT,
-                       inNumberFrames,
-                       abl );
-            DoneWithWrite( &stream->inputRingBuffer );
-            /* FEEDBACK: I'm not sure what to do when this call fails */
-            assert( !err );
-         }
-         else 
-         {
-            stream->xrunFlags = paInputOverflow ;
+         OSErr err = 0;
+         long bytesIn, bytesOut;
+         err= AudioUnitRender(stream->inputUnit,
+                    ioActionFlags,
+                    inTimeStamp,
+                    INPUT_ELEMENT,
+                    inNumberFrames,
+                    &stream->inputAudioBufferList );
+         /* FEEDBACK: I'm not sure what to do when this call fails */
+         assert( !err );
+         bytesIn = sizeof( float ) * inNumberFrames * stream->inputAudioBufferList.mBuffers[0].mNumberChannels ;
+         bytesOut = RingBuffer_Write( &stream->inputRingBuffer,
+                                stream->inputAudioBufferList.mBuffers[0].mData,
+                                bytesIn );
+         if( bytesIn != bytesOut ) {
+            stream->xrunFlags |= paInputOverflow ;
          }
       }
       else
       { /* -- handles simplex input only case -- */
          OSErr err = 0;
          int callbackResult;
-         assert( abl );
          err= AudioUnitRender(stream->inputUnit,
                     ioActionFlags,
                     inTimeStamp,
                     INPUT_ELEMENT,
                     inNumberFrames,
-                    abl );
-         DoneWithWrite( &stream->inputRingBuffer );
+                    &stream->inputAudioBufferList );
          /* FEEDBACK: I'm not sure what to do when this call fails */
          assert( !err );
          /* -- start processing -- */
@@ -1359,33 +1480,29 @@ static OSStatus AudioIOProc( void *inRefCon,
          PaUtil_SetInputFrameCount( &(stream->bufferProcessor), inNumberFrames );
          PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
                                    0,
-                                   abl->mBuffers[0].mData,
-                                   abl->mBuffers[0].mNumberChannels);
+                                   stream->inputAudioBufferList.mBuffers[0].mData,
+                                   stream->inputAudioBufferList.mBuffers[0].mNumberChannels);
          
          /* -- complete processing -- */
-         callbackResult= stream->state == ACTIVE ? paContinue : paComplete ;
+         callbackResult= paContinue ;
          framesProcessed =
                  PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                              &callbackResult );
-         abl = GetBufferForRead( &stream->inputRingBuffer );
-         assert( abl );
-         DoneWithRead( &stream->inputRingBuffer );
-
          switch( callbackResult )
          {
          case paContinue: break;
          case paComplete:
+            stream->state = CALLBACK_STOPPED ;
             if( stream->outputUnit )
                AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
             AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
             stream->state = CALLBACK_STOPPED ;
             break;
          case paAbort:
-            if( stream->inputUnit )
+            stream->state = CALLBACK_STOPPED ;
             if( stream->outputUnit )
                AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
             AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
             break;
          }
       }
@@ -1402,31 +1519,36 @@ static OSStatus AudioIOProc( void *inRefCon,
 */
 static PaError CloseStream( PaStream* s )
 {
+    /* This may be called from a failed OpenStream.
+       Therefore, each piece of info is treated seperately. */
     PaError result = paNoError;
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     VDBUG( ( "Closing stream.\n" ) );
 
-    /*
-        IMPLEMENT ME:
-            - additional stream closing + cleanup
-        NOTE: this should be it!
-    */
-    if( stream->outputUnit && stream->outputUnit != stream->inputUnit ) {
-       AudioUnitUninitialize( stream->outputUnit );
-       CloseComponent( stream->outputUnit );
-    }
-    stream->outputUnit = NULL;
-    if( stream->inputUnit )
-    {
-       AudioUnitUninitialize( stream->inputUnit );
-       CloseComponent( stream->inputUnit );
-       DisposeRingBuffer( &stream->inputRingBuffer );
-       stream->inputUnit = NULL;
-    }
+    if( stream ) {
+       if( stream->outputUnit && stream->outputUnit != stream->inputUnit ) {
+          AudioUnitUninitialize( stream->outputUnit );
+          CloseComponent( stream->outputUnit );
+       }
+       stream->outputUnit = NULL;
+       if( stream->inputUnit )
+       {
+          AudioUnitUninitialize( stream->inputUnit );
+          CloseComponent( stream->inputUnit );
+          stream->inputUnit = NULL;
+       }
+       if( stream->inputRingBuffer.buffer )
+          free( stream->inputRingBuffer.buffer );
+       stream->inputRingBuffer.buffer = NULL;
+       if( stream->inputAudioBufferList.mBuffers[0].mData )
+          free( stream->inputAudioBufferList.mBuffers[0].mData );
+       stream->inputAudioBufferList.mBuffers[0].mData = NULL;
 
-    PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
-    PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
-    PaUtil_FreeMemory( stream );
+       if( stream->bufferProcessorIsInitialized )
+          PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
+       PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
+       PaUtil_FreeMemory( stream );
+    }
 
     return result;
 }
@@ -1442,15 +1564,13 @@ static PaError StartStream( PaStream *s )
 
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
     /* -- start -- */
+    stream->state = ACTIVE;
     if( stream->inputUnit ) {
        ERR_WRAP( AudioOutputUnitStart(stream->inputUnit) );
     }
     if( stream->outputUnit && stream->outputUnit != stream->inputUnit ) {
        ERR_WRAP( AudioOutputUnitStart(stream->outputUnit) );
     }
-    /*setStreamStartTime( stream );*/
-
-    stream->state = ACTIVE;
 
     return paNoError;
 #undef ERR_WRAP
@@ -1462,10 +1582,13 @@ static PaError StopStream( PaStream *s )
     /* FIXME */
     /* I found no docs for AudioOutputUnitStop that explain its
        exact behaviour, however, it tests it seems to abort the stream
-       immediatelyi, which is NOT what we want. */
+       immediately, which is NOT what we want. */
+    /*FIXME: sometimes buffer over/underruns are reported as the stream is stopping. See if this can be avoided. */
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
     VDBUG( ( "Stopping stream.\n" ) );
+
+    stream->state = STOPPING;
 
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
     /* -- stop and reset -- */
@@ -1488,53 +1611,29 @@ static PaError StopStream( PaStream *s )
           ERR_WRAP(AudioUnitReset(stream->outputUnit,kAudioUnitScope_Global,0));
        }
     }
-    if( stream->inputUnit )
-       ResetRingBuffer( &stream->inputRingBuffer, RING_BUFFER_LAG, TRUE );
+    if( stream->inputRingBuffer.buffer ) {
+       RingBuffer_Flush( &stream->inputRingBuffer );
+       /* advance the write point a little, so we are reading from the
+          middle of the buffer. We'll need extra at the end because
+          testing has shown that this helps. */
+       bzero(stream->inputRingBuffer.buffer,stream->inputRingBuffer.bufferSize);
+       RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer,
+                                    stream->inputRingBuffer.bufferSize / 4 );
+    }
 
     stream->isTimeSet = FALSE;
     stream->xrunFlags = 0;
     stream->state = STOPPED;
 
+    VDBUG( ( "Stream Stopped.\n" ) );
     return paNoError;
 #undef ERR_WRAP
 }
 
 static PaError AbortStream( PaStream *s )
 {
-    OSErr result = noErr;
-    PaMacCoreStream *stream = (PaMacCoreStream*)s;
     VDBUG( ( "Aborting stream.\n" ) );
-
-#define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
-    /* -- stop and reset: */
-    if( stream->inputUnit == stream->outputUnit && stream->inputUnit )
-    {
-       ERR_WRAP( AudioOutputUnitStop(stream->inputUnit) );
-       ERR_WRAP( AudioUnitReset(stream->inputUnit, kAudioUnitScope_Global, 1) );
-       ERR_WRAP( AudioUnitReset(stream->inputUnit, kAudioUnitScope_Global, 0) );
-    }
-    else
-    {
-       if( stream->inputUnit )
-       {
-          ERR_WRAP(AudioOutputUnitStop(stream->inputUnit) );
-          ERR_WRAP(AudioUnitReset(stream->inputUnit,kAudioUnitScope_Global,1));
-       }
-       if( stream->outputUnit )
-       {
-          ERR_WRAP(AudioOutputUnitStop(stream->outputUnit));
-          ERR_WRAP(AudioUnitReset(stream->outputUnit,kAudioUnitScope_Global,0));
-       }
-    }
-    if( stream->inputUnit )
-       ResetRingBuffer( &stream->inputRingBuffer, RING_BUFFER_LAG, TRUE );
-
-    stream->isTimeSet = FALSE;
-    stream->xrunFlags = 0;
-    stream->state = STOPPED;
-
-    return paNoError;
-#undef ERR_WRAP
+    return StopStream(s);
 }
 
 
@@ -1549,8 +1648,7 @@ static PaError IsStreamStopped( PaStream *s )
 static PaError IsStreamActive( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
-
-    return stream->state == ACTIVE ? 1 : 0;
+    return ( stream->state == ACTIVE || stream->state == STOPPING );
 }
 
 
