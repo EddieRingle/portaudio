@@ -905,8 +905,8 @@ static int SampleFormatIsValid( PaSampleFormat format )
  
     - at least one of inputParameters & outputParmeters is valid (not NULL)
 
-    - if inputParameters & outputParmeters are both valid, that
-        inputParameters->device & outputParmeters->device  both use the same host api
+    - if inputParameters & outputParameters are both valid, that
+        inputParameters->device & outputParameters->device  both use the same host api
  
     PaDeviceIndex inputParameters->device
         - is within range (0 to Pa_GetDeviceCount-1) Or:
@@ -1786,11 +1786,12 @@ PaError Pa_ReadStream( PaStream* stream,
     {
         if( frames == 0 )
         {
-            result = paInternalError; /** @todo should return a different error code */
+            /* XXX: Should we not allow the implementation to signal any overflow condition? */
+            result = paNoError;
         }
         else if( buffer == 0 )
         {
-            result = paInternalError; /** @todo should return a different error code */
+            result = paBadBufferPtr;
         }
         else
         {
@@ -1830,11 +1831,12 @@ PaError Pa_WriteStream( PaStream* stream,
     {
         if( frames == 0 )
         {
-            result = paInternalError; /** @todo should return a different error code */
+            /* XXX: Should we not allow the implementation to signal any underflow condition? */
+            result = paNoError;
         }
         else if( buffer == 0 )
         {
-            result = paInternalError; /** @todo should return a different error code */
+            result = paBadBufferPtr;
         }
         else
         {

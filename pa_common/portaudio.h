@@ -92,7 +92,8 @@ typedef enum PaErrorCode
     paCanNotWriteToACallbackStream,       /**< @todo review error code name */
     paCanNotReadFromAnOutputOnlyStream,   /**< @todo review error code name */
     paCanNotWriteToAnInputOnlyStream,     /**< @todo review error code name */
-    paIncompatibleStreamHostApi
+    paIncompatibleStreamHostApi,
+    paBadBufferPtr
 } PaErrorCode;
 
 
