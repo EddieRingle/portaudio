@@ -14,7 +14,9 @@
  * Translates MacOS generated errors into PaErrors
  */
 static PaError PaMacCore_SetError(OSStatus error, int line, int isError)
-{ /*FIXME: need to handle ComponentResult*/
+{
+    /*FIXME: still need to handle possible ComponentResult values.*/
+    /*       unfortunately, they don't seem to be documented anywhere.*/
     PaError result;
     const char *errorType; 
     const char *errorText;
@@ -139,7 +141,8 @@ static PaError PaMacCore_SetError(OSStatus error, int line, int isError)
 /*
  * Durring testing of core audio, I found that serious crashes could occur
  * if properties such as sample rate were changed multiple times in rapid
- * succession. This function will help prevent that from hapening.
+ * succession. The function below has some fancy logic to make sure that changes
+ * are acknowledged before another is requested. That seems to help a lot.
  */
 
 #include <pthread.h>
@@ -258,14 +261,16 @@ PaError AudioDeviceSetPropertyNowAndWaitForChange(
 
 /*
  * Sets the sample rate the HAL device.
- * for input: set the sample rate or fail.
- * for output: set the exact sample rate.
+ * if requireExact: set the sample rate or fail.
+ *
+ * otherwise      : set the exact sample rate.
  *             If that fails, check for available sample rates, and choose one
  *             higher than the requested rate. If there isn't a higher one,
  *             just use the highest available.
  */
 static PaError setBestSampleRateForDevice( const AudioDeviceID device,
                                     const bool isOutput,
+                                    const bool requireExact,
                                     const Float64 desiredSrate )
 {
    /*FIXME: changing the sample rate is disruptive to other programs using the
@@ -294,7 +299,7 @@ static PaError setBestSampleRateForDevice( const AudioDeviceID device,
    if( !err && srate == desiredSrate )
       return paNoError;
    /* -- we've failed if the rates disagree and we are setting input -- */
-   if( isInput )
+   if( requireExact )
       return paInvalidSampleRate;
 
    /* -- generate a list of available sample rates -- */
@@ -340,7 +345,7 @@ static PaError setBestSampleRateForDevice( const AudioDeviceID device,
    VDBUG( ("Maximum Rate %g. best is %g.\n", max, best ) );
    free( ranges );
 
-   /* -- set the sample rate (ignore errors) -- */
+   /* -- set the sample rate -- */
    propsize = sizeof( best );
    err = AudioDeviceSetPropertyNowAndWaitForChange(
                                  device, 0, isInput,

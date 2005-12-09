@@ -1,6 +1,6 @@
 Notes on status of CoreAudio Implementation of PortAudio
 
-Document Last Updated December 4, 2005
+Document Last Updated December 9, 2005
 
 There are currently two implementations of PortAudio for Mac Core Audio.
 
@@ -32,7 +32,7 @@ KNOWN BUGS OR LIMITATIONS
 We do not yet support simultaneous input and output on different 
 devices. Note that some CoreAudio devices like the Roland UH30 look 
 like one device but are actually two different CoreAudio devices. The 
-BuiltIn audio is typically one CoreAudio device.
+Built-In audio is typically one CoreAudio device.
 
 Mono doesn't work.
 
@@ -53,35 +53,72 @@ Notes on Newer AUHAL implementation:
 
 by Bjorn Roche
 
-Last Updated December 4, 2005
+Last Updated December 9, 2005
+
+Principle of Operation:
+
+This implementation uses AUHAL for audio I/O. To some extent, it also
+operates at the "HAL" Layer, though this behavior can be limited by
+platform specific flags (see pa_mac_core.h for details). The default
+settings should be reasonable: they don't change the SR of the device and
+don't cause interruptions if other devices are using the device.
+
+Major Software Elements Used: Apple's HAL AUs provide output SR
+conversion transparently, however, only on output, so this
+implementation uses AudioConverters to convert the sample rate on input.
+A PortAudio ring buffer is used to buffer input when sample rate
+conversion is required or when separate audio units are used for duplex
+IO. Finally, a PortAudio buffer processor is used to convert formats and
+provide additional buffers if needed. Internally, interleaved floating
+point data streams are used exclusively - the audio unit converts from
+the audio hardware's native format to interleaved float PCM and
+PortAudio's Buffer processor is used for conversion to user formats.
+
+Simplex Input: Simplex input uses a single callback. If sample rate
+conversion is required, a ring buffer and AudioConverter are used as
+well.
+
+Simplex output: Simplex output uses a single callback. No ring buffer or
+audio converter is used because AUHAL does its own output SR conversion.
+
+Duplex, one device (no SR conversion): When one device is used, a single
+callback is used. This achieves very low latency.
+
+Duplex, separate devices or SR conversion: When SR conversion is
+required, data must be buffered before it is converted and data is not
+always available at the same times on input and output, so SR conversion
+requires the same treatment as separate devices. The input callback
+reads data and puts it in the ring buffer. The output callback reads the
+data off the ring buffer, into an audio converter and finally to the
+buffer processor.
+
+
 
 Known issues:
 
-- Latency: I've pretty much done nothing about latency. It seems to be very
-low latency and maybe the buffer processor handles it all for me, but aside
-from making a best effort to use the user's requested framesPerBuffer, I
-have done nothing. Latency when using separate devices for input and output
-is very bad (~(10*frames per buffer)), but I think this can be improved. One 
-HAL AU is used when the input and output devices match, so very low latency 
-should be achieved in that case.
+- Latency: Latency settings are ignored except when doing I/O between different
+devices. Still, latency should be very low.
 
-- Timing info. it reports on stream time, but I'm probably doing something
+- Timing info. It reports on stream time, but I'm probably doing something
 wrong since patest_sine_time often reports negative latency numbers.
 
-- xrun detection: I do a little on input, that's about all.
+- xrun detection: The only xrun detection performed is when reading
+and writing the ring buffer. There is probably more that can be done.
 
-- Memory Leak: there's a memory leak I still need to fix.
+- abort/stop issues: stopping a stream is always a complete operation,
+but latency should be low enough to make the lack of a separate abort
+unnecessary. Apple clarifies its AudioOutputUnitStop() call here:
+http://lists.apple.com/archives/coreaudio-api/2005/Dec/msg00055.html
 
-- abort/stop/drain issues: I haven't solved the problem of draining all the
-user data before stopping as opposed to aborting the stream immediately.
-This will probably cause some problems for some people (including me), so
-I'd like to fix it soon. Obviously this causes problems with a number of the
-tests, as well.
+- blocking interface: Not implemented.
 
-- blocking interface: Nothin' done.
+- multichannel: I don't have a multichannel IO box, so I didn't test it.
+It should work though ;) I haven't done anything with "channel maps"
+yet, so it's possible that more needs to be done.
 
-- multichannel: I don't have a multichannel IO box, so I didn't test it. It
-should work though ;)
+- sample rate conversion quality: the input audio converter is set to
+the highest quality. I don't do anything about the output converter, and
+I am not sure how AUHAL manages quality.
 
 - x86: I haven't tested it on an x86 Mac, but I tried to be aware of it, so
 it should work without too much trouble.

@@ -2,15 +2,15 @@
  * This is the AUHAL implementation of portaudio. Hopefully this will
  * one day replace pa_mac_core.
  *
- * Written by Bjorn Roche, from PA skeleton code, with lots of big chunks
- *  copied straight from code by Dominic Mazzoni (who wrote a HAL implementation).
+ * Written by Bjorn Roche of XO Audio LLC, from PA skeleton code.
+ * Portions copied from code by Dominic Mazzoni (who wrote a HAL implementation)
  *
  * Dominic's code was based on code by Phil Burk, Darren Gibbs,
  * Gord Peters, Stephane Letz, and Greg Pfiel.
  *
- * Bjorn Roche grants all rights to this code to the maintainers of
- * PortAudio, so that they may redistribute and modify the code and
- * licenses as appropriate without asking him.
+ * Bjorn Roche and XO Audio LLC reserve no rights to this code.
+ * The maintainers of PortAudio may redistribute and modify the code and
+ * licenses as they deam appropriate.
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
@@ -39,14 +39,16 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-/*FIXME: Are these doxygen tags? Maybe they need some work*/
-/** @file pa_mac_core
+/**
+ @file pa_mac_core
+ @author Bjorn Roche
  @brief AUHAL implementation of PortAudio
 */
 
-#include <string.h> /* strlen(), memcmc() etc. */
+#include <string.h> /* strlen(), memcmp() etc. */
 
 #include <AudioUnit/AudioUnit.h>
+#include <AudioToolbox/AudioToolbox.h>
 
 
 #include "pa_util.h"
@@ -56,6 +58,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 #include "../pablio/ringbuffer.h"
+#include "pa_mac_core.h"
 
 #ifndef MIN
 #define MIN(a, b)  (((a)<(b))?(a):(b))
@@ -97,13 +100,15 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 
 /* Very verbose debugging */
 /*
- */
 #define MAC_CORE_VERBOSE_DEBUG
+ */
 #ifdef MAC_CORE_VERBOSE_DEBUG
 # define VDBUG(MSG) do { printf("||PaMacCore (AUHAL)|| "); printf MSG ; fflush(stdout); } while(0)
 #else
 # define VDBUG(MSG)
 #endif
+
+#define RING_BUFFER_ADVANCE_DENOMINATOR (4)
 
 /* Some utilities that sort of belong here, but were getting too unweildy */
 #include "pa_mac_core_utilities.c"
@@ -178,9 +183,11 @@ typedef struct PaMacCoreStream
     size_t userOutChan;
     size_t inputFramesPerBuffer;
     size_t outputFramesPerBuffer;
-    /*We use this ring buffer when input and out devs are different.*/
+    /* We use this ring buffer when input and out devs are different. */
     RingBuffer inputRingBuffer;
-    /*we need to preallocate an inputBuffer for reading data.*/
+    /* We may need to do SR conversion on input. */
+    AudioConverterRef inputSRConverter;
+    /* We need to preallocate an inputBuffer for reading data. */
     AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
     volatile bool isTimeSet;
@@ -208,6 +215,7 @@ static PaError OpenAndSetupOneAudioUnit(
                                    unsigned long *actualOutputFramesPerBuffer,
                                    const PaMacAUHAL *auhalHostApi,
                                    AudioUnit *audioUnit,
+                                   AudioConverterRef *srConverter,
                                    AudioDeviceID *audioDevice,
                                    const double sampleRate,
                                    void *refCon );
@@ -236,7 +244,7 @@ static PaError gatherDeviceInfo(PaMacAUHAL *auhalHostApi)
                                   NULL );
     auhalHostApi->devCount = propsize / sizeof( AudioDeviceID );
 
-    DBUG( ( "Found %ld device(s).\n", auhalHostApi->devCount ) );
+    VDBUG( ( "Found %ld device(s).\n", auhalHostApi->devCount ) );
 
     /* -- copy the device IDs -- */
     auhalHostApi->devIds = (AudioDeviceID *)PaUtil_GroupAllocateMemory(
@@ -624,6 +632,7 @@ static PaError OpenAndSetupOneAudioUnit(
                                    unsigned long *actualOutputFramesPerBuffer,
                                    const PaMacAUHAL *auhalHostApi,
                                    AudioUnit *audioUnit,
+                                   AudioConverterRef *srConverter,
                                    AudioDeviceID *audioDevice,
                                    const double sampleRate,
                                    void *refCon )
@@ -637,6 +646,11 @@ static PaError OpenAndSetupOneAudioUnit(
     int line;
     UInt32 callbackKey;
     AURenderCallbackStruct rcbs;
+    paMacCoreStreamInfo macInputStreamInfo  = paMacCorePlayNice;
+    paMacCoreStreamInfo macOutputStreamInfo = paMacCorePlayNice;
+
+    /*change the flags here, if desired, for testing.*/
+    /*macInputStreamInfo  = macOutputStreamInfo = paMacCore_ChangeDeviceParameters ;
 
     /* -- handle the degenerate case  -- */
     if( !inStreamParams && !outStreamParams ) {
@@ -644,6 +658,12 @@ static PaError OpenAndSetupOneAudioUnit(
        *audioDevice = kAudioDeviceUnknown;
        return paNoError;
     }
+
+    /* -- get the user's api specific info, if they set any -- */
+    if( inStreamParams && inStreamParams->hostApiSpecificStreamInfo )
+       macInputStreamInfo=*(UInt32*)inStreamParams->hostApiSpecificStreamInfo;
+    if( outStreamParams && outStreamParams->hostApiSpecificStreamInfo )
+       macOutputStreamInfo=*(UInt32*)outStreamParams->hostApiSpecificStreamInfo;
 
     /*
      * The HAL AU is a Mac OS style "component".
@@ -683,6 +703,7 @@ static PaError OpenAndSetupOneAudioUnit(
     }
     /* -- prepare a little error handling logic / hackery -- */
 #define ERR_WRAP(mac_err) do { result = mac_err ; line = __LINE__ ; if ( result != noErr ) goto error ; } while(0)
+
     /* -- if there is input, we have to explicitly enable input -- */
     if( inStreamParams )
     {
@@ -735,49 +756,51 @@ static PaError OpenAndSetupOneAudioUnit(
 
     /* -- set format -- */
     bzero( &desiredFormat, sizeof(desiredFormat) );
-    desiredFormat.mSampleRate       = sampleRate;
     desiredFormat.mFormatID         = kAudioFormatLinearPCM ;
     desiredFormat.mFormatFlags      = kAudioFormatFlagsNativeFloatPacked;
     desiredFormat.mFramesPerPacket  = 1;
     desiredFormat.mBitsPerChannel   = sizeof( float ) * 8;
 
     result = 0;
-    /*  set device format first */
+    /*  set device format first, but only touch the device if the user asked */
     if( inStreamParams ) {
-       paResult = setBestSampleRateForDevice(*audioDevice,FALSE,sampleRate);
-       if( paResult ) goto error;
+       /*The callback never calls back if we don't set the FPB */
+       /*This seems wierd, because I would think setting anything on the device
+         would be disruptive.*/
        paResult = setBestFramesPerBuffer( *audioDevice, FALSE,
                                           requestedFramesPerBuffer,
                                           actualInputFramesPerBuffer );
        if( paResult ) goto error;
+       if( macInputStreamInfo & paMacCore_ChangeDeviceParameters ) {
+          bool requireExact;
+          requireExact=macInputStreamInfo&paMacCore_FailIfConversionRequired;
+          paResult = setBestSampleRateForDevice( *audioDevice, FALSE,
+                                                 requireExact, sampleRate );
+          if( paResult ) goto error;
+       }
        if( actualInputFramesPerBuffer && actualOutputFramesPerBuffer )
           *actualOutputFramesPerBuffer = *actualInputFramesPerBuffer ;
     }
     if( outStreamParams && !inStreamParams ) {
-       paResult = setBestSampleRateForDevice(*audioDevice,TRUE,sampleRate);
-       if( paResult ) goto error;
+       /*The callback never calls back if we don't set the FPB */
+       /*This seems wierd, because I would think setting anything on the device
+         would be disruptive.*/
        paResult = setBestFramesPerBuffer( *audioDevice, TRUE,
                                           requestedFramesPerBuffer,
                                           actualOutputFramesPerBuffer );
        if( paResult ) goto error;
+       if( macOutputStreamInfo & paMacCore_ChangeDeviceParameters ) {
+          bool requireExact;
+          requireExact=macOutputStreamInfo&paMacCore_FailIfConversionRequired;
+          paResult = setBestSampleRateForDevice( *audioDevice, TRUE,
+                                                 requireExact, sampleRate );
+          if( paResult ) goto error;
+       }
     }
     /* now set the format on the Audio Units. */
-    /* In the case of output, the hardware sample rate may not match the
-     * sample rate we want, but the AudioUnit will convert. */
-    if( inStreamParams )
-    {
-       desiredFormat.mBytesPerPacket=sizeof(float)*inStreamParams->channelCount;
-       desiredFormat.mBytesPerFrame =sizeof(float)*inStreamParams->channelCount;
-       desiredFormat.mChannelsPerFrame = inStreamParams->channelCount;
-       ERR_WRAP( AudioUnitSetProperty( *audioUnit,
-                            kAudioUnitProperty_StreamFormat,
-                            kAudioUnitScope_Output,
-                            INPUT_ELEMENT,
-                            &desiredFormat,
-                            sizeof(AudioStreamBasicDescription) ) );
-    }
     if( outStreamParams )
     {
+       desiredFormat.mSampleRate    =sampleRate;
        desiredFormat.mBytesPerPacket=sizeof(float)*outStreamParams->channelCount;
        desiredFormat.mBytesPerFrame =sizeof(float)*outStreamParams->channelCount;
        desiredFormat.mChannelsPerFrame = outStreamParams->channelCount;
@@ -788,11 +811,35 @@ static PaError OpenAndSetupOneAudioUnit(
                             &desiredFormat,
                             sizeof(AudioStreamBasicDescription) ) );
     }
+    if( inStreamParams )
+    {
+       AudioStreamBasicDescription sourceFormat;
+       UInt32 size = sizeof( AudioStreamBasicDescription );
+
+       /* keep the sample rate of the device, or we confuse AUHAL */
+       ERR_WRAP( AudioUnitGetProperty( *audioUnit,
+                            kAudioUnitProperty_StreamFormat,
+                            kAudioUnitScope_Input,
+                            INPUT_ELEMENT,
+                            &sourceFormat,
+                            &size ) );
+       desiredFormat.mSampleRate = sourceFormat.mSampleRate;
+       desiredFormat.mBytesPerPacket=sizeof(float)*inStreamParams->channelCount;
+       desiredFormat.mBytesPerFrame =sizeof(float)*inStreamParams->channelCount;
+       desiredFormat.mChannelsPerFrame = inStreamParams->channelCount;
+       ERR_WRAP( AudioUnitSetProperty( *audioUnit,
+                            kAudioUnitProperty_StreamFormat,
+                            kAudioUnitScope_Output,
+                            INPUT_ELEMENT,
+                            &desiredFormat,
+                            sizeof(AudioStreamBasicDescription) ) );
+    }
     /* set the maximumFramesPerSlice */
     /* not doing this causes real problems
        (eg. the callback might not be called). The idea of setting both this
        and the frames per buffer on the device is that we'll be most likely
-       to actually get the frame size we requested in the callback. */
+       to actually get the frame size we requested in the callback with the
+       minimum latency. */
     if( outStreamParams ) {
        UInt32 size = sizeof( *actualOutputFramesPerBuffer );
        ERR_WRAP( AudioUnitSetProperty( *audioUnit,
@@ -826,29 +873,75 @@ static PaError OpenAndSetupOneAudioUnit(
 */
     }
 
+    /* -- if we have input, we may need to setup an SR converter -- */
+    /* even if we got the sample rate we asked for, we need to do
+       the conversion in case another program changes the underlying SR. */
+    /* FIXME: I think we need to monitor stream and change the converter if the incoming format changes. */
+    if( inStreamParams ) {
+       AudioStreamBasicDescription desiredFormat;
+       AudioStreamBasicDescription sourceFormat;
+       bzero( &desiredFormat, sizeof(desiredFormat) );
+       desiredFormat.mSampleRate       = sampleRate;
+       desiredFormat.mFormatID         = kAudioFormatLinearPCM ;
+       desiredFormat.mFormatFlags      = kAudioFormatFlagsNativeFloatPacked;
+       desiredFormat.mFramesPerPacket  = 1;
+       desiredFormat.mBitsPerChannel   = sizeof( float ) * 8;
+       desiredFormat.mBytesPerPacket=sizeof(float)*inStreamParams->channelCount;
+       desiredFormat.mBytesPerFrame =sizeof(float)*inStreamParams->channelCount;
+       desiredFormat.mChannelsPerFrame = inStreamParams->channelCount;
+
+       /* get the source format */
+       UInt32 sourceSize = sizeof( sourceFormat );
+       ERR_WRAP( AudioUnitGetProperty(
+                         *audioUnit,
+                         kAudioUnitProperty_StreamFormat,
+                         kAudioUnitScope_Output,
+                         INPUT_ELEMENT,
+                         &sourceFormat,
+                         &sourceSize ) );
+
+       if( desiredFormat.mSampleRate != sourceFormat.mSampleRate ) {
+          VDBUG(( "Creating sample rate converter for input"
+                  " to convert from %g to %g\n",
+                  (float)sourceFormat.mSampleRate,
+                  (float)desiredFormat.mSampleRate ) );
+          /* create our converter */
+          ERR_WRAP( AudioConverterNew( 
+                             &sourceFormat,
+                             &desiredFormat,
+                             srConverter ) );
+          /* Use highest quality */
+          UInt32 value = kAudioConverterQuality_Max;
+          ERR_WRAP( AudioConverterSetProperty(
+                             *srConverter,
+                             kAudioConverterSampleRateConverterQuality,
+                             sizeof( value ),
+                             &value ) );
+       }
+    }
     /* -- set IOProc (callback) -- */
     callbackKey = outStreamParams ? kAudioUnitProperty_SetRenderCallback
                                   : kAudioOutputUnitProperty_SetInputCallback ;
     rcbs.inputProc = AudioIOProc;
     rcbs.inputProcRefCon = refCon;
     ERR_WRAP( AudioUnitSetProperty(
-                                 *audioUnit,
-                                 callbackKey,
-                                 kAudioUnitScope_Output,
-                                 outStreamParams ? OUTPUT_ELEMENT : INPUT_ELEMENT,
-                                 &rcbs,
-                                 sizeof(rcbs)) );
+                               *audioUnit,
+                               callbackKey,
+                               kAudioUnitScope_Output,
+                               outStreamParams ? OUTPUT_ELEMENT : INPUT_ELEMENT,
+                               &rcbs,
+                               sizeof(rcbs)) );
+
+    if( inStreamParams && outStreamParams && *srConverter )
+           ERR_WRAP( AudioUnitSetProperty(
+                               *audioUnit,
+                               kAudioOutputUnitProperty_SetInputCallback,
+                               kAudioUnitScope_Output,
+                               INPUT_ELEMENT,
+                               &rcbs,
+                               sizeof(rcbs)) );
 
     /*IMPLEMENTME: may need to worry about channel mapping.*/
-    /*FEEDBACK: The current implementation offers SR conversion on
-                output only. This is the natural way that the API works
-                and so it stands to reason that that is the most natural
-                thing for an application to do. It also stands to reason that
-                users will not want their input sample rate changed, even if
-                the might tolorate their output sample rate being changed.
-                However, it is possible to use buffering and an AudioConverter
-                to actually convert the audio, if this is desired. For now,
-                Sample rate conversion happens on the output only. */
 
     /* initialize the audio unit */
     ERR_WRAP( AudioUnitInitialize(*audioUnit) );
@@ -905,10 +998,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
 
-        /* validate inputStreamInfo */
-        if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
-
         /* Host supports interleaved float32 */
         hostInputSampleFormat = paFloat32;
     }
@@ -932,10 +1021,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* check that output device can support inputChannelCount */
         if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
-
-        /* validate outputStreamInfo */
-        if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
 
         /* Host supports interleaved float32 */
         hostOutputSampleFormat = paFloat32;
@@ -965,13 +1050,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     stream->inputAudioBufferList.mBuffers[0].mData = NULL;
     stream->inputRingBuffer.buffer = NULL;
+    stream->inputSRConverter = NULL;
     stream->inputUnit = NULL;
     stream->outputUnit = NULL;
     stream->inputFramesPerBuffer = 0;
     stream->outputFramesPerBuffer = 0;
     stream->bufferProcessorIsInitialized = FALSE;
 
-    assert( streamCallback ) ; /*we only do callback right now */
+    assert( streamCallback ) ; /* only callback mode is implemented */
     if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
@@ -982,6 +1068,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &auhalHostApi->blockingStreamInterface, streamCallback, userData );
     }
+
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
@@ -995,6 +1082,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                           &(stream->outputFramesPerBuffer),
                                           auhalHostApi,
                                           &(stream->inputUnit),
+                                          &(stream->inputSRConverter),
                                           &(stream->inputDevice),
                                           sampleRate,
                                           stream );
@@ -1012,6 +1100,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                           &(stream->outputFramesPerBuffer),
                                           auhalHostApi,
                                           &(stream->outputUnit),
+                                          NULL,
                                           &(stream->outputDevice),
                                           sampleRate,
                                           stream );
@@ -1024,6 +1113,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                                           NULL,
                                           auhalHostApi,
                                           &(stream->inputUnit),
+                                          &(stream->inputSRConverter),
                                           &(stream->inputDevice),
                                           sampleRate,
                                           stream );
@@ -1051,12 +1141,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
        }
         
        /*
-        * If input and output devs are different, we also need a
+        * If input and output devs are different or we are doing SR conversion,
+        * we also need a
         * ring buffer to store inpt data while waiting for output
         * data.
         */
-       if( stream->outputUnit && stream->inputUnit != stream->outputUnit )
+       if( (stream->outputUnit && stream->inputUnit != stream->outputUnit)
+           || stream->inputSRConverter )
        {
+          /* May want the ringSize ot initial position in
+             ring buffer to depend somewhat on sample rate change */
           /* Calculate an appropriate ring buffer size. It must be at least
              3x framesPerBuffer and 2x suggested latency and it must be a
              power of 2. FEEDBACK: too liberal/conservative/another way?*/
@@ -1064,16 +1158,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           int index, i;
           void *data;
           long ringSize;
-          latency = MAX( inputParameters->suggestedLatency,
-                         outputParameters->suggestedLatency );
+          if( !outputParameters )
+             latency = inputParameters->suggestedLatency;
+          else
+             latency = MAX( inputParameters->suggestedLatency,
+                            outputParameters->suggestedLatency );
           ringSize = latency * sampleRate * 2 * inputChannelCount;
           VDBUG( ( "suggested latency: %d\n", (int) (latency*sampleRate) ) );
           if( ringSize < stream->inputFramesPerBuffer * 3 )
              ringSize = stream->inputFramesPerBuffer * 3 * inputChannelCount;
-          if( ringSize < stream->outputFramesPerBuffer * 3 )
+          if( outputParameters && ringSize < stream->outputFramesPerBuffer * 3 )
              ringSize = stream->outputFramesPerBuffer * 3 * inputChannelCount;
           VDBUG(("inFramesPerBuffer:%d\n",(int)stream->inputFramesPerBuffer));
-          VDBUG(("outFramesPerBuffer:%d\n",(int)stream->outputFramesPerBuffer));
+          if( outputParameters )
+             VDBUG(("outFramesPerBuffer:%d\n",
+                      (int)stream->outputFramesPerBuffer));
           VDBUG(("Ringbuffer size (1): %d\n", (int)ringSize ));
 
           /* round up to the next power of 2 */
@@ -1086,6 +1185,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
              ringSize = 0x01 << index ;
           else
              ringSize = 0x01 << ( index + 1 );
+
+          /*ringSize <<= 4; *//*16x bigger, for testing */
+
           VDBUG(( "Final Ringbuffer size (2): %d\n", (int)ringSize ));
 
           /*now, we need to allocate memory for the ring buffer*/
@@ -1102,31 +1204,33 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                              ringSize*szfl, data ) );
           /* advance the read point a little, so we are reading from the
              middle of the buffer */
-          RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer, ringSize*szfl / 4 );
+          if( stream->outputUnit )
+             RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer, ringSize*szfl / RING_BUFFER_ADVANCE_DENOMINATOR );
        }
     }
 
     /* -- initialize Buffer Processor -- */
     {
-    unsigned long maxHostFrames = stream->inputFramesPerBuffer;
-    if( stream->outputFramesPerBuffer > maxHostFrames )
-       maxHostFrames = stream->outputFramesPerBuffer;
-    result = PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-              inputChannelCount, inputSampleFormat,
-              hostInputSampleFormat,
-              outputChannelCount, outputSampleFormat,
-              hostOutputSampleFormat,
-              sampleRate,
-              streamFlags,
-              framesPerBuffer,
-              /* If sample rate conversion takes place, the buffer size
-                 will not be known, although it is probably limited by
-                 the maxFramesPerSlice property. */
-              maxHostFrames,
-              paUtilUnknownHostBufferSize,
-              streamCallback, userData );
-    if( result != paNoError )
-        goto error;
+       unsigned long maxHostFrames = stream->inputFramesPerBuffer;
+       if( stream->outputFramesPerBuffer > maxHostFrames )
+          maxHostFrames = stream->outputFramesPerBuffer;
+       result = PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
+                 inputChannelCount, inputSampleFormat,
+                 hostInputSampleFormat,
+                 outputChannelCount, outputSampleFormat,
+                 hostOutputSampleFormat,
+                 sampleRate,
+                 streamFlags,
+                 framesPerBuffer,
+                 /* If sample rate conversion takes place, the buffer size
+                    will not be known. */
+                 maxHostFrames,
+                 stream->inputSRConverter
+                              ? paUtilUnknownHostBufferSize
+                              : paUtilBoundedHostBufferSize,
+                 streamCallback, userData );
+       if( result != paNoError )
+           goto error;
     }
     stream->bufferProcessorIsInitialized = TRUE;
 
@@ -1198,6 +1302,33 @@ static PaTime TimeStampToSecs(PaMacCoreStream *stream, const AudioTimeStamp* tim
         return 0;
 }
 
+#define RING_BUFFER_EMPTY (1000)
+
+static OSStatus ringBufferIOProc( AudioConverterRef inAudioConverter, 
+                             UInt32*ioDataSize, 
+                             void** outData, 
+                             void*inUserData )
+{
+   void *dummyData;
+   long dummySize;
+   RingBuffer *rb = (RingBuffer *) inUserData;
+
+   assert( sizeof( UInt32 ) == sizeof( long ) );
+   if( RingBuffer_GetReadAvailable( rb ) == 0 ) {
+      *outData = NULL;
+      *ioDataSize = 0;
+      return RING_BUFFER_EMPTY;
+   }
+   RingBuffer_GetReadRegions( rb, *ioDataSize,
+                              outData, (long *)ioDataSize, 
+                              &dummyData, &dummySize );
+      
+   assert( *ioDataSize );
+   RingBuffer_AdvanceReadIndex( rb, *ioDataSize );
+
+   return noErr;
+}
+
 /*
  * Called by the AudioUnit API to process audio from the sound card.
  * This is where the magic happens.
@@ -1210,10 +1341,11 @@ static OSStatus AudioIOProc( void *inRefCon,
                                UInt32 inNumberFrames,
                                AudioBufferList *ioData )
 {
-   unsigned long framesProcessed = 0;
+   unsigned long framesProcessed     = 0;
    PaStreamCallbackTimeInfo timeInfo = {0,0,0};
-   const bool isRender = inBusNumber == OUTPUT_ELEMENT;
-   PaMacCoreStream *stream = (PaMacCoreStream*)inRefCon;
+   PaMacCoreStream *stream           = (PaMacCoreStream*)inRefCon;
+   const bool isRender               = inBusNumber == OUTPUT_ELEMENT;
+   int callbackResult                = paContinue ;
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
@@ -1265,76 +1397,84 @@ static OSStatus AudioIOProc( void *inRefCon,
    }
 
 
-   if( isRender && stream->inputUnit == stream->outputUnit )
-   { /* -- handles duplex, one device -- */
+   if( isRender && stream->inputUnit == stream->outputUnit
+                && !stream->inputSRConverter )
+   {
+      /* --------- Full Duplex, One Device, no SR Conversion -------
+       *
+       * This is the lowest latency case, and also the simplest.
+       * Input data and output data are available at the same time.
+       * we do not use the input SR converter or the input ring buffer.
+       *
+       */
       OSErr err = 0;
       unsigned long frames;
       int callbackResult;
-      /* -- read input -- */
-      err= AudioUnitRender(stream->inputUnit,
-                       ioActionFlags,
-                       inTimeStamp,
-                       INPUT_ELEMENT,
-                       inNumberFrames,
-                       &stream->inputAudioBufferList );
-      /* FEEDBACK: I'm not sure what to do when this call fails */
-      assert( !err );
+
       /* -- start processing -- */
       PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
                                     &timeInfo,
                                     stream->xrunFlags );
       stream->xrunFlags = 0;
 
-      /* -- Copy and process output data -- */
+      /* -- compute frames. do some checks -- */
       assert( ioData->mNumberBuffers == 1 );
+      assert( ioData->mBuffers[0].mNumberChannels == stream->userOutChan );
       frames = ioData->mBuffers[0].mDataByteSize;
       frames /= sizeof( float ) * ioData->mBuffers[0].mNumberChannels;
-      assert( frames == stream->outputFramesPerBuffer );
-      assert( ioData->mBuffers[0].mNumberChannels == stream->userOutChan );
+      /* -- copy and process input data -- */
+      err= AudioUnitRender(stream->inputUnit,
+                    ioActionFlags,
+                    inTimeStamp,
+                    INPUT_ELEMENT,
+                    inNumberFrames,
+                    &stream->inputAudioBufferList );
+      /* FEEDBACK: I'm not sure what to do when this call fails */
+      assert( !err );
+
+      PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
+      PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                          0,
+                          stream->inputAudioBufferList.mBuffers[0].mData,
+                          stream->inputAudioBufferList.mBuffers[0].mNumberChannels);
+      /* -- Copy and process output data -- */
       PaUtil_SetOutputFrameCount( &(stream->bufferProcessor), frames );
       PaUtil_SetInterleavedOutputChannels( &(stream->bufferProcessor),
                                         0,
                                         ioData->mBuffers[0].mData,
                                         ioData->mBuffers[0].mNumberChannels);
-      /* -- copy and process input data -- */
-      PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
-      PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                             0,
-                             stream->inputAudioBufferList.mBuffers[0].mData,
-                             stream->inputAudioBufferList.mBuffers[0].mNumberChannels);
       /* -- complete processing -- */
-      callbackResult = paContinue;
       framesProcessed =
                  PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                              &callbackResult );
-      switch( callbackResult )
-      {
-      case paContinue: break;
-      case paComplete:
-         stream->state = CALLBACK_STOPPED ;
-         AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-         break;
-      case paAbort:
-         stream->state = CALLBACK_STOPPED ;
-         AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-         break;
-      }
    }
    else if( isRender )
-   { /* -- handles duplex (seperate devices) and simplex output only -- */
+   {
+      /* -------- Output Side of Full Duplex (Separate Devices or SR Conversion)
+       *       -- OR Simplex Output
+       *
+       * This case handles output data as in the full duplex case,
+       * and, if there is input data, reads it off the ring buffer 
+       * and into the PA buffer processor. If sample rate conversion
+       * is required on input, that is done here as well.
+       */
       unsigned long frames;
-      int callbackResult;
 
       /* Sometimes, when stopping a duplex stream we get erroneous
          xrun flags, so if this is our last run, clear the flags. */
       int xrunFlags = stream->xrunFlags;
+      if( xrunFlags & paInputUnderflow )
+         printf( "input underflow.\n" );
+      if( xrunFlags & paInputOverflow )
+         printf( "input overflow.\n" );
       if( stream->state == STOPPING || stream->state == CALLBACK_STOPPED )
          xrunFlags = 0;
+
       /* -- start processing -- */
       PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
                                     &timeInfo,
                                     xrunFlags );
-      stream->xrunFlags = 0; /* FIXME: we only send flags to Buf Proc once. Is that OKAY? */
+      stream->xrunFlags = 0; /* FEEDBACK: we only send flags to Buf Proc once */
 
       /* -- Copy and process output data -- */
       assert( ioData->mNumberBuffers == 1 );
@@ -1343,72 +1483,108 @@ static OSStatus AudioIOProc( void *inRefCon,
       assert( ioData->mBuffers[0].mNumberChannels == stream->userOutChan );
       PaUtil_SetOutputFrameCount( &(stream->bufferProcessor), frames );
       PaUtil_SetInterleavedOutputChannels( &(stream->bufferProcessor),
-                                        0,
-                                        ioData->mBuffers[0].mData,
-                                        ioData->mBuffers[0].mNumberChannels);
-      callbackResult= paContinue ;
+                                     0,
+                                     ioData->mBuffers[0].mData,
+                                     ioData->mBuffers[0].mNumberChannels);
+
       /* -- copy and process input data, and complete processing -- */
       if( stream->inputUnit ) {
          const int flsz = sizeof( float );
-         /* we need to read data out of the ring buffer and into the
-            buffer processor */
-         void *data1, *data2;
-         long size1, size2;
+         /* Here, we read the data out of the ring buffer, through the
+            audio converter. */
          int inChan = stream->inputAudioBufferList.mBuffers[0].mNumberChannels;
-         RingBuffer_GetReadRegions( &stream->inputRingBuffer,
-                                    inChan*frames*flsz,
-                                    &data1, &size1,
-                                    &data2, &size2 );
-         if( size1 / ( flsz * inChan ) == frames ) {
-            /* simplest case: all in first buffer */
-            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
-            PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                                0,
-                                data1,
-                                inChan );
-            framesProcessed =
-                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
-                                             &callbackResult );
-            RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1 );
-         } else if( ( size1 + size2 ) / ( flsz * inChan ) < frames ) {
-            /*we underflowed. take what data we can, zero the rest.*/
-            float data[frames*inChan];
-            if( size1 )
-               memcpy( data, data1, size1 );
-            if( size2 )
-               memcpy( data+size1, data2, size2 );
-            bzero( data+size1+size2, frames*flsz*inChan - size1 - size2 );
+         if( stream->inputSRConverter )
+         {
+               OSStatus err;
+               UInt32 size;
+               float data[ inChan * frames ];
+               size = sizeof( data );
+               err = AudioConverterFillBuffer( 
+                             stream->inputSRConverter,
+                             ringBufferIOProc,
+                             &stream->inputRingBuffer,
+                             &size,
+                             (void *)&data );
+               if( err == RING_BUFFER_EMPTY )
+               { /*the ring buffer callback underflowed */
+                  err = 0;
+                  bzero( ((char *)data) + size, sizeof(data)-size );
+                  stream->xrunFlags |= paInputUnderflow;
+               }
+               ERR( err );
+               assert( !err );
+               
+               PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
+               PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                   0,
+                                   data,
+                                   inChan );
+               framesProcessed =
+                    PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                                &callbackResult );
+         }
+         else
+         {
+            /* Without the AudioConverter is actually a bit more complex
+               because we have to do a little buffer processing that the
+               AudioConverter would otherwise handle for us. */
+            void *data1, *data2;
+            long size1, size2;
+            RingBuffer_GetReadRegions( &stream->inputRingBuffer,
+                                       inChan*frames*flsz,
+                                       &data1, &size1,
+                                       &data2, &size2 );
+            if( size1 / ( flsz * inChan ) == frames ) {
+               /* simplest case: all in first buffer */
+               PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
+               PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                   0,
+                                   data1,
+                                   inChan );
+               framesProcessed =
+                    PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                                &callbackResult );
+               RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1 );
+            } else if( ( size1 + size2 ) / ( flsz * inChan ) < frames ) {
+               /*we underflowed. take what data we can, zero the rest.*/
+               float data[frames*inChan];
+               if( size1 )
+                  memcpy( data, data1, size1 );
+               if( size2 )
+                  memcpy( data+size1, data2, size2 );
+               bzero( data+size1+size2, frames*flsz*inChan - size1 - size2 );
 
-            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
-            PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                                0,
-                                data,
-                                inChan );
-            framesProcessed =
-                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
-                                             &callbackResult );
-            RingBuffer_AdvanceReadIndex( &stream->inputRingBuffer,
-                                         size1+size2 );
-            /* flag underflow */
-            stream->xrunFlags |= paInputUnderflow;
-         } else {
-            /*we got all the data, but split between buffers*/
-            PaUtil_SetInputFrameCount( &(stream->bufferProcessor),
-                                       size1 / ( flsz * inChan ) );
-            PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                                0,
-                                data1,
-                                inChan );
-            PaUtil_Set2ndInputFrameCount( &(stream->bufferProcessor),
-                                          size2 / ( flsz * inChan ) );
-            PaUtil_Set2ndInterleavedInputChannels( &(stream->bufferProcessor),
-                                0,
-                                data2,
-                                inChan );
-            framesProcessed =
-                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
-                                             &callbackResult );
-            RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1+size2 );
+               PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
+               PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                   0,
+                                   data,
+                                   inChan );
+               framesProcessed =
+                    PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                                &callbackResult );
+               RingBuffer_AdvanceReadIndex( &stream->inputRingBuffer,
+                                            size1+size2 );
+               /* flag underflow */
+               stream->xrunFlags |= paInputUnderflow;
+            } else {
+               /*we got all the data, but split between buffers*/
+               PaUtil_SetInputFrameCount( &(stream->bufferProcessor),
+                                          size1 / ( flsz * inChan ) );
+               PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                   0,
+                                   data1,
+                                   inChan );
+               PaUtil_Set2ndInputFrameCount( &(stream->bufferProcessor),
+                                             size2 / ( flsz * inChan ) );
+               PaUtil_Set2ndInterleavedInputChannels( &(stream->bufferProcessor),
+                                   0,
+                                   data2,
+                                   inChan );
+               framesProcessed =
+                    PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                                &callbackResult );
+               RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1+size2 );
+            }
          }
       } else {
          framesProcessed =
@@ -1416,96 +1592,124 @@ static OSStatus AudioIOProc( void *inRefCon,
                                              &callbackResult );
       }
 
-      switch( callbackResult )
-      {
-      case paContinue: break;
-      case paComplete:
-         stream->state = CALLBACK_STOPPED ;
-         if( stream->inputUnit )
-            AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-         AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-         break;
-      case paAbort:
-         stream->state = CALLBACK_STOPPED ;
-         if( stream->inputUnit )
-            AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-         AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-         break;
-      }
    }
    else
    {
-      if( stream->outputUnit )
-      { /* -- handles input for seperate device, full duplex case -- */
-         /*br 11/28/05: my understanding is that when the AudioIOProc is called
-          *             it's just a signal that data is available. we need to
-          *             call AudioUnitRender with our own buffer in order to
-          *             get the input data. */
-         OSErr err = 0;
-         long bytesIn, bytesOut;
+      /* ------------------ Input
+       *
+       * First, we read off the audio data and put it in the ring buffer.
+       * if this is an input-only stream, we need to process it more,
+       * otherwise, we let the output case deal with it.
+       */
+      OSErr err = 0;
+      int chan = stream->inputAudioBufferList.mBuffers[0].mNumberChannels ;
+      /* FIXME: looping here may not actually be necessary, but it was something I tried in testing. */
+      do {
          err= AudioUnitRender(stream->inputUnit,
-                    ioActionFlags,
-                    inTimeStamp,
-                    INPUT_ELEMENT,
-                    inNumberFrames,
-                    &stream->inputAudioBufferList );
-         /* FEEDBACK: I'm not sure what to do when this call fails */
-         assert( !err );
-         bytesIn = sizeof( float ) * inNumberFrames * stream->inputAudioBufferList.mBuffers[0].mNumberChannels ;
+                 ioActionFlags,
+                 inTimeStamp,
+                 INPUT_ELEMENT,
+                 inNumberFrames,
+                 &stream->inputAudioBufferList );
+         if( err == -10874 )
+            inNumberFrames /= 2;
+      } while( err == -10874 && inNumberFrames > 1 );
+      /* FEEDBACK: I'm not sure what to do when this call fails */
+      ERR( err );
+      assert( !err );
+      if( stream->inputSRConverter || stream->outputUnit )
+      {
+         /* If this is duplex or we use a converter, put the data
+            into the ring buffer. */
+         long bytesIn, bytesOut;
+         bytesIn = sizeof( float ) * inNumberFrames * chan;
          bytesOut = RingBuffer_Write( &stream->inputRingBuffer,
                                 stream->inputAudioBufferList.mBuffers[0].mData,
                                 bytesIn );
-         if( bytesIn != bytesOut ) {
+         if( bytesIn != bytesOut )
             stream->xrunFlags |= paInputOverflow ;
-         }
       }
       else
-      { /* -- handles simplex input only case -- */
-         OSErr err = 0;
-         int callbackResult;
-         err= AudioUnitRender(stream->inputUnit,
-                    ioActionFlags,
-                    inTimeStamp,
-                    INPUT_ELEMENT,
-                    inNumberFrames,
-                    &stream->inputAudioBufferList );
-         /* FEEDBACK: I'm not sure what to do when this call fails */
-         assert( !err );
-         /* -- start processing -- */
+      {
+         /* for simplex input w/o SR conversion,
+            just pop the data into the buffer processor.*/
          PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
-                                       &timeInfo,
-                                       stream->xrunFlags );
+                              &timeInfo,
+                              stream->xrunFlags );
          stream->xrunFlags = 0;
-         /* -- transfer the data -- */
-         PaUtil_SetInputFrameCount( &(stream->bufferProcessor), inNumberFrames );
+
+         PaUtil_SetInputFrameCount( &(stream->bufferProcessor), inNumberFrames);
          PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
-                                   0,
-                                   stream->inputAudioBufferList.mBuffers[0].mData,
-                                   stream->inputAudioBufferList.mBuffers[0].mNumberChannels);
-         
-         /* -- complete processing -- */
-         callbackResult= paContinue ;
+                             0,
+                             stream->inputAudioBufferList.mBuffers[0].mData,
+                             chan );
          framesProcessed =
-                 PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
-                                             &callbackResult );
-         switch( callbackResult )
-         {
-         case paContinue: break;
-         case paComplete:
-            stream->state = CALLBACK_STOPPED ;
-            if( stream->outputUnit )
-               AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-            AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-            stream->state = CALLBACK_STOPPED ;
-            break;
-         case paAbort:
-            stream->state = CALLBACK_STOPPED ;
-            if( stream->outputUnit )
-               AudioOutputUnitStop(stream->outputUnit); /*FIXME: this aborts*/
-            AudioOutputUnitStop(stream->inputUnit); /*FIXME: this aborts*/
-            break;
-         }
+              PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                          &callbackResult );
       }
+      if( !stream->outputUnit && stream->inputSRConverter )
+      {
+         /* ------------------ Simplex Input w/ SR Conversion
+          *
+          * if this is a simplex input stream, we need to read off the buffer,
+          * do our sample rate conversion and pass the results to the buffer
+          * processor.
+          * The logic here is complicated somewhat by the fact that we don't
+          * know how much data is available, so we loop on reasonably sized
+          * chunks, and let the BufferProcessor deal with the rest.
+          *
+          */
+         /*This might be too big or small depending on SR conversion*/
+         float data[ chan * inNumberFrames ];
+         OSStatus err;
+         do
+         { /*Run the buffer processor until we are out of data*/
+            UInt32 size;
+            long f;
+
+            size = sizeof( data );
+            err = AudioConverterFillBuffer( 
+                          stream->inputSRConverter,
+                          ringBufferIOProc,
+                          &stream->inputRingBuffer,
+                          &size,
+                          (void *)data );
+            if( err != RING_BUFFER_EMPTY )
+               ERR( err );
+            assert( err == 0 || err == RING_BUFFER_EMPTY );
+
+            f = size / ( chan * sizeof(float) );
+            PaUtil_SetInputFrameCount( &(stream->bufferProcessor), f );
+            if( f )
+            {
+               PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
+                                             &timeInfo,
+                                             stream->xrunFlags );
+               stream->xrunFlags = 0;
+
+               PaUtil_SetInterleavedInputChannels( &(stream->bufferProcessor),
+                                0,
+                                data,
+                                chan );
+               framesProcessed =
+                    PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
+                                                &callbackResult );
+            }
+         } while( callbackResult == paContinue && !err );
+      }
+   }
+
+   switch( callbackResult )
+   {
+   case paContinue: break;
+   case paComplete:
+   case paAbort:
+      stream->state = CALLBACK_STOPPED ;
+      if( stream->outputUnit )
+         AudioOutputUnitStop(stream->outputUnit);
+      if( stream->inputUnit )
+         AudioOutputUnitStop(stream->inputUnit);
+      break;
    }
 
    PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesProcessed );
@@ -1540,6 +1744,11 @@ static PaError CloseStream( PaStream* s )
        if( stream->inputRingBuffer.buffer )
           free( stream->inputRingBuffer.buffer );
        stream->inputRingBuffer.buffer = NULL;
+       /*TODO: is there more that needs to be done on error
+               from AudioConverterDispose?*/
+       if( stream->inputSRConverter )
+          ERR( AudioConverterDispose( stream->inputSRConverter ) );
+       stream->inputSRConverter = NULL;
        if( stream->inputAudioBufferList.mBuffers[0].mData )
           free( stream->inputAudioBufferList.mBuffers[0].mData );
        stream->inputAudioBufferList.mBuffers[0].mData = NULL;
@@ -1560,9 +1769,13 @@ static PaError StartStream( PaStream *s )
     OSErr result = noErr;
     VDBUG( ( "Starting stream.\n" ) );
 
-    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
-
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
+
+    /*FIXME: maybe want to do this on close/abort for faster start? */
+    PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
+    if(  stream->inputSRConverter )
+       ERR_WRAP( AudioConverterReset( stream->inputSRConverter ) );
+
     /* -- start -- */
     stream->state = ACTIVE;
     if( stream->inputUnit ) {
@@ -1579,11 +1792,6 @@ static PaError StartStream( PaStream *s )
 
 static PaError StopStream( PaStream *s )
 {
-    /* FIXME */
-    /* I found no docs for AudioOutputUnitStop that explain its
-       exact behaviour, however, it tests it seems to abort the stream
-       immediately, which is NOT what we want. */
-    /*FIXME: sometimes buffer over/underruns are reported as the stream is stopping. See if this can be avoided. */
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
     VDBUG( ( "Stopping stream.\n" ) );
@@ -1613,12 +1821,14 @@ static PaError StopStream( PaStream *s )
     }
     if( stream->inputRingBuffer.buffer ) {
        RingBuffer_Flush( &stream->inputRingBuffer );
+       bzero(stream->inputRingBuffer.buffer,stream->inputRingBuffer.bufferSize);
        /* advance the write point a little, so we are reading from the
           middle of the buffer. We'll need extra at the end because
           testing has shown that this helps. */
-       bzero(stream->inputRingBuffer.buffer,stream->inputRingBuffer.bufferSize);
-       RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer,
-                                    stream->inputRingBuffer.bufferSize / 4 );
+       if( stream->outputUnit )
+          RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer,
+                                    stream->inputRingBuffer.bufferSize
+                                           / RING_BUFFER_ADVANCE_DENOMINATOR );
     }
 
     stream->isTimeSet = FALSE;
@@ -1633,6 +1843,7 @@ static PaError StopStream( PaStream *s )
 static PaError AbortStream( PaStream *s )
 {
     VDBUG( ( "Aborting stream.\n" ) );
+    /* We have nothing faster than StopStream. */
     return StopStream(s);
 }
 
