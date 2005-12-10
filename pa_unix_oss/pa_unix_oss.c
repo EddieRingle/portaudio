@@ -1792,14 +1792,14 @@ static PaTime GetStreamTime( PaStream *s )
 
     if( stream->playback ) {
         if( ioctl( stream->playback->fd, SNDCTL_DSP_GETOPTR, &info) == 0 ) {
-            delta = ( info.bytes - stream->lastPosPtr ) & 0x000FFFFF;
-            return ( stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->playback ) / stream->sampleRate;
+            delta = ( info.bytes - stream->lastPosPtr ) /* & 0x000FFFFF*/;
+            return (float)(stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->playback ) / stream->sampleRate;
         }
     }
     else {
         if (ioctl( stream->capture->fd, SNDCTL_DSP_GETIPTR, &info) == 0) {
-            delta = (info.bytes - stream->lastPosPtr) & 0x000FFFFF;
-            return ( stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->capture ) / stream->sampleRate;
+            delta = (info.bytes - stream->lastPosPtr) /*& 0x000FFFFF*/;
+            return (float)(stream->lastStreamBytes + delta) / PaOssStreamComponent_FrameSize( stream->capture ) / stream->sampleRate;
         }
     }
 
