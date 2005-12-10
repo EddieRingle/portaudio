@@ -52,7 +52,6 @@
 #include <limits.h>
 #include <semaphore.h>
 
-
 #ifdef __FreeBSD__
 # include <sys/soundcard.h>
 # define DEVICE_NAME_BASE            "/dev/dsp"
@@ -1133,7 +1132,7 @@ static PaError PaOssStream_Configure( PaOssStream *stream, double sampleRate, un
     stream->framesPerHostBuffer = framesPerHostBuffer;
     stream->pollTimeout = (int) ceil( 1e6 * framesPerHostBuffer / sampleRate );    /* Period in usecs, rounded up */
 
-    stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+    stream->sampleRate = stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
 error:
     return result;
