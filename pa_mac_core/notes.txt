@@ -4,11 +4,11 @@ Document Last Updated December 9, 2005
 
 There are currently two implementations of PortAudio for Mac Core Audio.
 
-The default is in pa_mac_core.c. This is probably going to be superseded
-by pa_mac_core_auhal.c, which is newer and less developed, but uses Mac 
-OS X's AUHAL interface for IO. To compile the AUHAL version, simply replace 
-the pa_mac_core.c file with pa_mac_core_auhal.c ("mv pa_mac_core_auhal.c 
-pa_mac_core.c") and configure and make as usual.
+The original is in pa_mac_core_old.c, and the newer one is in pa_mac_core_auhal.c.
+Only pa_mac_core_auhal.c is currently developed and supported as it uses apple's
+current core audio technology. To select one of the implementations, copy the
+appropriate file to pa_mac_core.c, (eg. "cp pa_mac_core_auhal.c pa_mac_core.c")
+then run configure and make as usual.
 
 ----------------------------------------
 

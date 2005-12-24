@@ -1,16 +1,37 @@
 /*
  * Mac spcific flags for PA.
+ * portaudio.h should be included before this file.
  */
 
 /*
- * Flags, or'ed together, to alter the behaviour of PA.
- * A pointer to a paMacCoreStreamInfo may be passed as 
+ * A pointer to a paMacCoreStreamInfo may be passed as
  * the hostApiSpecificStreamInfo in the PaStreamParameters struct
- * when opening a stream. Use NULL or a pointer to 0, for the defaults.
- * note that for duplex streams, both infos should be the same or behaviour
+ * when opening a stream. Use NULL, for the defaults. Note that for
+ * duplex streams, both infos should be the same or behaviour
  * is undefined.
  */
-typedef UInt32 paMacCoreStreamInfo;
+typedef struct paMacCoreStreamInfo
+{
+    unsigned long size;         /**< size of whole structure including this header */
+    PaHostApiTypeId hostApiType;/**< host API for which this data is intended */
+    unsigned long version;      /**< structure version */
+    unsigned long flags;        /* flags to modify behaviour */
+} paMacCoreStreamInfo;
+
+/* Use this function to initialize a paMacCoreStreamInfo struct
+   using the requested flags. */
+void paSetupMacCoreStreamInfo( paMacCoreStreamInfo *data, unsigned long flags )
+{
+   bzero( data, sizeof( paMacCoreStreamInfo ) );
+   data->size = sizeof( paMacCoreStreamInfo );
+   data->hostApiType = paCoreAudio;
+   data->version = 0x01;
+   data->flags = flags;
+}
+
+/*
+ * Here is the struct that shoul
+ */
 
 /*
  * The following flags alter the behaviour of PA on the mac platform.
@@ -20,12 +41,12 @@ typedef UInt32 paMacCoreStreamInfo;
 /* Allows PortAudio to change things like the device's frame size,
  * which allows for much lower latency, but might disrupt the device
  * if other programs are using it. */
-const paMacCoreStreamInfo paMacCore_ChangeDeviceParameters      = 0x01;
+const unsigned long paMacCore_ChangeDeviceParameters      = 0x01;
 
 /* In combination with the above flag,
  * causes the stream opening to fail, unless the exact sample rates
  * are supported by the device. */
-const paMacCoreStreamInfo paMacCore_FailIfConversionRequired    = 0x02;
+const unsigned long paMacCore_FailIfConversionRequired    = 0x02;
 
 
 
@@ -36,7 +57,8 @@ const paMacCoreStreamInfo paMacCore_FailIfConversionRequired    = 0x02;
  */
 /*This is the default setting: do as much sample rate conversion as possible
  * and as little mucking with the device as possible. */
-const paMacCoreStreamInfo paMacCorePlayNice = 0x00;
+const unsigned long paMacCorePlayNice = 0x00;
 /*This setting is tuned for pro audio apps. It allows SR conversion on input
   and output, but it tries to set the appropriate SR on the device.*/
-const paMacCoreStreamInfo paMacCorePro      = 0x01;
+const unsigned long paMacCorePro      = 0x01;
+

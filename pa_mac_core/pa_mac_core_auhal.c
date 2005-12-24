@@ -103,7 +103,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 #define MAC_CORE_VERBOSE_DEBUG
  */
 #ifdef MAC_CORE_VERBOSE_DEBUG
-# define VDBUG(MSG) do { printf("||PaMacCore (AUHAL)|| "); printf MSG ; fflush(stdout); } while(0)
+# define VDBUG(MSG) do { printf("||PaMacCore|| "); printf MSG ; fflush(stdout); } while(0)
 #else
 # define VDBUG(MSG)
 #endif
@@ -414,8 +414,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
     *hostApi = &auhalHostApi->inheritedHostApiRep;
     (*hostApi)->info.structVersion = 1;
     (*hostApi)->info.type = paCoreAudio;
-    /* -- FIXME: when this works, change to "Core Audio" -- */
-    (*hostApi)->info.name = "Core Audio (AUHAL)";
+    (*hostApi)->info.name = "Core Audio";
 
     (*hostApi)->info.defaultInputDevice = paNoDevice;
     (*hostApi)->info.defaultOutputDevice = paNoDevice;
@@ -555,10 +554,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* check that input device can support inputChannelCount */
         if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
             return paInvalidChannelCount;
-
-        /* validate inputStreamInfo */
-        if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
@@ -585,9 +580,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputChannelCount > hostApi->deviceInfos[ outputParameters->device ]->maxOutputChannels )
             return paInvalidChannelCount;
 
-        /* validate outputStreamInfo */
-        if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
     }
     else
     {
@@ -646,11 +638,11 @@ static PaError OpenAndSetupOneAudioUnit(
     int line;
     UInt32 callbackKey;
     AURenderCallbackStruct rcbs;
-    paMacCoreStreamInfo macInputStreamInfo  = paMacCorePlayNice;
-    paMacCoreStreamInfo macOutputStreamInfo = paMacCorePlayNice;
+    unsigned long macInputStreamFlags  = paMacCorePlayNice;
+    unsigned long macOutputStreamFlags = paMacCorePlayNice;
 
     /*change the flags here, if desired, for testing.*/
-    /*macInputStreamInfo  = macOutputStreamInfo = paMacCore_ChangeDeviceParameters ;
+    /*macInputStreamInfo  = macOutputStreamInfo = paMacCore_ChangeDeviceParameters ;*/
 
     /* -- handle the degenerate case  -- */
     if( !inStreamParams && !outStreamParams ) {
@@ -661,9 +653,13 @@ static PaError OpenAndSetupOneAudioUnit(
 
     /* -- get the user's api specific info, if they set any -- */
     if( inStreamParams && inStreamParams->hostApiSpecificStreamInfo )
-       macInputStreamInfo=*(UInt32*)inStreamParams->hostApiSpecificStreamInfo;
+       macInputStreamFlags=
+            ((paMacCoreStreamInfo*)inStreamParams->hostApiSpecificStreamInfo)
+                  ->flags;
     if( outStreamParams && outStreamParams->hostApiSpecificStreamInfo )
-       macOutputStreamInfo=*(UInt32*)outStreamParams->hostApiSpecificStreamInfo;
+       macOutputStreamFlags=
+            ((paMacCoreStreamInfo*)outStreamParams->hostApiSpecificStreamInfo)
+                  ->flags;
 
     /*
      * The HAL AU is a Mac OS style "component".
@@ -771,9 +767,9 @@ static PaError OpenAndSetupOneAudioUnit(
                                           requestedFramesPerBuffer,
                                           actualInputFramesPerBuffer );
        if( paResult ) goto error;
-       if( macInputStreamInfo & paMacCore_ChangeDeviceParameters ) {
+       if( macInputStreamFlags & paMacCore_ChangeDeviceParameters ) {
           bool requireExact;
-          requireExact=macInputStreamInfo&paMacCore_FailIfConversionRequired;
+          requireExact=macInputStreamFlags&paMacCore_FailIfConversionRequired;
           paResult = setBestSampleRateForDevice( *audioDevice, FALSE,
                                                  requireExact, sampleRate );
           if( paResult ) goto error;
@@ -789,9 +785,9 @@ static PaError OpenAndSetupOneAudioUnit(
                                           requestedFramesPerBuffer,
                                           actualOutputFramesPerBuffer );
        if( paResult ) goto error;
-       if( macOutputStreamInfo & paMacCore_ChangeDeviceParameters ) {
+       if( macOutputStreamFlags & paMacCore_ChangeDeviceParameters ) {
           bool requireExact;
-          requireExact=macOutputStreamInfo&paMacCore_FailIfConversionRequired;
+          requireExact=macOutputStreamFlags&paMacCore_FailIfConversionRequired;
           paResult = setBestSampleRateForDevice( *audioDevice, TRUE,
                                                  requireExact, sampleRate );
           if( paResult ) goto error;
@@ -880,6 +876,7 @@ static PaError OpenAndSetupOneAudioUnit(
     if( inStreamParams ) {
        AudioStreamBasicDescription desiredFormat;
        AudioStreamBasicDescription sourceFormat;
+       UInt32 sourceSize = sizeof( sourceFormat );
        bzero( &desiredFormat, sizeof(desiredFormat) );
        desiredFormat.mSampleRate       = sampleRate;
        desiredFormat.mFormatID         = kAudioFormatLinearPCM ;
@@ -891,7 +888,6 @@ static PaError OpenAndSetupOneAudioUnit(
        desiredFormat.mChannelsPerFrame = inStreamParams->channelCount;
 
        /* get the source format */
-       UInt32 sourceSize = sizeof( sourceFormat );
        ERR_WRAP( AudioUnitGetProperty(
                          *audioUnit,
                          kAudioUnitProperty_StreamFormat,
@@ -900,7 +896,9 @@ static PaError OpenAndSetupOneAudioUnit(
                          &sourceFormat,
                          &sourceSize ) );
 
-       if( desiredFormat.mSampleRate != sourceFormat.mSampleRate ) {
+       if( desiredFormat.mSampleRate != sourceFormat.mSampleRate )
+       {
+          UInt32 value = kAudioConverterQuality_Max;
           VDBUG(( "Creating sample rate converter for input"
                   " to convert from %g to %g\n",
                   (float)sourceFormat.mSampleRate,
@@ -911,7 +909,6 @@ static PaError OpenAndSetupOneAudioUnit(
                              &desiredFormat,
                              srConverter ) );
           /* Use highest quality */
-          UInt32 value = kAudioConverterQuality_Max;
           ERR_WRAP( AudioConverterSetProperty(
                              *srConverter,
                              kAudioConverterSampleRateConverterQuality,
