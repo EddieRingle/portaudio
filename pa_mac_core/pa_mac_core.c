@@ -1406,7 +1406,6 @@ static OSStatus AudioIOProc( void *inRefCon,
        */
       OSErr err = 0;
       unsigned long frames;
-      int callbackResult;
 
       /* -- start processing -- */
       PaUtil_BeginBufferProcessing( &(stream->bufferProcessor),
