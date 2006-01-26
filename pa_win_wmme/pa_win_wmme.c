@@ -128,6 +128,13 @@ Non-critical stuff for the future:
 #pragma comment(lib, "winmm.lib")
 #endif
 
+/*
+ provided in newer platform sdks
+ */
+#ifndef DWORD_PTR
+#define DWORD_PTR DWORD
+#endif
+
 /************************************************* Constants ********/
 
 #define PA_MME_USE_HIGH_DEFAULT_LATENCY_    (0)  /* For debugging glitches. */
@@ -1555,10 +1562,10 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
 
         if( isInput )
             mmresult = waveInOpen( &((HWAVEIN*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, &wfx,
-                               (DWORD)handlesAndBuffers->bufferEvent, (DWORD)0, CALLBACK_EVENT );
+                               (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
         else
             mmresult = waveOutOpen( &((HWAVEOUT*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, &wfx,
-                                (DWORD)handlesAndBuffers->bufferEvent, (DWORD)0, CALLBACK_EVENT );
+                                (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
 
         if( mmresult != MMSYSERR_NOERROR )
         {

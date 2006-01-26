@@ -75,6 +75,12 @@
 #pragma comment( lib, "winmm.lib" )
 #endif
 
+/*
+ provided in newer platform sdks and x64
+ */
+#ifndef DWORD_PTR
+#define DWORD_PTR DWORD
+#endif
 
 #define PRINT(x) PA_DEBUG(x);
 #define ERR_RPT(x) PRINT(x)
@@ -449,7 +455,8 @@ static PaError AddOutputDeviceInfoFromDirectSound(
         if (hr == DSERR_ALLOCATED)
             PA_DEBUG(("AddOutputDeviceInfoFromDirectSound %s DSERR_ALLOCATED\n",name));
         DBUG(("Cannot create DirectSound for %s. Result = 0x%x\n", name, hr ));
-        DBUG(("%s's GUID: {0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x, 0x%x} \n",
+        if (lpGUID)
+            DBUG(("%s's GUID: {0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x, 0x%x} \n",
                  name,
                  lpGUID->Data1,
                  lpGUID->Data2,
@@ -1546,7 +1553,7 @@ error2:
     return result;
 }
 /*******************************************************************/
-static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
+static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWORD dw1, DWORD dw2)
 {
     PaWinDsStream *stream;
 
@@ -1670,7 +1677,7 @@ static PaError StartStream( PaStream *s )
         else if( msecPerWakeup > 100 ) msecPerWakeup = 100;
         resolution = msecPerWakeup/4;
         stream->timerID = timeSetEvent( msecPerWakeup, resolution, (LPTIMECALLBACK) Pa_TimerCallback,
-                                             (DWORD) stream, TIME_PERIODIC );
+                                             (DWORD_PTR) stream, TIME_PERIODIC );
     }
     if( stream->timerID == 0 )
     {
