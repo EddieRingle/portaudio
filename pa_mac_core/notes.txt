@@ -100,6 +100,9 @@ Known issues:
 - Latency: Latency settings are ignored except when doing I/O between different
 devices. Still, latency should be very low.
 
+- Buffer Size: Only preset buffer sizes are supported, ie, variable number of
+frames per buffer is not currently supported.
+
 - Timing info. It reports on stream time, but I'm probably doing something
 wrong since patest_sine_time often reports negative latency numbers.
 
@@ -113,13 +116,12 @@ http://lists.apple.com/archives/coreaudio-api/2005/Dec/msg00055.html
 
 - blocking interface: Not implemented.
 
-- multichannel: I don't have a multichannel IO box, so I didn't test it.
-It should work though ;) I haven't done anything with "channel maps"
-yet, so it's possible that more needs to be done.
+- multichannel: It has been tested successfully on multichannel hardware
+from MOTU: traveler and 896HD.
 
 - sample rate conversion quality: the input audio converter is set to
 the highest quality. I don't do anything about the output converter, and
 I am not sure how AUHAL manages quality.
 
-- x86: I haven't tested it on an x86 Mac, but I tried to be aware of it, so
-it should work without too much trouble.
+- x86: I haven't tested it on an x86 Maci myself, but users have reported 
+being able to comiple and run it.
