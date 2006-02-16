@@ -119,9 +119,11 @@ http://lists.apple.com/archives/coreaudio-api/2005/Dec/msg00055.html
 - multichannel: It has been tested successfully on multichannel hardware
 from MOTU: traveler and 896HD.
 
-- sample rate conversion quality: the input audio converter is set to
-the highest quality. I don't do anything about the output converter, and
-I am not sure how AUHAL manages quality.
+- sample rate conversion quality: By default, SR conversion is the maximum
+available. This can be tweaked using flags pa_mac_core.h. Note that the AU
+render quyality property is used to set the sample rat conversion quality
+as "documented" here:
+http://lists.apple.com/archives/coreaudio-api/2004/Jan/msg00141.html
 
-- x86: I haven't tested it on an x86 Maci myself, but users have reported 
+- x86: I haven't tested it on an x86 Mac myself, but users have reported 
 being able to comiple and run it.

@@ -641,9 +641,6 @@ static PaError OpenAndSetupOneAudioUnit(
     unsigned long macInputStreamFlags  = paMacCorePlayNice;
     unsigned long macOutputStreamFlags = paMacCorePlayNice;
 
-    /*change the flags here, if desired, for testing.*/
-    /*macInputStreamInfo  = macOutputStreamInfo = paMacCore_ChangeDeviceParameters ;*/
-
     /* -- handle the degenerate case  -- */
     if( !inStreamParams && !outStreamParams ) {
        *audioUnit = NULL;
@@ -660,6 +657,7 @@ static PaError OpenAndSetupOneAudioUnit(
        macOutputStreamFlags=
             ((paMacCoreStreamInfo*)outStreamParams->hostApiSpecificStreamInfo)
                   ->flags;
+    /* Override user's flags here, if desired for testing. */
 
     /*
      * The HAL AU is a Mac OS style "component".
@@ -793,6 +791,31 @@ static PaError OpenAndSetupOneAudioUnit(
           if( paResult ) goto error;
        }
     }
+
+    /* -- set the quality of the output converter -- */
+    if( outStreamParams ) {
+       UInt32 value = kAudioConverterQuality_Max;
+       switch( macOutputStreamFlags & 0x0700 ) {
+       case 0x0100: /*paMacCore_ConversionQualityMin:*/
+          value=kRenderQuality_Min;
+          break;
+       case 0x0200: /*paMacCore_ConversionQualityLow:*/
+          value=kRenderQuality_Low;
+          break;
+       case 0x0300: /*paMacCore_ConversionQualityMedium:*/
+          value=kRenderQuality_Medium;
+          break;
+       case 0x0400: /*paMacCore_ConversionQualityHigh:*/
+          value=kRenderQuality_High;
+          break;
+       }
+       ERR_WRAP( AudioUnitSetProperty( *audioUnit,
+                    kAudioUnitProperty_RenderQuality,
+                    kAudioUnitScope_Global,
+                    OUTPUT_ELEMENT,
+                    &value,
+                    sizeof(value) ) );
+    }
     /* now set the format on the Audio Units. */
     if( outStreamParams )
     {
@@ -899,6 +922,20 @@ static PaError OpenAndSetupOneAudioUnit(
        if( desiredFormat.mSampleRate != sourceFormat.mSampleRate )
        {
           UInt32 value = kAudioConverterQuality_Max;
+          switch( macInputStreamFlags & 0x0700 ) {
+          case 0x0100: /*paMacCore_ConversionQualityMin:*/
+             value=kAudioConverterQuality_Min;
+             break;
+          case 0x0200: /*paMacCore_ConversionQualityLow:*/
+             value=kAudioConverterQuality_Low;
+             break;
+          case 0x0300: /*paMacCore_ConversionQualityMedium:*/
+             value=kAudioConverterQuality_Medium;
+             break;
+          case 0x0400: /*paMacCore_ConversionQualityHigh:*/
+             value=kAudioConverterQuality_High;
+             break;
+          }
           VDBUG(( "Creating sample rate converter for input"
                   " to convert from %g to %g\n",
                   (float)sourceFormat.mSampleRate,
@@ -908,7 +945,7 @@ static PaError OpenAndSetupOneAudioUnit(
                              &sourceFormat,
                              &desiredFormat,
                              srConverter ) );
-          /* Use highest quality */
+          /* Set quality */
           ERR_WRAP( AudioConverterSetProperty(
                              *srConverter,
                              kAudioConverterSampleRateConverterQuality,
