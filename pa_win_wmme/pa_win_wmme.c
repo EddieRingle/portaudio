@@ -1623,11 +1623,15 @@ static PaError TerminateWaveHandles( PaWinMmeSingleDirectionHandlesAndBuffers *h
             {
                 if( ((HWAVEIN*)handlesAndBuffers->waveHandles)[i] )
                     mmresult = waveInClose( ((HWAVEIN*)handlesAndBuffers->waveHandles)[i] );
+                else
+                    mmresult = MMSYSERR_NOERROR;
             }
             else
             {
                 if( ((HWAVEOUT*)handlesAndBuffers->waveHandles)[i] )
                     mmresult = waveOutClose( ((HWAVEOUT*)handlesAndBuffers->waveHandles)[i] );
+                else
+                    mmresult = MMSYSERR_NOERROR;
             }
 
             if( mmresult != MMSYSERR_NOERROR &&
