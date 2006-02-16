@@ -127,3 +127,6 @@ http://lists.apple.com/archives/coreaudio-api/2004/Jan/msg00141.html
 
 - x86: I haven't tested it on an x86 Mac myself, but users have reported 
 being able to comiple and run it.
+
+- frames per buffer: Users must select a frames per buffer setting.
+(that is, v19 proposal 004 is not implemented)
