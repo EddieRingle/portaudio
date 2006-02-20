@@ -124,6 +124,8 @@ for name, val in optionalImpls.items():
     lib, hdr, sym = val
     if checkSymbol(conf, hdr, lib, sym, critical=False, pkgName=name.lower()):
         env.Append(CPPDEFINES=["PA_USE_%s=1" % name.upper()])
+    else:
+        del optionalImpls[name]
 
 # Configuration finished
 env = conf.Finish()
