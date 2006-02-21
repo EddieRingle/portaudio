@@ -1533,6 +1533,7 @@ static void *PaOSS_AudioThreadProc( void *userData )
     int triggered = stream->triggered;  /* See if SNDCTL_DSP_TRIGGER has been issued already */
     int initiateProcessing = triggered;    /* Already triggered? */
     PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
+    PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* TODO: IMPLEMENT ME */
     
     /*
 #if ( SOUND_VERSION > 0x030904 )
@@ -1562,8 +1563,6 @@ static void *PaOSS_AudioThreadProc( void *userData )
 
     while( 1 )
     {
-        PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* TODO: IMPLEMENT ME */
-
         pthread_testcancel();
 
         if( stream->callbackStop && callbackResult == paContinue )

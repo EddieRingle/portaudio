@@ -66,7 +66,7 @@ typedef struct
     float        left_phase;
     float        right_phase;
     int          state;
-    int          requestBeep;  /* Set by foreground, cleared by background. */
+    volatile int requestBeep;  /* Set by foreground, cleared by background. */
     PaTime       beepTime;
     int          beepCount;
     double       latency;    /* For debugging. */
