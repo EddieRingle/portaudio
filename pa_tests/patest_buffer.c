@@ -37,15 +37,15 @@
 #include <stdlib.h>
 #include <math.h>
 #include "portaudio.h"
-#define NUM_SECONDS   (1)
+#define NUM_SECONDS   (3)
 #define SAMPLE_RATE   (44100)
 #ifndef M_PI
 #define M_PI  (3.14159265)
 #endif
 #define TABLE_SIZE   (200)
 
-#define BUFFER_TABLE  9
-long buffer_table[] = {200,256,500,512,600, 723, 1000, 1024, 2345};
+#define BUFFER_TABLE  14
+long buffer_table[] = {paFramesPerBufferUnspecified,16,32,64,128,200,256,500,512,600,723,1000,1024,2345};
 
 typedef struct
 {
@@ -166,7 +166,7 @@ PaError TestOnce( int buffersize )
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;
     printf("Waiting for sound to finish.\n");
-    Pa_Sleep(1000);
+    Pa_Sleep(1000*NUM_SECONDS);
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
     Pa_Terminate();

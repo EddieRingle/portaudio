@@ -100,8 +100,8 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 
 /* Very verbose debugging */
 /*
-#define MAC_CORE_VERBOSE_DEBUG
  */
+#define MAC_CORE_VERBOSE_DEBUG
 #ifdef MAC_CORE_VERBOSE_DEBUG
 # define VDBUG(MSG) do { printf("||PaMacCore|| "); printf MSG ; fflush(stdout); } while(0)
 #else
@@ -1105,6 +1105,69 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
+    /* -- handle paFramesPerBufferUnspecified -- */
+    if( framesPerBuffer == paFramesPerBufferUnspecified ) {
+       long requested = 64;
+       if( inputParameters )
+          requested = MAX( requested, inputParameters->suggestedLatency * sampleRate / 2 );
+       if( outputParameters )
+          requested = MAX( requested, outputParameters->suggestedLatency *sampleRate / 2 );
+       VDBUG( ("Block Size unspecified. Based on Latency, the user wants a Block Size near: %d.\n",
+              requested ) );
+       if( requested <= 64 ) {
+          /*requested a realtively low latency. make sure this is in range of devices */
+          /*try to get the device's min natural buffer size and use that (but no smaller than 64).*/
+          AudioValueRange audioRange;
+          size_t size = sizeof( audioRange );
+          if( inputParameters ) {
+             WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[inputParameters->device],
+                                          0,
+                                          false,
+                                          kAudioDevicePropertyBufferFrameSizeRange,
+                                          &size, &audioRange ) );
+             if( result )
+                requested = MAX( requested, audioRange.mMinimum );
+          }
+          if( outputParameters ) {
+             WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[outputParameters->device],
+                                          0,
+                                          false,
+                                          kAudioDevicePropertyBufferFrameSizeRange,
+                                          &size, &audioRange ) );
+             if( result )
+                requested = MAX( requested, audioRange.mMinimum );
+          }
+       } else {
+          /* requested a realtively high latency. make sure this is in range of devices */
+          /*try to get the device's max natural buffer size and use that (but no larger than 1024).*/
+          AudioValueRange audioRange;
+          size_t size = sizeof( audioRange );
+          requested = MIN( requested, 1024 );
+          if( inputParameters ) {
+             WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[inputParameters->device],
+                                          0,
+                                          false,
+                                          kAudioDevicePropertyBufferFrameSizeRange,
+                                          &size, &audioRange ) );
+             if( result )
+                requested = MIN( requested, audioRange.mMaximum );
+          }
+          if( outputParameters ) {
+             WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[outputParameters->device],
+                                          0,
+                                          false,
+                                          kAudioDevicePropertyBufferFrameSizeRange,
+                                          &size, &audioRange ) );
+             if( result )
+                requested = MIN( requested, audioRange.mMaximum );
+          }
+       }
+       /* -- double check ranges -- */
+       if( requested > 1024 ) requested = 1024;
+       if( requested < 64 ) requested = 64;
+       VDBUG(("After querying hardware, setting block size to %d.\n", requested));
+       framesPerBuffer = requested;
+    }
 
     /* -- Now we actually open and setup streams. -- */
     if( inputParameters && outputParameters && outputParameters->device == inputParameters->device )
