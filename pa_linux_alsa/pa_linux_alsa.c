@@ -182,7 +182,7 @@ PaAlsaStream;
 
 typedef struct PaAlsaHostApiRepresentation
 {
-    PaUtilHostApiRepresentation commonHostApiRep;
+    PaUtilHostApiRepresentation baseHostApiRep;
     PaUtilStreamInterface callbackStreamInterface;
     PaUtilStreamInterface blockingStreamInterface;
 
@@ -194,7 +194,7 @@ PaAlsaHostApiRepresentation;
 
 typedef struct PaAlsaDeviceInfo
 {
-    PaDeviceInfo commonDeviceInfo;
+    PaDeviceInfo baseDeviceInfo;
     char *alsaName;
     int isPlug;
     int minInputChannels;
@@ -804,7 +804,7 @@ static int IgnorePlugin( const char *pluginId )
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
-    PaUtilHostApiRepresentation *commonApi = &alsaApi->commonHostApiRep;
+    PaUtilHostApiRepresentation *baseApi = &alsaApi->baseHostApiRep;
     PaAlsaDeviceInfo *deviceInfoArray;
     int cardIdx = -1, devIdx = 0;
     snd_ctl_card_info_t *cardInfo;
@@ -820,8 +820,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         blocking = 0;
 
     /* These two will be set to the first working input and output device, respectively */
-    commonApi->info.defaultInputDevice = paNoDevice;
-    commonApi->info.defaultOutputDevice = paNoDevice;
+    baseApi->info.defaultInputDevice = paNoDevice;
+    baseApi->info.defaultOutputDevice = paNoDevice;
 
     /* count the devices by enumerating all the card numbers */
 
@@ -957,7 +957,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PA_DEBUG(( "%s: Iterating over ALSA plugins failed: %s\n", __FUNCTION__, snd_strerror( res ) ));
 
     /* allocate deviceInfo memory based on the number of devices */
-    PA_UNLESS( commonApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
+    PA_UNLESS( baseApi->deviceInfos = (PaDeviceInfo**)PaUtil_GroupAllocateMemory(
             alsaApi->allocations, sizeof(PaDeviceInfo*) * (numDeviceNames) ), paInsufficientMemory );
 
     /* allocate all device info structs in a contiguous block */
@@ -972,10 +972,10 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     {
         snd_pcm_t *pcm;
         PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
-        PaDeviceInfo *commonDeviceInfo = &deviceInfo->commonDeviceInfo;
+        PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
 
         /* Zero fields */
-        InitializeDeviceInfo( commonDeviceInfo );
+        InitializeDeviceInfo( baseDeviceInfo );
 
         /* to determine device capabilities, we must open the device and query the
          * hardware parameter configuration space */
@@ -984,9 +984,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( deviceNames[i].hasCapture &&
                 snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
-            if( GropeDevice( pcm, &deviceInfo->minInputChannels, &commonDeviceInfo->maxInputChannels,
-                        &commonDeviceInfo->defaultLowInputLatency, &commonDeviceInfo->defaultHighInputLatency,
-                        &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
+            if( GropeDevice( pcm, &deviceInfo->minInputChannels, &baseDeviceInfo->maxInputChannels,
+                        &baseDeviceInfo->defaultLowInputLatency, &baseDeviceInfo->defaultHighInputLatency,
+                        &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
                 continue;   /* Error */
         }
 
@@ -994,34 +994,34 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( deviceNames[i].hasPlayback &&
                 snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
-            if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &commonDeviceInfo->maxOutputChannels,
-                        &commonDeviceInfo->defaultLowOutputLatency, &commonDeviceInfo->defaultHighOutputLatency,
-                        &commonDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
+            if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &baseDeviceInfo->maxOutputChannels,
+                        &baseDeviceInfo->defaultLowOutputLatency, &baseDeviceInfo->defaultHighOutputLatency,
+                        &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
                 continue;   /* Error */
         }
 
-        commonDeviceInfo->structVersion = 2;
-        commonDeviceInfo->hostApi = alsaApi->hostApiIndex;
-        commonDeviceInfo->name = deviceNames[i].name;
+        baseDeviceInfo->structVersion = 2;
+        baseDeviceInfo->hostApi = alsaApi->hostApiIndex;
+        baseDeviceInfo->name = deviceNames[i].name;
         deviceInfo->alsaName = deviceNames[i].alsaName;
         deviceInfo->isPlug = deviceNames[i].isPlug;
 
         /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
          * Should now be safe to add device info, unless the device supports neither capture nor playback
          */
-        if( commonDeviceInfo->maxInputChannels > 0 || commonDeviceInfo->maxOutputChannels > 0 )
+        if( baseDeviceInfo->maxInputChannels > 0 || baseDeviceInfo->maxOutputChannels > 0 )
         {
-            if( commonApi->info.defaultInputDevice == paNoDevice && commonDeviceInfo->maxInputChannels > 0 )
-                commonApi->info.defaultInputDevice = devIdx;
-            if(  commonApi->info.defaultOutputDevice == paNoDevice && commonDeviceInfo->maxOutputChannels > 0 )
-                commonApi->info.defaultOutputDevice = devIdx;
+            if( baseApi->info.defaultInputDevice == paNoDevice && baseDeviceInfo->maxInputChannels > 0 )
+                baseApi->info.defaultInputDevice = devIdx;
+            if(  baseApi->info.defaultOutputDevice == paNoDevice && baseDeviceInfo->maxOutputChannels > 0 )
+                baseApi->info.defaultOutputDevice = devIdx;
 
-            commonApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
+            baseApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
         }
     }
     free( deviceNames );
 
-    commonApi->info.deviceCount = devIdx;   /* Number of successfully queried devices */
+    baseApi->info.deviceCount = devIdx;   /* Number of successfully queried devices */
 
 end:
     return result;
@@ -1060,8 +1060,8 @@ static PaError ValidateParameters( const PaStreamParameters *parameters, PaUtilH
 
     assert( deviceInfo );
     assert( parameters->hostApiSpecificStreamInfo == NULL );
-    maxChans = (StreamDirection_In == mode ? deviceInfo->commonDeviceInfo.maxInputChannels :
-        deviceInfo->commonDeviceInfo.maxOutputChannels);
+    maxChans = (StreamDirection_In == mode ? deviceInfo->baseDeviceInfo.maxInputChannels :
+        deviceInfo->baseDeviceInfo.maxOutputChannels);
     PA_UNLESS( parameters->channelCount <= maxChans, paInvalidChannelCount );
 
 error:
@@ -1291,7 +1291,7 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
 
     if( NULL == params->hostApiSpecificStreamInfo )
     {
-        const PaAlsaDeviceInfo *devInfo = GetDeviceInfo( &alsaApi->commonHostApiRep, params->device );
+        const PaAlsaDeviceInfo *devInfo = GetDeviceInfo( &alsaApi->baseHostApiRep, params->device );
         self->numHostChannels = PA_MAX( params->channelCount, StreamDirection_In == streamDir ? devInfo->minInputChannels
                 : devInfo->minOutputChannels );
     }
@@ -1301,7 +1301,7 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
         self->numHostChannels = params->channelCount;
     }
 
-    PA_ENSURE( AlsaOpen( &alsaApi->commonHostApiRep, params, streamDir, &self->pcm ) );
+    PA_ENSURE( AlsaOpen( &alsaApi->baseHostApiRep, params, streamDir, &self->pcm ) );
     self->nfds = snd_pcm_poll_descriptors_count( self->pcm );
     hostSampleFormat = PaUtil_SelectClosestAvailableFormat( GetAvailableFormats( self->pcm ), userSampleFormat );
 
@@ -1824,7 +1824,7 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
             ENSURE_( snd_pcm_hw_params_get_periods_max( hwParamsPlayback, &maxPeriods, &dir ), paUnanticipatedHostError );
             if( maxPeriods < 4 )
             {
-                /* The playback component is tricker to get right, try that first */
+                /* The playback component is trickier to get right, try that first */
                 first = &self->playback;
                 second = &self->capture;
                 firstStreamParams = outputParameters;
@@ -2359,7 +2359,7 @@ static PaTime GetStreamTime( PaStream *s )
     PaAlsaStream *stream = (PaAlsaStream*)s;
 
     snd_timestamp_t timestamp;
-    snd_pcm_status_t *status;
+    snd_pcm_status_t* status;
     snd_pcm_status_alloca( &status );
 
     /* TODO: what if we have both?  does it really matter? */
@@ -2378,7 +2378,7 @@ static PaTime GetStreamTime( PaStream *s )
     }
 
     snd_pcm_status_get_tstamp( status, &timestamp );
-    return timestamp.tv_sec + (PaTime)timestamp.tv_usec / 1000000.0;
+    return timestamp.tv_sec + (PaTime)timestamp.tv_usec / 1e6;
 }
 
 static double GetStreamCpuLoad( PaStream* s )
