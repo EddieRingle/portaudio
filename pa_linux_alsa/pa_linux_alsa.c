@@ -1664,7 +1664,13 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
     }
 
     assert( framesPerHostBuffer > 0 );
-    ENSURE_( snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, NULL ), paUnanticipatedHostError );
+    {
+        int err = snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, NULL );
+        if( err < 0 ) {
+            PA_DEBUG(( "%s: Failed setting period size near %lu", __FUNCTION__, framesPerHostBuffer ));
+        }
+        ENSURE_( err, paUnanticipatedHostError );
+    }
     self->framesPerBuffer = framesPerHostBuffer;
 
 error:
