@@ -93,15 +93,31 @@ reads data and puts it in the ring buffer. The output callback reads the
 data off the ring buffer, into an audio converter and finally to the
 buffer processor.
 
+Platform Specific Options:
+
+By using the flags in pa_mac_core.h, the user may specify several options.
+For example, the user can specify the sample-rate conversion quality, and
+the extent to which PA will attempt to "play nice" and to what extent it
+will interrupt other apps to improve performance. For example, if 44100 Hz
+sample rate is requested but the device is set at 48000 Hz, PA can either
+change the device for optimal playback ("Pro" mode), which may interrupt
+other programs playing back audio, or simple use a sample-rate coversion,
+which allows for friendlier sharing of the device ("Play Nice" mode).
 
 
 Known issues:
 
-- Latency: Latency settings are ignored except when doing I/O between different
-devices. Still, latency should be very low.
+- Latency: Latency settings are ignored in most cases. Exceptions are when
+doing I/O between different devices and as a hint for selecting a realtively
+low or relatively high latency in conjunction with
+paHostFramesPerBufferUnspecified. Latency settings are always automatically
+bound to "safe" values, however, so setting extreme values here should not be
+an issue.
 
-- Buffer Size: Only preset buffer sizes are supported, ie, variable number of
-frames per buffer is not currently supported.
+- Buffer Size: paHostFramesPerBufferUnspecified and specific host buffer sizes
+are supported. paHostFramesPerBufferUnspecified works best in "pro" mode,
+where the buffer size and sample rate of the audio device is most likely
+to match the expected values.
 
 - Timing info. It reports on stream time, but I'm probably doing something
 wrong since patest_sine_time often reports negative latency numbers.
@@ -127,6 +143,3 @@ http://lists.apple.com/archives/coreaudio-api/2004/Jan/msg00141.html
 
 - x86: I haven't tested it on an x86 Mac myself, but users have reported 
 being able to comiple and run it.
-
-- frames per buffer: Users must select a frames per buffer setting.
-(that is, v19 proposal 004 is not implemented)
