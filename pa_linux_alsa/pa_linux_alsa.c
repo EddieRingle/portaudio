@@ -1664,8 +1664,7 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
     }
 
     assert( framesPerHostBuffer > 0 );
-    dir = 0;
-    ENSURE_( snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, &dir ), paUnanticipatedHostError );
+    ENSURE_( snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, NULL ), paUnanticipatedHostError );
     self->framesPerBuffer = framesPerHostBuffer;
 
 error:
