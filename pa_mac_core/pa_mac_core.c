@@ -100,8 +100,8 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 
 /* Very verbose debugging */
 /*
- */
 #define MAC_CORE_VERBOSE_DEBUG
+ */
 #ifdef MAC_CORE_VERBOSE_DEBUG
 # define VDBUG(MSG) do { printf("||PaMacCore|| "); printf MSG ; fflush(stdout); } while(0)
 #else
@@ -317,6 +317,8 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
     /* default to something reasonable */
     deviceInfo->defaultLowInputLatency = .01;
     deviceInfo->defaultHighInputLatency = .01;
+    deviceInfo->defaultLowOutputLatency = .01;
+    deviceInfo->defaultHighOutputLatency = .01;
     propSize = sizeof(UInt32);
     err = WARNING(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
     if (!err) {
