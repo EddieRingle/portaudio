@@ -116,9 +116,9 @@ int main(int argc, char **args);
 int main(int argc, char **args)
 {
     int i;
+    int device = -1;
     PaError err;
     printf("Test opening streams with different buffer sizes\n");
-    int device = -1;
     if( argc > 1 ) {
        device=atoi( args[1] );
        printf("Using device number %d.\n\n", device );
