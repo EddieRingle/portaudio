@@ -88,7 +88,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 #define INPUT_ELEMENT  (1)
 #define OUTPUT_ELEMENT (0)
 
-/* Normal level of debugging */
+/* Normal level of debugging: fine for most apps that don't mind the occational warning being printf'ed */
 /*
  */
 #define MAC_CORE_DEBUG
@@ -98,14 +98,24 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 # define DBUG(MSG)
 #endif
 
-/* Very verbose debugging */
+/* Verbose Debugging: useful for developement */
 /*
 #define MAC_CORE_VERBOSE_DEBUG
  */
 #ifdef MAC_CORE_VERBOSE_DEBUG
-# define VDBUG(MSG) do { printf("||PaMacCore|| "); printf MSG ; fflush(stdout); } while(0)
+# define VDBUG(MSG) do { printf("||PaMacCore (v )|| "); printf MSG ; fflush(stdout); } while(0)
 #else
 # define VDBUG(MSG)
+#endif
+
+/* Very Verbose Debugging: Traces every call. */
+/*
+#define MAC_CORE_VERY_VERBOSE_DEBUG
+ */
+#ifdef MAC_CORE_VERY_VERBOSE_DEBUG
+# define VVDBUG(MSG) do { printf("||PaMacCore (vv)|| "); printf MSG ; fflush(stdout); } while(0)
+#else
+# define VVDBUG(MSG)
 #endif
 
 #define RING_BUFFER_ADVANCE_DENOMINATOR (4)
@@ -233,6 +243,7 @@ static PaError gatherDeviceInfo(PaMacAUHAL *auhalHostApi)
 {
     UInt32 size;
     UInt32 propsize;
+    VVDBUG(("gatherDeviceInfo()\n"));
     /* -- free any previous allocations -- */
     if( auhalHostApi->devIds )
         PaUtil_GroupFreeMemory(auhalHostApi->allocations, auhalHostApi->devIds);
@@ -293,6 +304,8 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
     AudioBufferList *buflist;
     UInt32 frameLatency;
 
+    VVDBUG(("GetChannelInfo()\n"));
+
     /* Get the number of channels from the stream configuration.
        Fail if we can't get this. */
 
@@ -345,6 +358,8 @@ static PaError InitializeDeviceInfo( PaMacAUHAL *auhalHostApi,
     PaError err = paNoError;
     UInt32 propSize;
 
+    VVDBUG(("InitializeDeviceInfo(): macCoreDeviceId=%ld\n", macCoreDeviceId));
+
     memset(deviceInfo, 0, sizeof(deviceInfo));
 
     deviceInfo->structVersion = 2;
@@ -390,6 +405,8 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
     int i;
     PaMacAUHAL *auhalHostApi;
     PaDeviceInfo *deviceInfoArray;
+
+    VVDBUG(("PaMacCore_Initialize(): hostApiIndex=%d\n", hostApiIndex));
 
     auhalHostApi = (PaMacAUHAL*)PaUtil_AllocateMemory( sizeof(PaMacAUHAL) );
     if( !auhalHostApi )
@@ -511,6 +528,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
     PaMacAUHAL *auhalHostApi = (PaMacAUHAL*)hostApi;
 
+    VVDBUG(("Terminate()\n"));
+
     /*
         IMPLEMENT ME:
             - clean up any resources not handled by the allocation group
@@ -534,6 +553,13 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 {
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
+
+    VVDBUG(("IsFormatSupported(): in chan=%d, in fmt=%ld, out chan=%d, out fmt=%ld sampleRate=%g\n",
+                inputParameters  ? inputParameters->channelCount  : -1,
+                inputParameters  ? inputParameters->sampleFormat  : -1,
+                outputParameters ? outputParameters->channelCount : -1,
+                outputParameters ? outputParameters->sampleFormat : -1,
+                (float) sampleRate ));
  
     /** These first checks are standard PA checks. We do some fancier checks
         later. */
@@ -642,6 +668,13 @@ static PaError OpenAndSetupOneAudioUnit(
     AURenderCallbackStruct rcbs;
     unsigned long macInputStreamFlags  = paMacCorePlayNice;
     unsigned long macOutputStreamFlags = paMacCorePlayNice;
+
+    VVDBUG(("OpenAndSetupOneAudioUnit(): in chan=%d, in fmt=%ld, out chan=%d, out fmt=%ld, requestedFramesPerBuffer=%ld\n",
+                inStreamParams  ? inStreamParams->channelCount  : -1,
+                inStreamParams  ? inStreamParams->sampleFormat  : -1,
+                outStreamParams ? outStreamParams->channelCount : -1,
+                outStreamParams ? outStreamParams->sampleFormat : -1,
+                requestedFramesPerBuffer ));
 
     /* -- handle the degenerate case  -- */
     if( !inStreamParams && !outStreamParams ) {
@@ -1016,6 +1049,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
+    VVDBUG(("OpenStream(): in chan=%d, in fmt=%ld, out chan=%d, out fmt=%ld SR=%g, FPB=%ld\n",
+                inputParameters  ? inputParameters->channelCount  : -1,
+                inputParameters  ? inputParameters->sampleFormat  : -1,
+                outputParameters ? outputParameters->channelCount : -1,
+                outputParameters ? outputParameters->sampleFormat : -1,
+                (float) sampleRate,
+                framesPerBuffer ));
     VDBUG( ("Opening Stream.\n") );
 
     /*These first few bits of code are from paSkeleton with few modifications.*/
@@ -1114,7 +1154,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           requested = MAX( requested, inputParameters->suggestedLatency * sampleRate / 2 );
        if( outputParameters )
           requested = MAX( requested, outputParameters->suggestedLatency *sampleRate / 2 );
-       VDBUG( ("Block Size unspecified. Based on Latency, the user wants a Block Size near: %d.\n",
+       VDBUG( ("Block Size unspecified. Based on Latency, the user wants a Block Size near: %ld.\n",
               requested ) );
        if( requested <= 64 ) {
           /*requested a realtively low latency. make sure this is in range of devices */
@@ -1167,7 +1207,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
        /* -- double check ranges -- */
        if( requested > 1024 ) requested = 1024;
        if( requested < 64 ) requested = 64;
-       VDBUG(("After querying hardware, setting block size to %d.\n", requested));
+       VDBUG(("After querying hardware, setting block size to %ld.\n", requested));
        framesPerBuffer = requested;
     }
 
@@ -1369,6 +1409,8 @@ PaTime GetStreamTime( PaStream *s )
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     AudioTimeStamp timeStamp;
 
+    VVDBUG(("GetStreamTime()\n"));
+
     if ( !stream->isTimeSet )
         return (PaTime)0;
 
@@ -1386,6 +1428,7 @@ static void setStreamStartTime( PaMacCoreStream *stream )
 {
    /* FIXME: I am not at all sure this timing info stuff is right.
              patest_sine_time reports negative latencies, which is wierd.*/
+    VVDBUG(("setStreamStartTime()\n"));
    if( stream->inputDevice )
       AudioDeviceGetCurrentTime( stream->inputDevice, &stream->startTime);
    else
@@ -1395,6 +1438,7 @@ static void setStreamStartTime( PaMacCoreStream *stream )
 
 static PaTime TimeStampToSecs(PaMacCoreStream *stream, const AudioTimeStamp* timeStamp)
 {
+    VVDBUG(("TimeStampToSecs()\n"));
     if (timeStamp->mFlags & kAudioTimeStampSampleTimeValid)
         return (timeStamp->mSampleTime / stream->sampleRate);
     else
@@ -1411,6 +1455,8 @@ static OSStatus ringBufferIOProc( AudioConverterRef inAudioConverter,
    void *dummyData;
    long dummySize;
    RingBuffer *rb = (RingBuffer *) inUserData;
+
+   VVDBUG(("ringBufferIOProc()\n"));
 
    assert( sizeof( UInt32 ) == sizeof( long ) );
    if( RingBuffer_GetReadAvailable( rb ) == 0 ) {
@@ -1445,6 +1491,8 @@ static OSStatus AudioIOProc( void *inRefCon,
    PaMacCoreStream *stream           = (PaMacCoreStream*)inRefCon;
    const bool isRender               = inBusNumber == OUTPUT_ELEMENT;
    int callbackResult                = paContinue ;
+
+   VVDBUG(("AudioIOProc()\n"));
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
@@ -1825,6 +1873,8 @@ static PaError CloseStream( PaStream* s )
        Therefore, each piece of info is treated seperately. */
     PaError result = paNoError;
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+
+    VVDBUG(("CloseStream()\n"));
     VDBUG( ( "Closing stream.\n" ) );
 
     if( stream ) {
@@ -1865,6 +1915,7 @@ static PaError StartStream( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
+    VVDBUG(("StartStream()\n"));
     VDBUG( ( "Starting stream.\n" ) );
 
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
@@ -1892,6 +1943,7 @@ static PaError StopStream( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
+    VVDBUG(("StopStream()\n"));
     VDBUG( ( "Stopping stream.\n" ) );
 
     stream->state = STOPPING;
@@ -1940,6 +1992,7 @@ static PaError StopStream( PaStream *s )
 
 static PaError AbortStream( PaStream *s )
 {
+    VVDBUG(("AbortStream()->StopStream()\n"));
     VDBUG( ( "Aborting stream.\n" ) );
     /* We have nothing faster than StopStream. */
     return StopStream(s);
@@ -1949,6 +2002,7 @@ static PaError AbortStream( PaStream *s )
 static PaError IsStreamStopped( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("IsStreamStopped()\n"));
 
     return stream->state == STOPPED ? 1 : 0;
 }
@@ -1957,6 +2011,7 @@ static PaError IsStreamStopped( PaStream *s )
 static PaError IsStreamActive( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("IsStreamActive()\n"));
     return ( stream->state == ACTIVE || stream->state == STOPPING );
 }
 
@@ -1964,6 +2019,7 @@ static PaError IsStreamActive( PaStream *s )
 static double GetStreamCpuLoad( PaStream* s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("GetStreamCpuLoad()\n"));
 
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
@@ -1980,6 +2036,7 @@ static PaError ReadStream( PaStream* s,
                            unsigned long frames )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("ReadStream()\n"));
 
     /* suppress unused variable warnings */
     (void) buffer;
@@ -1997,6 +2054,7 @@ static PaError WriteStream( PaStream* s,
                             unsigned long frames )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("WriteStream()\n"));
 
     /* suppress unused variable warnings */
     (void) buffer;
@@ -2012,6 +2070,7 @@ static PaError WriteStream( PaStream* s,
 static signed long GetStreamReadAvailable( PaStream* s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("GetStreamReadAvailable()\n"));
 
     /* suppress unused variable warnings */
     (void) stream;
@@ -2025,6 +2084,7 @@ static signed long GetStreamReadAvailable( PaStream* s )
 static signed long GetStreamWriteAvailable( PaStream* s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("GetStreamWriteAvailable()\n"));
 
     /* suppress unused variable warnings */
     (void) stream;
