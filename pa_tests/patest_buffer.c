@@ -55,7 +55,7 @@ typedef struct
     unsigned int sampsToGo;
 }
 paTestData;
-PaError TestOnce( int buffersize );
+PaError TestOnce( int buffersize, PaDeviceIndex );
 
 /* This routine will be called by the PortAudio engine when audio is needed.
 ** It may called at interrupt level on some machines so don't do anything
@@ -111,17 +111,24 @@ static int patest1Callback( const void *inputBuffer, void *outputBuffer,
     return finished;
 }
 /*******************************************************************/
-int main(void);
-int main(void)
+int main(int argc, char **args);
+int main(int argc, char **args)
 {
     int i;
     PaError err;
-    printf("Test opening streams with different buffer sizes\n\n");
+    printf("Test opening streams with different buffer sizes\n");
+    int device = -1;
+    if( argc > 1 ) {
+       device=atoi( args[1] );
+       printf("Using device number %d.\n\n", device );
+    } else {
+       printf("Using default device.\n\n" );
+    }
 
     for (i = 0 ; i < BUFFER_TABLE; i++)
     {
         printf("Buffer size %ld\n", buffer_table[i]);
-        err = TestOnce(buffer_table[i]);
+        err = TestOnce(buffer_table[i], device);
         if( err < 0 ) return 0;
 
     }
@@ -129,7 +136,7 @@ int main(void)
 }
 
 
-PaError TestOnce( int buffersize )
+PaError TestOnce( int buffersize, PaDeviceIndex device )
 {
     PaStreamParameters outputParameters;
     PaStream *stream;
@@ -147,7 +154,10 @@ PaError TestOnce( int buffersize )
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
     
-    outputParameters.device = Pa_GetDefaultOutputDevice();  /* default output device */
+    if( device == -1 )
+        outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    else
+        outputParameters.device = device ;
     outputParameters.channelCount = 2;                      /* stereo output */
     outputParameters.sampleFormat = paInt16;                /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
@@ -176,5 +186,6 @@ error:
     fprintf( stderr, "An error occured while using the portaudio stream\n" );
     fprintf( stderr, "Error number: %d\n", err );
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
+    fprintf( stderr, "Host Error message: %s\n", Pa_GetLastHostErrorInfo()->errorText );
     return err;
 }
