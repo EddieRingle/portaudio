@@ -45,7 +45,13 @@ AC_ARG_WITH(asiodir,
 AC_ARG_WITH(dxdir,
             [  --with-dxdir (default=/usr/local/dx7sdk)],
             with_dxdir=$withval, with_dxdir="/usr/local/dx7sdk")
-               
+
+AC_ARG_ENABLE(debug-output,
+	[  --enable-debug-output],
+        [if test x$enableval != xno ; then
+	     AC_DEFINE(PA_ENABLE_DEBUG_OUTPUT,,[Enable debugging messages])
+          fi
+        ])
 
 dnl Checks for programs.
 
