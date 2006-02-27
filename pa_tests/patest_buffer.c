@@ -110,6 +110,7 @@ static int patest1Callback( const void *inputBuffer, void *outputBuffer,
     }
     return finished;
 }
+
 /*******************************************************************/
 int main(int argc, char **args);
 int main(int argc, char **args)
