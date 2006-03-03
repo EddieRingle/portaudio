@@ -5,7 +5,7 @@
  * ALSA implementation by Joshua Haberman and Arve Knudsen
  *
  * Copyright (c) 2002 Joshua Haberman <joshua@haberman.com>
- * Copyright (c) 2005 Arve Knudsen <aknuds-1@broadpark.no>
+ * Copyright (c) 2005-2006 Arve Knudsen <aknuds-1@broadpark.no>
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
@@ -845,7 +845,10 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         /* Acquire name of card */
         if( snd_ctl_open( &ctl, alsaCardName, 0 ) < 0 )
-            continue;   /* Unable to open card :( */
+        {
+            /* Unable to open card :( */
+            continue;
+        }
         snd_ctl_card_info( ctl, cardInfo );
 
         PA_ENSURE( PaAlsa_StrDup( alsaApi, &cardName, snd_ctl_card_info_get_name( cardInfo )) );
@@ -862,11 +865,15 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             snd_pcm_info_set_subdevice( pcmInfo, 0 );
             snd_pcm_info_set_stream( pcmInfo, SND_PCM_STREAM_CAPTURE );
             if( snd_ctl_pcm_info( ctl, pcmInfo ) >= 0 )
+            {
                 hasCapture = 1;
+            }
             
             snd_pcm_info_set_stream( pcmInfo, SND_PCM_STREAM_PLAYBACK );
             if( snd_ctl_pcm_info( ctl, pcmInfo ) >= 0 )
+            {
                 hasPlayback = 1;
+            }
 
             if( !hasPlayback && !hasCapture )
             {
@@ -1362,7 +1369,6 @@ static PaError PaAlsaStreamComponent_InitialConfigure( PaAlsaStreamComponent *se
     ENSURE_( snd_pcm_hw_params_any( pcm, hwParams ), paUnanticipatedHostError );
 
     ENSURE_( snd_pcm_hw_params_set_periods_integer( pcm, hwParams ), paUnanticipatedHostError );
-    ENSURE_( snd_pcm_hw_params_set_period_size_integer( pcm, hwParams ), paUnanticipatedHostError );
     /* I think there should be at least 2 periods (even though ALSA doesn't appear to enforce this) */
     dir = 0;
     ENSURE_( snd_pcm_hw_params_set_periods_min( pcm, hwParams, &minPeriods, &dir ), paUnanticipatedHostError );
@@ -1542,22 +1548,29 @@ static int CalculatePollTimeout( const PaAlsaStream *stream, unsigned long frame
     return (int)ceil( 1000 * frames / stream->streamRepresentation.streamInfo.sampleRate );
 }
 
+/** Determine size per host buffer.
+ *
+ * @param accurate: There are times when ALSA has to settle on a non-integer period size (e.g. for samplerate adapting
+ * device), in which case the host buffer size will be inaccurate. This parameter indicates status in this respect.
+ */
 static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamComponent* self, const PaStreamParameters* params,
-        unsigned long framesPerUserBuffer, double sampleRate, snd_pcm_hw_params_t* hwParams )
+        unsigned long framesPerUserBuffer, double sampleRate, snd_pcm_hw_params_t* hwParams, int* accurate )
 {
     PaError result = paNoError;
     unsigned long bufferSize = params->suggestedLatency * sampleRate, framesPerHostBuffer;
     int dir = 0;
+
+    *accurate = 1;
     
     {
         snd_pcm_uframes_t tmp;
-        snd_pcm_hw_params_get_buffer_size_min(hwParams, &tmp);
-        bufferSize = PA_MAX(bufferSize, tmp);
-        snd_pcm_hw_params_get_buffer_size_max(hwParams, &tmp);
-        bufferSize = PA_MIN(bufferSize, tmp);
+        snd_pcm_hw_params_get_buffer_size_min( hwParams, &tmp );
+        bufferSize = PA_MAX( bufferSize, tmp );
+        snd_pcm_hw_params_get_buffer_size_max( hwParams, &tmp );
+        bufferSize = PA_MIN( bufferSize, tmp );
     }
 
-    assert(bufferSize > 0);
+    assert( bufferSize > 0 );
 
     if( framesPerUserBuffer != paFramesPerBufferUnspecified )
     {
@@ -1665,11 +1678,32 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
 
     assert( framesPerHostBuffer > 0 );
     {
-        int err = snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, NULL );
-        if( err < 0 ) {
-            PA_DEBUG(( "%s: Failed setting period size near %lu", __FUNCTION__, framesPerHostBuffer ));
+        snd_pcm_uframes_t min = 0, max = 0;
+        ENSURE_( snd_pcm_hw_params_get_period_size_min( hwParams, &min, NULL ), paUnanticipatedHostError );
+        ENSURE_( snd_pcm_hw_params_get_period_size_max( hwParams, &max, NULL ), paUnanticipatedHostError );
+
+        if( framesPerHostBuffer < min )
+        {
+            framesPerHostBuffer = min;
+            PA_DEBUG(( "%s: The determined period size (%lu) is less than minimum (%lu)\n", __FUNCTION__,
+                        framesPerHostBuffer, min ));
         }
-        ENSURE_( err, paUnanticipatedHostError );
+        else if( framesPerHostBuffer > max )
+        {
+            framesPerHostBuffer = max;
+            PA_DEBUG(( "%s: The determined period size (%lu) is greater than maximum (%lu)\n", __FUNCTION__,
+                        framesPerHostBuffer, max ));
+        }
+
+        assert( framesPerHostBuffer >= min && framesPerHostBuffer <= max );
+        dir = 0;
+        ENSURE_( snd_pcm_hw_params_set_period_size_near( self->pcm, hwParams, &framesPerHostBuffer, &dir ),
+                paUnanticipatedHostError );
+        if( dir != 0 )
+        {
+            PA_DEBUG(( "%s: The configured period size is non-integer.\n", __FUNCTION__ ));
+            *accurate = 0;
+        }
     }
     self->framesPerBuffer = framesPerHostBuffer;
 
@@ -1716,6 +1750,7 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
     PaError result = paNoError;
     unsigned long framesPerHostBuffer = 0;
     int dir = 0;
+    int accurate = 1;
 
     if( self->capture.pcm && self->playback.pcm )
     {
@@ -1839,7 +1874,7 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
             }
 
             PA_ENSURE( PaAlsaStreamComponent_DetermineFramesPerBuffer( first, firstStreamParams, framesPerUserBuffer,
-                        sampleRate, firstHwParams ) );
+                        sampleRate, firstHwParams, &accurate ) );
             
             second->framesPerBuffer = first->framesPerBuffer;
             dir = 0;
@@ -1861,20 +1896,25 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
         if( self->capture.pcm )
         {
             PA_ENSURE( PaAlsaStreamComponent_DetermineFramesPerBuffer( &self->capture, inputParameters, framesPerUserBuffer,
-                        sampleRate, hwParamsCapture) );
+                        sampleRate, hwParamsCapture, &accurate) );
             framesPerHostBuffer = self->capture.framesPerBuffer;
         }
         else
         {
             assert( self->playback.pcm );
             PA_ENSURE( PaAlsaStreamComponent_DetermineFramesPerBuffer( &self->playback, outputParameters, framesPerUserBuffer,
-                        sampleRate, hwParamsPlayback ) );
+                        sampleRate, hwParamsPlayback, &accurate ) );
             framesPerHostBuffer = self->playback.framesPerBuffer;
         }
     }
 
     PA_UNLESS( framesPerHostBuffer != 0, paInternalError );
     self->maxFramesPerHostBuffer = framesPerHostBuffer;
+    if( !accurate )
+    {
+        /* Don't know the exact size per host buffer */
+        *hostBufferSizeMode = paUtilBoundedHostBufferSize;
+    }
 
 error:
     return result;
@@ -2933,7 +2973,9 @@ static PaError PaAlsaStream_WaitForFrames( PaAlsaStream *self, unsigned long *fr
         if( poll( self->pfds, totalFds, pollTimeout ) < 0 )
         {
             /*  XXX: Depend on preprocessor condition? */
-            if( errno == EINTR ) {  /* gdb */
+            if( errno == EINTR )
+            {
+                /* gdb */
                 continue;
             }
 
@@ -3029,8 +3071,8 @@ error:
  * 
  * @param numFrames On entrance the number of requested frames, on exit the number of contiguously accessible frames.
  */
-static PaError PaAlsaStreamComponent_RegisterChannels( PaAlsaStreamComponent *self, PaUtilBufferProcessor *bp,
-        unsigned long *numFrames, int *xrun )
+static PaError PaAlsaStreamComponent_RegisterChannels( PaAlsaStreamComponent* self, PaUtilBufferProcessor* bp,
+        unsigned long* numFrames, int* xrun )
 {
     PaError result = paNoError;
     const snd_pcm_channel_area_t *areas, *area;
@@ -3090,7 +3132,7 @@ error:
  * @param numFrames On entrance the number of available frames, on exit the number of received frames
  * @param xrunOccurred Return whether an xrun has occurred
  */
-static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream *self, unsigned long *numFrames, int *xrunOccurred )
+static PaError PaAlsaStream_SetUpBuffers( PaAlsaStream* self, unsigned long* numFrames, int* xrunOccurred )
 {
     PaError result = paNoError;
     unsigned long captureFrames = ULONG_MAX, playbackFrames = ULONG_MAX, commonFrames = 0;
@@ -3240,7 +3282,8 @@ static void *CallbackThreadFunc( void *userData )
     else
     {
         PA_ENSURE( LockMutex( &stream->startMtx ) );
-        PA_ENSURE( AlsaStart( stream, 0 ) );    /* Buffer will be zeroed */
+        /* Buffer will be zeroed */
+        PA_ENSURE( AlsaStart( stream, 0 ) );
         ENSURE_SYSTEM_( pthread_cond_signal( &stream->startCond ), 0 );
         PA_ENSURE( UnlockMutex( &stream->startMtx ) );
 
@@ -3338,7 +3381,7 @@ static void *CallbackThreadFunc( void *userData )
             framesGot = framesAvail;
             PA_ENSURE( PaAlsaStream_SetUpBuffers( stream, &framesGot, &xrun ) );
             /* Check the host buffer size against the buffer processor configuration */
-            if( stream->bufferProcessor.hostBufferSizeMode == paUtilFixedHostBufferSize )
+            if( paUtilFixedHostBufferSize == stream->bufferProcessor.hostBufferSizeMode )
             {
                 /* We've committed to a fixed host buffer size, stick to that */
                 framesGot = framesGot >= stream->maxFramesPerHostBuffer ? stream->maxFramesPerHostBuffer : 0;
@@ -3346,7 +3389,7 @@ static void *CallbackThreadFunc( void *userData )
             else
             {
                 /* We've committed to an upper bound on the size of host buffers */
-                assert( stream->bufferProcessor.hostBufferSizeMode == paUtilBoundedHostBufferSize );
+                assert( paUtilBoundedHostBufferSize == stream->bufferProcessor.hostBufferSizeMode );
                 framesGot = PA_MIN( framesGot, stream->maxFramesPerHostBuffer );
             }
             framesAvail -= framesGot;
@@ -3359,14 +3402,8 @@ static void *CallbackThreadFunc( void *userData )
             }
             PaUtil_EndCpuLoadMeasurement( &stream->cpuLoadMeasurer, framesGot );
 
-            if( framesGot == 0 )
+            if( 0 == framesGot )
             {
-                if( !xrun )
-                {
-                    PA_DEBUG(( "%s: Received less frames than reported from ALSA, framesAvail: %lu\n", __FUNCTION__,
-                                framesAvail ));
-                }
-
                 /* Go back to polling for more frames */
                 break;
 
