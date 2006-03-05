@@ -3394,8 +3394,6 @@ static void *CallbackThreadFunc( void *userData )
             PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
             framesGot = framesAvail;
-            PA_ENSURE( PaAlsaStream_SetUpBuffers( stream, &framesGot, &xrun ) );
-            /* Check the host buffer size against the buffer processor configuration */
             if( paUtilFixedHostBufferSize == stream->bufferProcessor.hostBufferSizeMode )
             {
                 /* We've committed to a fixed host buffer size, stick to that */
@@ -3407,6 +3405,8 @@ static void *CallbackThreadFunc( void *userData )
                 assert( paUtilBoundedHostBufferSize == stream->bufferProcessor.hostBufferSizeMode );
                 framesGot = PA_MIN( framesGot, stream->maxFramesPerHostBuffer );
             }
+            PA_ENSURE( PaAlsaStream_SetUpBuffers( stream, &framesGot, &xrun ) );
+            /* Check the host buffer size against the buffer processor configuration */
             framesAvail -= framesGot;
 
             if( framesGot > 0 )
