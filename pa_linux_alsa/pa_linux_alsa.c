@@ -1751,7 +1751,7 @@ error:
  */
 static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double sampleRate, const PaStreamParameters* inputParameters,
         const PaStreamParameters* outputParameters, unsigned long framesPerUserBuffer, snd_pcm_hw_params_t* hwParamsCapture,
-        snd_pcm_hw_params_t* hwParamsPlayback, PaUtilHostBufferSizeMode* hostBufferSizeMode, unsigned long* determinedFramesPerHostBuffer )
+        snd_pcm_hw_params_t* hwParamsPlayback, PaUtilHostBufferSizeMode* hostBufferSizeMode )
 {
     PaError result = paNoError;
     unsigned long framesPerHostBuffer = 0;
@@ -1915,14 +1915,15 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
     }
 
     PA_UNLESS( framesPerHostBuffer != 0, paInternalError );
+    self->maxFramesPerHostBuffer = framesPerHostBuffer;
 
     if( !accurate )
     {
         /* Don't know the exact size per host buffer */
         *hostBufferSizeMode = paUtilBoundedHostBufferSize;
+        /* Raise upper bound */
+        ++self->maxFramesPerHostBuffer;
     }
-
-    *determinedFramesPerHostBuffer = framesPerHostBuffer;
 
 error:
     return result;
@@ -1938,7 +1939,6 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
     PaError result = paNoError;
     double realSr = sampleRate;
     snd_pcm_hw_params_t* hwParamsCapture, * hwParamsPlayback;
-    unsigned long framesPerHostBuffer = 0;
 
     snd_pcm_hw_params_alloca( &hwParamsCapture );
     snd_pcm_hw_params_alloca( &hwParamsPlayback );
@@ -1951,7 +1951,7 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
                     &realSr ) );
 
     PA_ENSURE( PaAlsaStream_DetermineFramesPerBuffer( self, realSr, inParams, outParams, framesPerUserBuffer,
-                hwParamsCapture, hwParamsPlayback, hostBufferSizeMode, &framesPerHostBuffer ) );
+                hwParamsCapture, hwParamsPlayback, hostBufferSizeMode ) );
 
     if( self->capture.pcm )
     {
@@ -1966,35 +1966,6 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
         PA_ENSURE( PaAlsaStreamComponent_FinishConfigure( &self->playback, hwParamsPlayback, outParams, self->primeBuffers, realSr,
                     outputLatency ) );
         PA_DEBUG(( "%s: Playback period size: %lu, latency: %f\n", __FUNCTION__, self->playback.framesPerBuffer, *outputLatency ));
-    }
-
-    if( paUtilFixedHostBufferSize == *hostBufferSizeMode )
-    {
-        /* We operate with a fixed host buffer size which equals the size of one period */
-        self->maxFramesPerHostBuffer = framesPerHostBuffer;
-    }
-    else
-    {
-        /* We operate with a bounded host buffer size, this might as well equal the size of the complete buffer */
-        assert( paUtilBoundedHostBufferSize == *hostBufferSizeMode);
-        if( self->capture.pcm && self->playback.pcm )
-        {
-            /* Full-duplex */
-            self->maxFramesPerHostBuffer = PA_MAX( self->capture.bufferSize, self->playback.bufferSize );
-        }
-        else
-        {
-            /* Half-duplex */
-            if( self->capture.pcm )
-            {
-                self->maxFramesPerHostBuffer = self->capture.bufferSize;
-            }
-            else
-            {
-                assert( self->playback.pcm );
-                self->maxFramesPerHostBuffer = self->playback.bufferSize;
-            }
-        }
     }
 
     /* Should be exact now */
