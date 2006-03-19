@@ -89,6 +89,7 @@ dnl extra variables
 AC_SUBST(OTHER_OBJS)
 AC_SUBST(PADLL)
 AC_SUBST(SHARED_FLAGS)
+AC_SUBST(THREAD_CFLAGS)
 AC_SUBST(DLL_LIBS)
 AC_SUBST(CXXFLAGS)
 AC_SUBST(NASM)
@@ -139,7 +140,8 @@ case "${host_os}" in
             OTHER_OBJS="pa_win_ds/pa_win_ds.o pa_win_ds/dsound_wrapper.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
             LIBS="-lwinmm -lm -ldsound -lole32";
             PADLL="portaudio.dll";
-            SHARED_FLAGS="-shared -mthreads";
+	    THREAD_CFLAGS="-mthreads"
+            SHARED_FLAGS="-shared";
             DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -ldsound -lole32";
             #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
@@ -155,7 +157,8 @@ case "${host_os}" in
             OTHER_OBJS="pa_asio/pa_asio.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o pa_asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
-            SHARED_FLAGS="-shared -mthreads";
+	    THREAD_CFLAGS="-mthreads"
+            SHARED_FLAGS="-shared";
             DLL_LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -Ipa_common -Ipa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DPA_NO_WDMKS -DWINDOWS";
             CXXFLAGS="$CFLAGS";
@@ -169,7 +172,8 @@ case "${host_os}" in
             OTHER_OBJS="pa_win_wdmks/pa_win_wdmks.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
             LIBS="-lwinmm -lm -luuid -lsetupapi -lole32";
             PADLL="portaudio.dll";
-            SHARED_FLAGS="-shared -mthreads";
+	    THREAD_CFLAGS="-mthreads"
+            SHARED_FLAGS="-shared";
             DLL_LIBS="-lwinmm -lm -L./dx7sdk/lib -luuid -lsetupapi -lole32";
             #VC98="\"/c/Program Files/Microsoft Visual Studio/VC98/Include\"";
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO";
@@ -178,7 +182,8 @@ case "${host_os}" in
             OTHER_OBJS="pa_win_wmme/pa_win_wmme.o pa_win/pa_win_hostapis.o pa_win/pa_win_util.o";
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid";
             PADLL="portaudio.dll";
-            SHARED_FLAGS="-shared -mthreads";
+	    THREAD_CFLAGS="-mthreads"
+            SHARED_FLAGS="-shared";
             DLL_LIBS="-lwinmm";
             CFLAGS="$CFLAGS -Ipa_common -DPA_NO_DS -DPA_NO_ASIO -DPA_NO_WDMKS";
         fi
@@ -190,7 +195,8 @@ case "${host_os}" in
 	OTHER_OBJS="pa_win_wmme/pa_win_wmme.o";
 	LIBS="-lwinmm -lm";
 	PADLL="portaudio.dll";
-	SHARED_FLAGS="-shared -mthreads";
+	THREAD_CFLAGS="-mthreads"
+	SHARED_FLAGS="-shared";
 	DLL_LIBS="-lwinmm";
 	;;
 
@@ -209,7 +215,7 @@ case "${host_os}" in
 
 	dnl The _REENTRANT option for pthread safety. Perhaps not necessary but it 'll do no harm.
 	dnl
-	CFLAGS="$CFLAGS -D_REENTRANT"
+	THREAD_CFLAGS="-D_REENTRANT"
     
 	OTHER_OBJS="pa_sgi/pa_sgi.o pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o";
 	
@@ -246,11 +252,13 @@ case "${host_os}" in
 		OTHER_OBJS="$OTHER_OBJS pa_unix_oss/pa_unix_oss.o"
 		AC_DEFINE(PA_USE_OSS)
 	fi
+	THREAD_CFLAGS="-pthread"
 	LIBS="$LIBS -lm -lpthread";
 	PADLL="libportaudio.so";
 	SHARED_FLAGS="-shared -fPIC";
 
         OTHER_OBJS="$OTHER_OBJS pa_unix/pa_unix_hostapis.o pa_unix/pa_unix_util.o"
 esac
+CFLAGS="$CFLAGS $THREAD_CFLAGS"
 
-AC_OUTPUT([Makefile])
+AC_OUTPUT([Makefile portaudio-2.0.pc])
