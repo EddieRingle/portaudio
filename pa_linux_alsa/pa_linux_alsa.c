@@ -573,6 +573,10 @@ static const PaAlsaDeviceInfo *GetDeviceInfo( const PaUtilHostApiRepresentation 
     return (const PaAlsaDeviceInfo *)hostApi->deviceInfos[device];
 }
 
+static void AlsaErrorHandler(const char *file, int line, const char *function, int err, const char *fmt, ...)
+{
+}
+
 PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
@@ -591,6 +595,8 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     (*hostApi)->Terminate = Terminate;
     (*hostApi)->OpenStream = OpenStream;
     (*hostApi)->IsFormatSupported = IsFormatSupported;
+
+    ENSURE_( snd_lib_error_set_handler(AlsaErrorHandler), paUnanticipatedHostError );
 
     PA_ENSURE( BuildDeviceList( alsaHostApi ) );
 
@@ -681,7 +687,11 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, 
     if( defaultSr < 0. )           /* Default sample rate not set */
     {
         unsigned int sampleRate = 44100;        /* Will contain approximate rate returned by alsa-lib */
-        ENSURE_( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, NULL ), paUnanticipatedHostError );
+        if( snd_pcm_hw_params_set_rate_near( pcm, hwParams, &sampleRate, NULL ) < 0)
+        {
+            result = paUnanticipatedHostError;
+            goto error;
+        }
         ENSURE_( GetExactSampleRate( hwParams, &defaultSr ), paUnanticipatedHostError );
     }
 
@@ -780,22 +790,20 @@ error:
     return result;
 }
 
-/* Disregard standard plugins
- * XXX: Might want to make the "default" plugin available, if we can make it work
+/* Disregard some standard plugins
  */
 static int IgnorePlugin( const char *pluginId )
 {
-#define numIgnored 10
-    static const char *ignoredPlugins[numIgnored] = {"hw", "plughw", "plug", "default", "dsnoop", "dmix", "tee",
-        "file", "null", "shm"};
-    int i;
-
-    for( i = 0; i < numIgnored; ++i )
+    static const char *ignoredPlugins[] = {"hw", "plughw", "plug", "dsnoop", "tee",
+        "file", "null", "shm", "cards", NULL};
+    int i = 0;
+    while( ignoredPlugins[i] )
     {
         if( !strcmp( pluginId, ignoredPlugins[i] ) )
         {
             return 1;
         }
+        ++i;
     }
 
     return 0;
@@ -920,22 +928,29 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         snd_config_for_each( i, next, topNode )
         {
-            const char *tpStr = NULL, *idStr = NULL;
+            const char *tpStr = "unknown", *idStr = NULL;
+            int err = 0;
+
             char *alsaDeviceName, *deviceName;
-            snd_config_t *n = snd_config_iterator_entry( i ), *tp = NULL;
-            if( snd_config_get_type( n ) != SND_CONFIG_TYPE_COMPOUND )
-                continue;
+            snd_config_t *n = snd_config_iterator_entry( i ), * tp = NULL;;
 
-            ENSURE_( snd_config_search( n, "type", &tp ), paUnanticipatedHostError );
-            ENSURE_( snd_config_get_string( tp, &tpStr ), paUnanticipatedHostError );
-
+            if( (err = snd_config_search( n, "type", &tp )) < 0 )
+            {
+                if( -ENOENT != err )
+                {
+                    ENSURE_(err, paUnanticipatedHostError);
+                }
+            }
+            else 
+            {
+                ENSURE_( snd_config_get_string( tp, &tpStr ), paUnanticipatedHostError );
+            }
             ENSURE_( snd_config_get_id( n, &idStr ), paUnanticipatedHostError );
             if( IgnorePlugin( idStr ) )
             {
                 PA_DEBUG(( "%s: Ignoring ALSA plugin device %s of type %s\n", __FUNCTION__, idStr, tpStr ));
                 continue;
             }
-
             PA_DEBUG(( "%s: Found plugin %s of type %s\n", __FUNCTION__, idStr, tpStr ));
 
             PA_UNLESS( alsaDeviceName = (char*)PaUtil_GroupAllocateMemory( alsaApi->allocations,
@@ -994,7 +1009,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             if( GropeDevice( pcm, &deviceInfo->minInputChannels, &baseDeviceInfo->maxInputChannels,
                         &baseDeviceInfo->defaultLowInputLatency, &baseDeviceInfo->defaultHighInputLatency,
                         &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
-                continue;   /* Error */
+            {
+                /* Error */
+                PA_DEBUG(("%s: Failed groping %s for capture\n", __FUNCTION__, deviceNames[i].alsaName));
+                continue;
+            }
         }
 
         /* Query playback */
@@ -1004,7 +1023,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &baseDeviceInfo->maxOutputChannels,
                         &baseDeviceInfo->defaultLowOutputLatency, &baseDeviceInfo->defaultHighOutputLatency,
                         &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
-                continue;   /* Error */
+            {
+                /* Error */
+                PA_DEBUG(("%s: Failed groping %s for playback\n", __FUNCTION__, deviceNames[i].alsaName));
+                continue;
+            }
         }
 
         baseDeviceInfo->structVersion = 2;
@@ -1022,7 +1045,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                 baseApi->info.defaultInputDevice = devIdx;
             if(  baseApi->info.defaultOutputDevice == paNoDevice && baseDeviceInfo->maxOutputChannels > 0 )
                 baseApi->info.defaultOutputDevice = devIdx;
-
+            PA_DEBUG(("%s: Adding device %s\n", __FUNCTION__, deviceNames[i].name));
             baseApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
         }
     }
