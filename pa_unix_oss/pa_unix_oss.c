@@ -530,12 +530,15 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
            PA_UNLESS( deviceInfos = (PaDeviceInfo **) realloc( deviceInfos, maxDeviceInfos * sizeof (PaDeviceInfo *) ),
                    paInsufficientMemory );
        }
-       deviceInfos[numDevices - 1] = deviceInfo;
+       {
+           int devIdx = numDevices - 1;
+           deviceInfos[devIdx] = deviceInfo;
 
-       if( commonApi->info.defaultInputDevice == paNoDevice && deviceInfo->maxInputChannels > 0 )
-           commonApi->info.defaultInputDevice = i;
-       if( commonApi->info.defaultOutputDevice == paNoDevice && deviceInfo->maxOutputChannels > 0 )
-           commonApi->info.defaultOutputDevice = i;
+           if( commonApi->info.defaultInputDevice == paNoDevice && deviceInfo->maxInputChannels > 0 )
+               commonApi->info.defaultInputDevice = devIdx;
+           if( commonApi->info.defaultOutputDevice == paNoDevice && deviceInfo->maxOutputChannels > 0 )
+               commonApi->info.defaultOutputDevice = devIdx;
+       }
     }
 
     /* Make an array of PaDeviceInfo pointers out of the linked list */
