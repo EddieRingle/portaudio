@@ -248,13 +248,13 @@ typedef struct PaHostApiInfo
     */
     int deviceCount;
 
-    /** The the default input device for this host API. The value will be a
+    /** The default input device for this host API. The value will be a
      device index ranging from 0 to (Pa_GetDeviceCount()-1), or paNoDevice
      if no default input device is available.
     */
     PaDeviceIndex defaultInputDevice;
 
-    /** The the default output device for this host API. The value will be a
+    /** The default output device for this host API. The value will be a
      device index ranging from 0 to (Pa_GetDeviceCount()-1), or paNoDevice
      if no default output device is available.
     */
