@@ -256,6 +256,9 @@ static PaError InitializeHostApis( void )
 
         if( hostApis_[hostApisCount_] )
         {
+            PaUtilHostApiRepresentation* hostApi = hostApis_[hostApisCount_];
+            assert( hostApi->info.defaultInputDevice < hostApi->info.deviceCount );
+            assert( hostApi->info.defaultOutputDevice < hostApi->info.deviceCount );
 
             hostApis_[hostApisCount_]->privatePaFrontInfo.baseDeviceIndex = baseDeviceIndex;
 
