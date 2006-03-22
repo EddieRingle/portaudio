@@ -694,7 +694,7 @@ static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, 
         }
         ENSURE_( GetExactSampleRate( hwParams, &defaultSr ), paUnanticipatedHostError );
     }
-
+    
     ENSURE_( snd_pcm_hw_params_get_channels_min( hwParams, &minChans ), paUnanticipatedHostError );
     ENSURE_( snd_pcm_hw_params_get_channels_max( hwParams, &maxChans ), paUnanticipatedHostError );
     assert( maxChans <= INT_MAX );
@@ -794,8 +794,10 @@ error:
  */
 static int IgnorePlugin( const char *pluginId )
 {
+    /* XXX: dmix and default ignored because after opening and closing, they seem to keep hogging resources.
+     */
     static const char *ignoredPlugins[] = {"hw", "plughw", "plug", "dsnoop", "tee",
-        "file", "null", "shm", "cards", NULL};
+        "file", "null", "shm", "cards", "dmix", "default", NULL};
     int i = 0;
     while( ignoredPlugins[i] )
     {
