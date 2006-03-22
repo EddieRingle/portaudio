@@ -657,21 +657,42 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
  * traits like max channels, suitable default latencies and default sample rate. Upon error, max channels is set to zero,
  * and a suitable result returned. The device is closed before returning.
  */
-static PaError GropeDevice( snd_pcm_t *pcm, int *minChannels, int *maxChannels, double *defaultLowLatency,
-        double *defaultHighLatency, double *defaultSampleRate, int isPlug )
+static PaError GropeDevice( snd_pcm_t* pcm, int isPlug, StreamDirection mode, int openBlocking,
+        PaAlsaDeviceInfo* devInfo, int* canMmap )
 {
     PaError result = paNoError;
     snd_pcm_hw_params_t *hwParams;
     snd_pcm_uframes_t lowLatency = 512, highLatency = 2048;
     unsigned int minChans, maxChans;
+    int* minChannels, * maxChannels;
+    double * defaultLowLatency, * defaultHighLatency, * defaultSampleRate =
+        &devInfo->baseDeviceInfo.defaultSampleRate;
     double defaultSr = *defaultSampleRate;
 
     assert( pcm );
+
+    if( StreamDirection_In == mode )
+    {
+        minChannels = &devInfo->minInputChannels;
+        maxChannels = &devInfo->baseDeviceInfo.maxInputChannels;
+        defaultLowLatency = &devInfo->baseDeviceInfo.defaultLowInputLatency;
+        defaultHighLatency = &devInfo->baseDeviceInfo.defaultHighInputLatency;
+    }
+    else
+    {
+        minChannels = &devInfo->minOutputChannels;
+        maxChannels = &devInfo->baseDeviceInfo.maxOutputChannels;
+        defaultLowLatency = &devInfo->baseDeviceInfo.defaultLowOutputLatency;
+        defaultHighLatency = &devInfo->baseDeviceInfo.defaultHighOutputLatency;
+    }
 
     ENSURE_( snd_pcm_nonblock( pcm, 0 ), paUnanticipatedHostError );
 
     snd_pcm_hw_params_alloca( &hwParams );
     snd_pcm_hw_params_any( pcm, hwParams );
+
+    *canMmap = snd_pcm_hw_params_test_access( pcm, hwParams, SND_PCM_ACCESS_MMAP_INTERLEAVED ) >= 0 ||
+            snd_pcm_hw_params_test_access( pcm, hwParams, SND_PCM_ACCESS_MMAP_NONINTERLEAVED ) >= 0;
 
     if( defaultSr >= 0 )
     {
@@ -997,6 +1018,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         snd_pcm_t *pcm;
         PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
         PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
+        int canMmap = -1;
 
         /* Zero fields */
         InitializeDeviceInfo( baseDeviceInfo );
@@ -1008,9 +1030,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( deviceNames[i].hasCapture &&
                 snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
         {
-            if( GropeDevice( pcm, &deviceInfo->minInputChannels, &baseDeviceInfo->maxInputChannels,
-                        &baseDeviceInfo->defaultLowInputLatency, &baseDeviceInfo->defaultHighInputLatency,
-                        &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
+            if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_In, blocking, deviceInfo,
+                        &canMmap ) != paNoError )
             {
                 /* Error */
                 PA_DEBUG(("%s: Failed groping %s for capture\n", __FUNCTION__, deviceNames[i].alsaName));
@@ -1022,14 +1043,19 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( deviceNames[i].hasPlayback &&
                 snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
         {
-            if( GropeDevice( pcm, &deviceInfo->minOutputChannels, &baseDeviceInfo->maxOutputChannels,
-                        &baseDeviceInfo->defaultLowOutputLatency, &baseDeviceInfo->defaultHighOutputLatency,
-                        &baseDeviceInfo->defaultSampleRate, deviceNames[i].isPlug ) != paNoError )
+            if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_Out, blocking, deviceInfo,
+                        &canMmap ) != paNoError )
             {
                 /* Error */
                 PA_DEBUG(("%s: Failed groping %s for playback\n", __FUNCTION__, deviceNames[i].alsaName));
                 continue;
             }
+        }
+
+        if( 0 == canMmap )
+        {
+            PA_DEBUG(("%s: Device %s doesn't support mmap\n", __FUNCTION__, deviceNames[i].alsaName));
+            continue;
         }
 
         baseDeviceInfo->structVersion = 2;
@@ -1411,7 +1437,20 @@ static PaError PaAlsaStreamComponent_InitialConfigure( PaAlsaStreamComponent *se
     /* If requested access mode fails, try alternate mode */
     if( snd_pcm_hw_params_set_access( pcm, hwParams, accessMode ) < 0 )
     {
-        ENSURE_( snd_pcm_hw_params_set_access( pcm, hwParams, alternateAccessMode ), paUnanticipatedHostError );
+        int err = 0;
+        if( (err = snd_pcm_hw_params_set_access( pcm, hwParams, alternateAccessMode )) < 0)
+        {
+            result = paUnanticipatedHostError;
+            if( -EINVAL == err )
+            {
+                PaUtil_SetLastHostErrorInfo( paALSA, err, "PA ALSA requires that a device supports mmap access" );
+            }
+            else
+            {
+                PaUtil_SetLastHostErrorInfo( paALSA, err, snd_strerror( err ) );
+            }
+            goto error;
+        }
         /* Flip mode */
         self->hostInterleaved = !self->userInterleaved;
     }
