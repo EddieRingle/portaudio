@@ -111,7 +111,7 @@ case "${host_os}" in
 	OTHER_OBJS="pa_mac/pa_mac_hostapis.o pa_unix/pa_unix_util.o pa_mac_core/pa_mac_core.o";
 	LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon";
 	PADLL="libportaudio.dylib";
-	SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework -framework AudioUnit -framework Carbon -dynamiclib";
+	SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib";
         if [[ $with_macapi = "asio" ]] ; then
             if [[ $with_asiodir ]] ; then
               ASIODIR="$with_asiodir";

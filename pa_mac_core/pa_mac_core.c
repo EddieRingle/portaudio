@@ -325,25 +325,31 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
         deviceInfo->maxInputChannels = numChannels;
     else
         deviceInfo->maxOutputChannels = numChannels;
-
-    /* Get the latency.  Don't fail if we can't get this. */
-    /* default to something reasonable */
-    deviceInfo->defaultLowInputLatency = .01;
-    deviceInfo->defaultHighInputLatency = .01;
-    deviceInfo->defaultLowOutputLatency = .01;
-    deviceInfo->defaultHighOutputLatency = .01;
-    propSize = sizeof(UInt32);
-    err = WARNING(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
-    if (!err) {
-        double secondLatency = frameLatency / deviceInfo->defaultSampleRate;
-        if (isInput) {
-            deviceInfo->defaultLowInputLatency = secondLatency;
-            deviceInfo->defaultHighInputLatency = secondLatency;
-        }
-        else {
-            deviceInfo->defaultLowOutputLatency = secondLatency;
-            deviceInfo->defaultHighOutputLatency = secondLatency;
-        }
+      
+    if (numChannels > 0) // do not try to retrieve the latency if there is no channels.
+    {
+       /* Get the latency.  Don't fail if we can't get this. */
+       /* default to something reasonable */
+       deviceInfo->defaultLowInputLatency = .01;
+       deviceInfo->defaultHighInputLatency = .01;
+       deviceInfo->defaultLowOutputLatency = .01;
+       deviceInfo->defaultHighOutputLatency = .01;
+       propSize = sizeof(UInt32);
+       err = WARNING(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
+       if (!err)
+       {
+          double secondLatency = frameLatency / deviceInfo->defaultSampleRate;
+          if (isInput)
+          {
+             deviceInfo->defaultLowInputLatency = secondLatency;
+             deviceInfo->defaultHighInputLatency = secondLatency;
+          }
+          else
+          {
+             deviceInfo->defaultLowOutputLatency = secondLatency;
+             deviceInfo->defaultHighOutputLatency = secondLatency;
+          }
+       }
     }
     return paNoError;
 }
