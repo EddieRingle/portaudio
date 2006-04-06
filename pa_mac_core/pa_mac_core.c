@@ -148,6 +148,7 @@ static PaError AbortStream( PaStream *stream );
 static PaError IsStreamStopped( PaStream *s );
 static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
+static void setStreamStartTime( PaStream *stream );
 static OSStatus AudioIOProc( void *inRefCon,
                                AudioUnitRenderActionFlags *ioActionFlags,
                                const AudioTimeStamp *inTimeStamp,
@@ -200,7 +201,7 @@ typedef struct PaMacCoreStream
     /* We need to preallocate an inputBuffer for reading data. */
     AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
-    volatile bool isTimeSet;
+    //volatile bool isTimeSet;
     volatile PaStreamCallbackFlags xrunFlags;
     volatile enum {
        STOPPED          = 0, /* playback is completely stopped,
@@ -1395,11 +1396,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->userInChan  = inputChannelCount;
     stream->userOutChan = outputChannelCount;
 
-    stream->isTimeSet   = FALSE;
+    //stream->isTimeSet   = FALSE;
     stream->state = STOPPED;
     stream->xrunFlags = 0;
 
     *s = (PaStream*)stream;
+
+    setStreamStartTime( stream );
 
     return result;
 
@@ -1417,8 +1420,8 @@ PaTime GetStreamTime( PaStream *s )
 
     VVDBUG(("GetStreamTime()\n"));
 
-    if ( !stream->isTimeSet )
-        return (PaTime)0;
+    //if ( !stream->isTimeSet )
+    //    return (PaTime)0;
 
     if ( stream->outputDevice )
         AudioDeviceGetCurrentTime( stream->outputDevice, &timeStamp);
@@ -1430,15 +1433,16 @@ PaTime GetStreamTime( PaStream *s )
     return (PaTime)(timeStamp.mSampleTime - stream->startTime.mSampleTime)/stream->sampleRate;
 }
 
-static void setStreamStartTime( PaMacCoreStream *stream )
+static void setStreamStartTime( PaStream *stream )
 {
    /* FIXME: I am not at all sure this timing info stuff is right.
              patest_sine_time reports negative latencies, which is wierd.*/
-    VVDBUG(("setStreamStartTime()\n"));
-   if( stream->inputDevice )
-      AudioDeviceGetCurrentTime( stream->inputDevice, &stream->startTime);
+   VVDBUG(("setStreamStartTime()\n"));
+   PaMacCoreStream *s = (PaMacCoreStream *) stream;
+   if( s->inputDevice )
+      AudioDeviceGetCurrentTime( s->inputDevice, &s->startTime);
    else
-      AudioDeviceGetCurrentTime( stream->outputDevice, &stream->startTime);
+      AudioDeviceGetCurrentTime( s->outputDevice, &s->startTime);
 }
 
 
@@ -1502,9 +1506,9 @@ static OSStatus AudioIOProc( void *inRefCon,
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-   if( !stream->isTimeSet )
-      setStreamStartTime( stream );
-   stream->isTimeSet = TRUE;
+   //if( !stream->isTimeSet )
+   //   setStreamStartTime( stream );
+   //stream->isTimeSet = TRUE;
 
 
    /* -----------------------------------------------------------------*\
@@ -1987,7 +1991,7 @@ static PaError StopStream( PaStream *s )
                                            / RING_BUFFER_ADVANCE_DENOMINATOR );
     }
 
-    stream->isTimeSet = FALSE;
+    //stream->isTimeSet = FALSE;
     stream->xrunFlags = 0;
     stream->state = STOPPED;
 
