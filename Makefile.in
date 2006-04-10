@@ -21,10 +21,7 @@ OTHER_OBJS = @OTHER_OBJS@
 
 PALIB = libportaudio.a
 PADLL = @PADLL@
-PADLLV_MIN = @PADLLV_MIN@
-PADLLV = @PADLLV@
-PADLLEXT = @PADLLEXT@
-PASHLIBNAME = $(PADLL).$(PADLLV)$(PADLLEXT)
+PADLLV = $(PADLL).0.0.19
 PAINC = pa_common/portaudio.h
 
 COMMON_OBJS = \
@@ -128,7 +125,7 @@ ALL_TESTS = \
 
 OBJS = $(COMMON_OBJS) $(OTHER_OBJS)
 
-all: lib/$(PALIB) lib/$(PASHLIBNAME) tests
+all: lib/$(PALIB) lib/$(PADLLV) tests
 
 tests: bin/ $(TESTS)
 
@@ -136,17 +133,17 @@ lib/$(PALIB): lib/ $(OBJS) Makefile $(PAINC)
 	$(AR) ruv lib/$(PALIB) $(OBJS)
 	$(RANLIB) lib/$(PALIB)
 
-lib/$(PASHLIBNAME): lib/ $(OBJS) Makefile $(PAINC)
-	$(CC) $(SHARED_FLAGS) -o lib/$(PASHLIBNAME) $(OBJS) $(DLL_LIBS) -install_name $(PREFIX)/lib/$(PASHLIBNAME) -compatibility_version $(PADLLV) -current_version $(PADLLV)
+lib/$(PADLLV): lib/ $(OBJS) Makefile $(PAINC)
+	$(CC) $(SHARED_FLAGS) -o lib/$(PADLLV) $(OBJS) $(DLL_LIBS)
 
 $(TESTS): bin/%: lib/$(PALIB) Makefile $(PAINC) pa_tests/%.c
 	$(CC) -o $@ $(CFLAGS) pa_tests/$*.c lib/$(PALIB) $(LIBS)
 
-install: lib/$(PALIB) lib/$(PASHLIBNAME) portaudio-2.0.pc
+install: lib/$(PALIB) lib/$(PADLLV) portaudio-2.0.pc
 	$(INSTALL) -d $(PREFIX)/lib
-	$(INSTALL) -m 644 lib/$(PASHLIBNAME) $(PREFIX)/lib/$(PASHLIBNAME)
+	$(INSTALL) -m 644 lib/$(PADLLV) $(PREFIX)/lib/$(PADLLV)
 	$(INSTALL) -m 644 lib/$(PALIB) $(PREFIX)/lib/$(PALIB)
-	cd $(PREFIX)/lib && rm -f $(PADLL)$(PADLLEXT) && ln -s $(PASHLIBNAME) $(PADLL)$(PADLLEXT)
+	cd $(PREFIX)/lib && rm -f $(PADLL) && ln -s $(PADLLV) $(PADLL)
 	$(INSTALL) -d $(PREFIX)/include
 	$(INSTALL) -m 644 pa_common/portaudio.h $(PREFIX)/include/portaudio.h
 	$(INSTALL) -d $(PREFIX)/lib/pkgconfig
@@ -163,13 +160,13 @@ install: lib/$(PALIB) lib/$(PASHLIBNAME) portaudio-2.0.pc
 	@echo ""
 
 uninstall:
-	rm -f $(PREFIX)/lib/$(PASHLIBNAME)
+	rm -f $(PREFIX)/lib/$(PADLLV)
 	rm -f $(PREFIX)/lib/$(PALIB)
-	rm -f $(PREFIX)/lib/$(PADLL)$(PADLLEXT)
+	rm -f $(PREFIX)/lib/$(PADLL)
 	rm -f $(PREFIX)/include/portaudio.h
 
 clean:
-	rm -f $(OBJS) $(TESTS) lib/$(PALIB) lib/$(PASHLIBNAME)
+	rm -f $(OBJS) $(TESTS) lib/$(PALIB) lib/$(PADLLV)
 
 %.o: %.c Makefile $(PAINC)
 	$(CC) -c $(CFLAGS) $< -o $@
