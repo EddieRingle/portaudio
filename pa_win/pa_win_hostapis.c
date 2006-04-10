@@ -49,6 +49,7 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinWasapi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 #ifdef __cplusplus
 }
@@ -71,8 +72,12 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #endif
 
 /*
+#ifndef PA_NO_WASAPI
+		PaWinWasapi_Initialize,
+#endif
+
 #ifndef PA_NO_WDMKS
-        PaWinWdm_Initialize,
+       PaWinWdm_Initialize,
 #endif
 */
 
