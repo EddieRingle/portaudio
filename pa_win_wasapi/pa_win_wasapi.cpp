@@ -488,12 +488,6 @@ PaError PaWinWasapi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApi
 
                     wcstombs(deviceName,   value.pwszVal,MAX_STR_LEN-1); //todo proper size
 
-					//HACK TEST
-					{
-						if (strcmp(deviceName,"Digital Audio Interface (USB Audio Device)")==0)
-							strcpy(deviceName,"Desktop Speaker (USB Audio Device)_1");
-					}
-
                     deviceInfo->name = deviceName;
                     PropVariantClear(&value);
                 }
@@ -1651,16 +1645,11 @@ static void WaspiHostProcessingLoop( void *inputBuffer,  long inputFrames,
 }
 
 
-#define SIFEEEE 1024*4*4
-
-static char dummyInputUnderflow[SIFEEEE];
 
 VOID
 ProcThread(void *param){
 
 	HRESULT hResult;
-
-	memset(&dummyInputUnderflow,0,SIFEEEE);
 
     DWORD stuff=0;
     HANDLE thCarac = pAvSetMmThreadCharacteristics("Pro Audio",&stuff);
@@ -1707,20 +1696,7 @@ ProcThread(void *param){
     }
 
 
-/* not sure this is wise
-    //fill up initial buffer latency!
-    BYTE*data=0;
-    hResult = stream->rclient->GetBuffer(stream->out.bufferSize,&data);
-    logAUDCLNT_E(hResult);
-    WaspiHostProcessingLoop(dummyInputUnderflow,
-							stream->out.bufferSize,
-		                    data,
-							stream->out.bufferSize,
-							stream);
-
-    hResult = stream->rclient->ReleaseBuffer(stream->out.bufferSize,0);
-    logAUDCLNT_E(hResult);
-*/
+    //fill up initial buffer latency??
 
 	if (stream->out.client){
 		hResult = stream->out.client->Start();
@@ -1763,22 +1739,22 @@ ProcThread(void *param){
         BYTE*indata =0;
         BYTE*outdata=0;
 
-        hResult = stream->rclient->GetBuffer(usingBS,&data);
+        hResult = stream->rclient->GetBuffer(usingBS,&outdata);
 
         if (hResult != S_OK || !outdata) {
             logAUDCLNT_E(hResult);
 			continue;
         }
 
+        WaspiHostProcessingLoop(indata, usingBS
+			                   ,outdata,usingBS,stream);
 
-            WaspiHostProcessingLoop(indata, usingBS
-				                   ,outdata,usingBS,stream);
+        hResult = stream->rclient->ReleaseBuffer(usingBS,0);
+        if (hResult != S_OK)
+            logAUDCLNT_E(hResult);
 
-            hResult = stream->rclient->ReleaseBuffer(usingBS,0);
-            if (hResult != S_OK)
-                logAUDCLNT_E(hResult);
-        }
     }
+
 
     BOOL bRes = pAvRtDeleteThreadOrderingGroup(context);
     if (!bRes){
