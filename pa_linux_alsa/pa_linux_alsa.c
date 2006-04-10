@@ -67,7 +67,7 @@
         if( UNLIKELY( (aErr_ = (expr)) < 0 ) ) \
         { \
             /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
-            if( (code) == paUnanticipatedHostError && pthread_self() != callbackThread_ ) \
+            if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
             { \
                 PaUtil_SetLastHostErrorInfo( paALSA, aErr_, snd_strerror( aErr_ ) ); \
             } \
@@ -84,7 +84,7 @@
         if( UNLIKELY( (aErr_ = (expr)) != success ) ) \
         { \
             /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
-            if( pthread_self() != callbackThread_ ) \
+            if( pthread_self() == mainThread_ ) \
             { \
                 PaUtil_SetLastHostErrorInfo( paALSA, aErr_, strerror( aErr_ ) ); \
             } \
@@ -99,7 +99,7 @@
     assert( success == aErr_ );
 
 static int aErr_;               /* Used with ENSURE_ */
-static pthread_t callbackThread_;
+static pthread_t mainThread_ = -1;
 
 typedef enum
 {
@@ -617,6 +617,8 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                                       ReadStream, WriteStream,
                                       GetStreamReadAvailable,
                                       GetStreamWriteAvailable );
+
+    mainThread_ = pthread_self();
 
     return result;
 
@@ -3304,7 +3306,6 @@ static void *CallbackThreadFunc( void *userData )
 
     assert( stream );
 
-    callbackThread_ = pthread_self();
     /* Execute OnExit when exiting */
     pthread_cleanup_push( &OnExit, stream );
 
