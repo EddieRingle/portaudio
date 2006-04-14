@@ -59,6 +59,7 @@
 #include "pa_process.h"
 #include "../pablio/ringbuffer.h"
 #include "pa_mac_core.h"
+#include "pa_mac_core_blocking.h"
 
 #ifndef MIN
 #define MIN(a, b)  (((a)<(b))?(a):(b))
@@ -101,7 +102,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 /* Verbose Debugging: useful for developement */
 /*
 #define MAC_CORE_VERBOSE_DEBUG
- */
+*/
 #ifdef MAC_CORE_VERBOSE_DEBUG
 # define VDBUG(MSG) do { printf("||PaMacCore (v )|| "); printf MSG ; fflush(stdout); } while(0)
 #else
@@ -120,11 +121,12 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 
 #define RING_BUFFER_ADVANCE_DENOMINATOR (4)
 
-/* Some utilities that sort of belong here, but were getting too unweildy */
-#include "pa_mac_core_utilities.c"
 /* Special purpose ring buffer just for pa_mac_core input processing. */
 /* #include "pa_mac_core_input_ring_buffer.c" */
 #include "../pablio/ringbuffer.c"
+
+/* Some utilities that sort of belong here, but were getting too unweildy */
+#include "pa_mac_core_utilities.c"
 
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
@@ -194,6 +196,7 @@ typedef struct PaMacCoreStream
     size_t userOutChan;
     size_t inputFramesPerBuffer;
     size_t outputFramesPerBuffer;
+    PaMacBlio blio;
     /* We use this ring buffer when input and out devs are different. */
     RingBuffer inputRingBuffer;
     /* We may need to do SR conversion on input. */
@@ -201,7 +204,6 @@ typedef struct PaMacCoreStream
     /* We need to preallocate an inputBuffer for reading data. */
     AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
-    //volatile bool isTimeSet;
     volatile PaStreamCallbackFlags xrunFlags;
     volatile enum {
        STOPPED          = 0, /* playback is completely stopped,
@@ -217,6 +219,11 @@ typedef struct PaMacCoreStream
     double sampleRate;
 }
 PaMacCoreStream;
+
+static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
+                               PaDeviceInfo *deviceInfo,
+                               AudioDeviceID macCoreDeviceId,
+                               int isInput);
 
 static PaError OpenAndSetupOneAudioUnit(
                                    const PaStreamParameters *inStreamParams,
@@ -234,8 +241,6 @@ static PaError OpenAndSetupOneAudioUnit(
 /* for setting errors. */
 #define PA_AUHAL_SET_LAST_HOST_ERROR( errorCode, errorText ) \
     PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
-
-
 
 
 /*currently, this is only used in initialization, but it might be modified
@@ -278,15 +283,46 @@ static PaError gatherDeviceInfo(PaMacAUHAL *auhalHostApi)
     size = sizeof(AudioDeviceID);
     auhalHostApi->defaultIn  = kAudioDeviceUnknown;
     auhalHostApi->defaultOut = kAudioDeviceUnknown;
-    /* FEEDBACK: these calls could fail, in which case default in and out will
-                 be unknown devices or could be undefined. Do I need to be more
-                 rigorous here? */
-    AudioHardwareGetProperty(kAudioHardwarePropertyDefaultInputDevice,
+
+    /* determine the default device. */
+    /* I am not sure how these calls to AudioHardwareGetProperty()
+       could fail, but in case they do, we use the first available
+       device as the default. */
+    if( 0 != AudioHardwareGetProperty(kAudioHardwarePropertyDefaultInputDevice,
                      &size,
-                     &auhalHostApi->defaultIn);
-    AudioHardwareGetProperty(kAudioHardwarePropertyDefaultOutputDevice,
+                     &auhalHostApi->defaultIn) ) {
+       int i;
+       auhalHostApi->defaultIn  = kAudioDeviceUnknown;
+       VDBUG(("Failed to get default input device from OS."));
+       VDBUG((" I will substitute the first available input Device."));
+       for( i=0; i<auhalHostApi->devCount; ++i ) {
+          PaDeviceInfo devInfo;
+          if( 0 != GetChannelInfo( auhalHostApi, &devInfo,
+                                   auhalHostApi->devIds[i], TRUE ) )
+             if( devInfo.maxInputChannels ) {
+                auhalHostApi->defaultIn = auhalHostApi->devIds[i];
+                break;
+             }
+       }
+    }   
+    if( 0 != AudioHardwareGetProperty(kAudioHardwarePropertyDefaultOutputDevice,
                      &size,
-                     &auhalHostApi->defaultOut);
+                     &auhalHostApi->defaultOut) ) {
+       int i;
+       auhalHostApi->defaultIn  = kAudioDeviceUnknown;
+       VDBUG(("Failed to get default output device from OS."));
+       VDBUG((" I will substitute the first available output Device."));
+       for( i=0; i<auhalHostApi->devCount; ++i ) {
+          PaDeviceInfo devInfo;
+          if( 0 != GetChannelInfo( auhalHostApi, &devInfo,
+                                   auhalHostApi->devIds[i], FALSE ) )
+             if( devInfo.maxOutputChannels ) {
+                auhalHostApi->defaultOut = auhalHostApi->devIds[i];
+                break;
+             }
+       }
+    }   
+
     VDBUG( ( "Default in : %ld\n", auhalHostApi->defaultIn  ) );
     VDBUG( ( "Default out: %ld\n", auhalHostApi->defaultOut ) );
 
@@ -319,6 +355,8 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
     if (err)
         return err;
 
+    /*FIXME: dealocate buflist*/
+
     for (i = 0; i < buflist->mNumberBuffers; ++i)
         numChannels += buflist->mBuffers[i].mNumberChannels;
 
@@ -327,7 +365,7 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
     else
         deviceInfo->maxOutputChannels = numChannels;
       
-    if (numChannels > 0) // do not try to retrieve the latency if there is no channels.
+    if (numChannels > 0) /* do not try to retrieve the latency if there is no channels. */
     {
        /* Get the latency.  Don't fail if we can't get this. */
        /* default to something reasonable */
@@ -670,7 +708,7 @@ static PaError OpenAndSetupOneAudioUnit(
     AudioStreamBasicDescription desiredFormat;
     OSErr result = noErr;
     PaError paResult = paNoError;
-    int line;
+    int line = 0;
     UInt32 callbackKey;
     AURenderCallbackStruct rcbs;
     unsigned long macInputStreamFlags  = paMacCorePlayNice;
@@ -1087,7 +1125,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else
     {
         inputChannelCount = 0;
-        inputSampleFormat = hostInputSampleFormat = paInt16; /* Surpress 'uninitialised var' warnings. */
+        inputSampleFormat = hostInputSampleFormat = paFloat32; /* Surpress 'uninitialised var' warnings. */
     }
 
     if( outputParameters )
@@ -1133,6 +1171,15 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     stream->inputAudioBufferList.mBuffers[0].mData = NULL;
     stream->inputRingBuffer.buffer = NULL;
+    bzero( &stream->blio, sizeof( PaMacBlio ) );
+/*
+    stream->blio.inputRingBuffer.buffer = NULL;
+    stream->blio.outputRingBuffer.buffer = NULL;
+    stream->blio.inputSampleFormat = inputParameters?inputParameters->sampleFormat:0;
+    stream->blio.inputSampleSize = computeSampleSizeFromFormat(stream->blio.inputSampleFormat);
+    stream->blio.outputSampleFormat=outputParameters?outputParameters->sampleFormat:0;
+    stream->blio.outputSampleSize = computeSampleSizeFromFormat(stream->blio.outputSampleFormat);
+*/
     stream->inputSRConverter = NULL;
     stream->inputUnit = NULL;
     stream->outputUnit = NULL;
@@ -1140,16 +1187,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->outputFramesPerBuffer = 0;
     stream->bufferProcessorIsInitialized = FALSE;
 
-    assert( streamCallback ) ; /* only callback mode is implemented */
+    /* assert( streamCallback ) ; */ /* only callback mode is implemented */
     if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &auhalHostApi->callbackStreamInterface, streamCallback, userData );
+                                        &auhalHostApi->callbackStreamInterface,
+                                        streamCallback, userData );
     }
     else
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-                                               &auhalHostApi->blockingStreamInterface, streamCallback, userData );
+                                        &auhalHostApi->blockingStreamInterface,
+					BlioCallback, &stream->blio );
     }
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
@@ -1297,44 +1346,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
        {
           /* May want the ringSize ot initial position in
              ring buffer to depend somewhat on sample rate change */
-          /* Calculate an appropriate ring buffer size. It must be at least
-             3x framesPerBuffer and 2x suggested latency and it must be a
-             power of 2. FEEDBACK: too liberal/conservative/another way?*/
-          double latency;
-          int index, i;
+
           void *data;
           long ringSize;
-          if( !outputParameters )
-             latency = inputParameters->suggestedLatency;
-          else
-             latency = MAX( inputParameters->suggestedLatency,
-                            outputParameters->suggestedLatency );
-          ringSize = latency * sampleRate * 2 * inputChannelCount;
-          VDBUG( ( "suggested latency: %d\n", (int) (latency*sampleRate) ) );
-          if( ringSize < stream->inputFramesPerBuffer * 3 )
-             ringSize = stream->inputFramesPerBuffer * 3 * inputChannelCount;
-          if( outputParameters && ringSize < stream->outputFramesPerBuffer * 3 )
-             ringSize = stream->outputFramesPerBuffer * 3 * inputChannelCount;
-          VDBUG(("inFramesPerBuffer:%d\n",(int)stream->inputFramesPerBuffer));
-          if( outputParameters )
-             VDBUG(("outFramesPerBuffer:%d\n",
-                      (int)stream->outputFramesPerBuffer));
-          VDBUG(("Ringbuffer size (1): %d\n", (int)ringSize ));
 
-          /* round up to the next power of 2 */
-          index = -1;
-          for( i=0; i<sizeof(long)*8; ++i )
-             if( ringSize >> i & 0x01 )
-                index = i;
-          assert( index > 0 );
-          if( ringSize <= ( 0x01 << index ) )
-             ringSize = 0x01 << index ;
-          else
-             ringSize = 0x01 << ( index + 1 );
-
+          ringSize = computeRingBufferSize( inputParameters,
+                                            outputParameters,
+                                            stream->inputFramesPerBuffer,
+                                            stream->outputFramesPerBuffer,
+                                            sampleRate );
           /*ringSize <<= 4; *//*16x bigger, for testing */
 
-          VDBUG(( "Final Ringbuffer size (2): %d\n", (int)ringSize ));
 
           /*now, we need to allocate memory for the ring buffer*/
           data = calloc( ringSize, szfl );
@@ -1353,6 +1375,27 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           if( stream->outputUnit )
              RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer, ringSize*szfl / RING_BUFFER_ADVANCE_DENOMINATOR );
        }
+    }
+
+    /* -- initialize Blio Buffer Processors -- */
+    if( !streamCallback )
+    {
+       long ringSize;
+
+       ringSize = computeRingBufferSize( inputParameters,
+                                         outputParameters,
+                                         stream->inputFramesPerBuffer,
+                                         stream->outputFramesPerBuffer,
+                                         sampleRate );
+       result = initializeBlioRingBuffers( &stream->blio,
+              inputParameters?inputParameters->sampleFormat:0 ,
+              outputParameters?outputParameters->sampleFormat:0 ,
+              MAX(stream->inputFramesPerBuffer,stream->outputFramesPerBuffer),
+              ringSize,
+              inputParameters?inputChannelCount:0 ,
+              outputParameters?outputChannelCount:0 ) ;
+       if( result != paNoError )
+          goto error;
     }
 
     /* -- initialize Buffer Processor -- */
@@ -1374,7 +1417,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                  stream->inputSRConverter
                               ? paUtilUnknownHostBufferSize
                               : paUtilBoundedHostBufferSize,
-                 streamCallback, userData );
+                 streamCallback ? streamCallback : BlioCallback,
+                 streamCallback ? userData : &stream->blio );
        if( result != paNoError )
            goto error;
     }
@@ -1396,7 +1440,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->userInChan  = inputChannelCount;
     stream->userOutChan = outputChannelCount;
 
-    //stream->isTimeSet   = FALSE;
+    /*stream->isTimeSet   = FALSE;*/
     stream->state = STOPPED;
     stream->xrunFlags = 0;
 
@@ -1420,8 +1464,10 @@ PaTime GetStreamTime( PaStream *s )
 
     VVDBUG(("GetStreamTime()\n"));
 
+/*
     //if ( !stream->isTimeSet )
     //    return (PaTime)0;
+*/
 
     if ( stream->outputDevice )
         AudioDeviceGetCurrentTime( stream->outputDevice, &timeStamp);
@@ -1437,8 +1483,8 @@ static void setStreamStartTime( PaStream *stream )
 {
    /* FIXME: I am not at all sure this timing info stuff is right.
              patest_sine_time reports negative latencies, which is wierd.*/
-   VVDBUG(("setStreamStartTime()\n"));
    PaMacCoreStream *s = (PaMacCoreStream *) stream;
+   VVDBUG(("setStreamStartTime()\n"));
    if( s->inputDevice )
       AudioDeviceGetCurrentTime( s->inputDevice, &s->startTime);
    else
@@ -1506,9 +1552,11 @@ static OSStatus AudioIOProc( void *inRefCon,
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
+/*
    //if( !stream->isTimeSet )
    //   setStreamStartTime( stream );
    //stream->isTimeSet = TRUE;
+*/
 
 
    /* -----------------------------------------------------------------*\
@@ -1902,6 +1950,7 @@ static PaError CloseStream( PaStream* s )
        if( stream->inputRingBuffer.buffer )
           free( stream->inputRingBuffer.buffer );
        stream->inputRingBuffer.buffer = NULL;
+       destroyBlioRingBuffers( &stream->blio );
        /*TODO: is there more that needs to be done on error
                from AudioConverterDispose?*/
        if( stream->inputSRConverter )
@@ -1954,6 +2003,9 @@ static PaError StopStream( PaStream *s )
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
     VVDBUG(("StopStream()\n"));
+
+    VDBUG( ("Waiting for BLIO.\n") );
+    waitUntilBlioWriteBufferIsFlushed( &stream->blio );
     VDBUG( ( "Stopping stream.\n" ) );
 
     stream->state = STOPPING;
@@ -1990,8 +2042,11 @@ static PaError StopStream( PaStream *s )
                                     stream->inputRingBuffer.bufferSize
                                            / RING_BUFFER_ADVANCE_DENOMINATOR );
     }
+    resetBlioRingBuffers( &stream->blio );
 
+/*
     //stream->isTimeSet = FALSE;
+*/
     stream->xrunFlags = 0;
     stream->state = STOPPED;
 
@@ -2040,6 +2095,4 @@ static double GetStreamCpuLoad( PaStream* s )
     streams, the following functions can be guaranteed to only be called
     for blocking streams. IMPLEMENTME: no blocking interface yet!
 */
-
-//implemented elsewhere
 #include "pa_mac_core_blocking.c"

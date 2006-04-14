@@ -55,6 +55,7 @@ TESTS = \
 	bin/patest_pink \
 	bin/patest_prime \
 	bin/patest_read_record \
+	bin/patest_read_write_wire \
 	bin/patest_record \
 	bin/patest_ringmix \
 	bin/patest_saw \
