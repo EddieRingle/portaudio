@@ -83,25 +83,24 @@ extern "C"
        #error both PA_LITTLE_ENDIAN and PA_BIG_ENDIAN have been defined externally to pa_endianness.h - only one endianness at a time please
        #endif
 
-       /* endianness define has not been set externally */
+   #endif
+   /* endianness define has not been set externally */
 
-       /* set PA_LITTLE_ENDIAN or PA_BIG_ENDIAN by testing well known platform specific defines */
+   /* set PA_LITTLE_ENDIAN or PA_BIG_ENDIAN by testing well known platform specific defines */
 
-       #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(LITTLE_ENDIAN) || defined(__i386) || defined(_M_IX86)
-          #define PA_LITTLE_ENDIAN /* win32, assume intel byte order */
-       #else
-          #define PA_BIG_ENDIAN
-       #endif
+   #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(LITTLE_ENDIAN) || defined(__i386) || defined(_M_IX86)
+      #define PA_LITTLE_ENDIAN /* win32, assume intel byte order */
+   #else
+      #define PA_BIG_ENDIAN
+   #endif
 
-       #if !defined(PA_LITTLE_ENDIAN) && !defined(PA_BIG_ENDIAN)
-       /*
-        If the following error is raised, you either need to modify the code above
-        to automatically determine the endianness from other symbols defined on your
-        platform, or define either PA_LITTLE_ENDIAN or PA_BIG_ENDIAN externally.
-       */
-       #error pa_endianness.h was unable to automatically determine the endianness of the target platform
-       #endif
-    
+   #if !defined(PA_LITTLE_ENDIAN) && !defined(PA_BIG_ENDIAN)
+   /*
+    If the following error is raised, you either need to modify the code above
+    to automatically determine the endianness from other symbols defined on your
+    platform, or define either PA_LITTLE_ENDIAN or PA_BIG_ENDIAN externally.
+   */
+   #error pa_endianness.h was unable to automatically determine the endianness of the target platform
    #endif
 
 #endif
