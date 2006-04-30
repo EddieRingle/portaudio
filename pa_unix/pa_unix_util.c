@@ -176,9 +176,21 @@ PaError PaUtil_CancelThreading( PaUtilThreading *threading, int wait, PaError *e
 }
 
 /* Threading */
-
-/* What would be an illegal value for a pthread_t? */
+/* paUnixMainThread 
+ * We have to be a bit careful with defining this global variable,
+ * as explained below. */
+#ifdef __apple__
+/* apple/gcc has a "problem" with global vars and dynamic libs.
+   Initializing it seems to fix the problem.
+   Described a bit in this thread:
+   http://gcc.gnu.org/ml/gcc/2005-06/msg00179.html
+*/
 pthread_t paUnixMainThread = 0;
+#else
+/*pthreads are opaque. We don't know that asigning it an int value
+  always makes sense, so we don't initialize it unless we have to.*/
+pthread_t paUnixMainThread = 0;
+#endif
 
 PaError PaUnixThreading_Initialize()
 {
