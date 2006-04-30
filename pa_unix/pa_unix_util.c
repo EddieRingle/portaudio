@@ -177,7 +177,8 @@ PaError PaUtil_CancelThreading( PaUtilThreading *threading, int wait, PaError *e
 
 /* Threading */
 
-pthread_t paUnixMainThread;
+/* What would be an illegal value for a pthread_t? */
+pthread_t paUnixMainThread = 0;
 
 PaError PaUnixThreading_Initialize()
 {
