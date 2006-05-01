@@ -20,11 +20,20 @@ typedef struct {
     PaStreamCallbackFlags statusFlags;
     PaError errors;
 
-    /* eventually, I'll need condition vars, too, but for now,
-     *   I'm using busy-waits.
-     */
+    /* Here we handle blocking, using condition variables. */
+    volatile bool isInputEmpty;
+    pthread_mutex_t inputMutex;
+    pthread_cond_t inputCond;
+
+    volatile bool isOutputFull;
+    pthread_mutex_t outputMutex;
+    pthread_cond_t outputCond;
 }
 PaMacBlio;
+
+/*
+ * These functions operate on condition and related variables.
+ */
 
 /*
  * This fnuction determines the size of a particular sample format.
@@ -51,8 +60,8 @@ static PaError initializeBlioRingBuffers(
                                        long ringBufferSize,
                                        int inChan,
                                        int outChan );
-static void destroyBlioRingBuffers( PaMacBlio *blio );
-static void resetBlioRingBuffers( PaMacBlio *blio );
+static PaError destroyBlioRingBuffers( PaMacBlio *blio );
+static PaError resetBlioRingBuffers( PaMacBlio *blio );
 
 static int BlioCallback(
         const void *input, void *output,

@@ -10,6 +10,34 @@
  * by Bjorn Roche.
  */
 
+#define UNIX_ERR(err) PaMacCore_SetUnixError( err, __LINE__ )
+
+static PaError PaMacCore_SetUnixError( int err, int line )
+{
+   PaError ret;
+   const char *errorText;
+
+   if( err == 0 )
+   {
+      return paNoError;
+   }
+
+   ret = paNoError;
+   errorText = strerror( err );
+
+   /** Map Unix error to PaError. Pretty much the only one that maps
+       is ENOMEM. */
+   if( err == ENOMEM )
+      ret = paInsufficientMemory;
+   else
+      ret = paInternalError;
+
+   DBUG(("%d on line %d: msg='%s'\n", err, line, errorText));
+   PaUtil_SetLastHostErrorInfo( paCoreAudio, err, errorText );
+
+   return ret;
+}
+
 /*
  * Translates MacOS generated errors into PaErrors
  */

@@ -45,6 +45,10 @@
  @brief AUHAL implementation of PortAudio
 */
 
+/* FIXME: not all error conditions call PaUtil_SetLastHostErrorInfo()
+ * PaMacCore_SetError() will do this.
+ */
+
 #include <string.h> /* strlen(), memcmp() etc. */
 
 #include <AudioUnit/AudioUnit.h>
@@ -1950,7 +1954,6 @@ static PaError CloseStream( PaStream* s )
        if( stream->inputRingBuffer.buffer )
           free( stream->inputRingBuffer.buffer );
        stream->inputRingBuffer.buffer = NULL;
-       destroyBlioRingBuffers( &stream->blio );
        /*TODO: is there more that needs to be done on error
                from AudioConverterDispose?*/
        if( stream->inputSRConverter )
@@ -1960,6 +1963,9 @@ static PaError CloseStream( PaStream* s )
           free( stream->inputAudioBufferList.mBuffers[0].mData );
        stream->inputAudioBufferList.mBuffers[0].mData = NULL;
 
+       result = destroyBlioRingBuffers( &stream->blio );
+       if( result )
+          return result;
        if( stream->bufferProcessorIsInitialized )
           PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
        PaUtil_TerminateStreamRepresentation( &stream->streamRepresentation );
@@ -2002,6 +2008,7 @@ static PaError StopStream( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
     OSErr result = noErr;
+    PaError paErr;
     VVDBUG(("StopStream()\n"));
 
     VDBUG( ("Waiting for BLIO.\n") );
@@ -2042,13 +2049,17 @@ static PaError StopStream( PaStream *s )
                                     stream->inputRingBuffer.bufferSize
                                            / RING_BUFFER_ADVANCE_DENOMINATOR );
     }
-    resetBlioRingBuffers( &stream->blio );
+
+    stream->xrunFlags = 0;
+    stream->state = STOPPED;
+
+    paErr = resetBlioRingBuffers( &stream->blio );
+    if( paErr )
+       return paErr;
 
 /*
     //stream->isTimeSet = FALSE;
 */
-    stream->xrunFlags = 0;
-    stream->state = STOPPED;
 
     VDBUG( ( "Stream Stopped.\n" ) );
     return paNoError;
