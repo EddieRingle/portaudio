@@ -384,13 +384,13 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
           double secondLatency = frameLatency / deviceInfo->defaultSampleRate;
           if (isInput)
           {
-             deviceInfo->defaultLowInputLatency = secondLatency;
-             deviceInfo->defaultHighInputLatency = 10 * secondLatency;
+             deviceInfo->defaultLowInputLatency = 3 * secondLatency;
+             deviceInfo->defaultHighInputLatency = 3 * 10 * secondLatency;
           }
           else
           {
-             deviceInfo->defaultLowOutputLatency = secondLatency;
-             deviceInfo->defaultHighOutputLatency = 10 * secondLatency;
+             deviceInfo->defaultLowOutputLatency = 3 * secondLatency;
+             deviceInfo->defaultHighOutputLatency = 3 * 10 * secondLatency;
           }
        }
     }
