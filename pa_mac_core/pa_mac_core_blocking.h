@@ -2,7 +2,14 @@
 /*
  * Number of miliseconds to busy wait whil waiting for data in blocking calls.
  */
-#define PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL (10)
+#define PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL (5)
+/*
+ *Define exactly one of these blocking methods
+ */
+#define PA_MAC_BLIO_BUSY_WAIT
+/*
+#define PA_MAC_BLIO_MUTEX
+*/
 
 typedef struct {
     RingBuffer inputRingBuffer;
@@ -21,6 +28,7 @@ typedef struct {
     PaError errors;
 
     /* Here we handle blocking, using condition variables. */
+#ifdef  PA_MAC_BLIO_MUTEX
     volatile bool isInputEmpty;
     pthread_mutex_t inputMutex;
     pthread_cond_t inputCond;
@@ -28,6 +36,7 @@ typedef struct {
     volatile bool isOutputFull;
     pthread_mutex_t outputMutex;
     pthread_cond_t outputCond;
+#endif
 }
 PaMacBlio;
 

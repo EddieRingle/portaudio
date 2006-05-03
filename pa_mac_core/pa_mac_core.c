@@ -374,9 +374,9 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
        /* Get the latency.  Don't fail if we can't get this. */
        /* default to something reasonable */
        deviceInfo->defaultLowInputLatency = .01;
-       deviceInfo->defaultHighInputLatency = .01;
+       deviceInfo->defaultHighInputLatency = .10;
        deviceInfo->defaultLowOutputLatency = .01;
-       deviceInfo->defaultHighOutputLatency = .01;
+       deviceInfo->defaultHighOutputLatency = .10;
        propSize = sizeof(UInt32);
        err = WARNING(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
        if (!err)
@@ -385,12 +385,12 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
           if (isInput)
           {
              deviceInfo->defaultLowInputLatency = secondLatency;
-             deviceInfo->defaultHighInputLatency = secondLatency;
+             deviceInfo->defaultHighInputLatency = 10 * secondLatency;
           }
           else
           {
              deviceInfo->defaultLowOutputLatency = secondLatency;
-             deviceInfo->defaultHighOutputLatency = secondLatency;
+             deviceInfo->defaultHighOutputLatency = 10 * secondLatency;
           }
        }
     }

@@ -38,10 +38,13 @@ static PaError initializeBlioRingBuffers(
    blio->outChan = outChan;
    blio->statusFlags = 0;
    blio->errors = paNoError;
+#ifdef PA_MAC_BLIO_MUTEX
    blio->isInputEmpty = false;
    blio->isOutputFull = false;
+#endif
 
    /* setup ring buffers */
+#ifdef PA_MAC_BLIO_MUTEX
    result = PaMacCore_SetUnixError( pthread_mutex_init(&(blio->inputMutex),NULL), 0 );
    if( result )
       goto error;
@@ -52,6 +55,7 @@ static PaError initializeBlioRingBuffers(
    if( result )
       goto error;
    result = UNIX_ERR( pthread_cond_init( &(blio->outputCond), NULL ) );
+#endif
    if( inChan ) {
       data = calloc( ringBufferSize, blio->inputSampleSize );
       if( !data )
@@ -90,6 +94,7 @@ static PaError initializeBlioRingBuffers(
    return result;
 }
 
+#ifdef PA_MAC_BLIO_MUTEX
 static PaError blioSetIsInputEmpty( PaMacBlio *blio, bool isEmpty )
 {
    PaError result = paNoError;
@@ -142,6 +147,7 @@ static PaError blioSetIsOutputFull( PaMacBlio *blio, bool isFull )
  done:
    return result;
 }
+#endif
 
 /* This should be called after stopping or aborting the stream, so that on next
    start, the buffers will be ready. */
@@ -149,22 +155,24 @@ static PaError resetBlioRingBuffers( PaMacBlio *blio )
 {
    int result;
    if( blio->outputRingBuffer.buffer ) {
-      const int toAdvance = blio->framesPerBuffer*blio->outChan*blio->outputSampleSize;
+      //const int toAdvance = blio->framesPerBuffer*blio->outChan*blio->outputSampleSize;
       RingBuffer_Flush( &blio->outputRingBuffer );
       bzero( blio->outputRingBuffer.buffer,
              blio->outputRingBuffer.bufferSize );
       /* Advance buffer */
-      if( toAdvance > blio->outputRingBuffer.bufferSize ) {
-         result = paInternalError;
-         PaUtil_SetLastHostErrorInfo( paCoreAudio, paInternalError, "Output buffer cannot advance more than buffer size." );
-         goto error;
-      }
-      RingBuffer_AdvanceWriteIndex( &blio->outputRingBuffer, toAdvance );
+      //if( toAdvance > blio->outputRingBuffer.bufferSize ) {
+      //   result = paInternalError;
+      //   PaUtil_SetLastHostErrorInfo( paCoreAudio, paInternalError, "Output buffer cannot advance more than buffer size." );
+      //   goto error;
+      //}
+      RingBuffer_AdvanceWriteIndex( &blio->outputRingBuffer, blio->outputRingBuffer.bufferSize ); //toAdvance );
 
       /* Update isOutputFull. */
+#ifdef PA_MAC__BLIO_MUTEX
       result = blioSetIsOutputFull( blio, toAdvance == blio->outputRingBuffer.bufferSize );
       if( result )
          goto error;
+#endif
 /*
       printf( "------%d\n" ,  blio->framesPerBuffer );
       printf( "------%d\n" ,  blio->outChan );
@@ -177,9 +185,11 @@ static PaError resetBlioRingBuffers( PaMacBlio *blio )
       bzero( blio->inputRingBuffer.buffer,
              blio->inputRingBuffer.bufferSize );
       /* Update isInputEmpty. */
+#ifdef PA_MAC__BLIO_MUTEX
       result = blioSetIsInputEmpty( blio, true );
       if( result )
          goto error;
+#endif
    }
    return paNoError;
  error:
@@ -190,25 +200,29 @@ static PaError resetBlioRingBuffers( PaMacBlio *blio )
   multiple times if there are no exceptions. */
 static PaError destroyBlioRingBuffers( PaMacBlio *blio )
 {
-   PaError result;
+   PaError result = paNoError;
    if( blio->inputRingBuffer.buffer ) {
       free( blio->inputRingBuffer.buffer );
+#ifdef PA_MAC__BLIO_MUTEX
       result = UNIX_ERR( pthread_mutex_destroy( & blio->inputMutex ) );
       if( result ) return result;
       result = UNIX_ERR( pthread_cond_destroy( & blio->inputCond ) );
       if( result ) return result;
+#endif
    }
    blio->inputRingBuffer.buffer = NULL;
    if( blio->outputRingBuffer.buffer ) {
       free( blio->outputRingBuffer.buffer );
+#ifdef PA_MAC__BLIO_MUTEX
       result = UNIX_ERR( pthread_mutex_destroy( & blio->outputMutex ) );
       if( result ) return result;
       result = UNIX_ERR( pthread_cond_destroy( & blio->outputCond ) );
       if( result ) return result;
+#endif
    }
    blio->outputRingBuffer.buffer = NULL;
 
-   return paNoError;
+   return result;
 }
 
 /*
@@ -242,8 +256,10 @@ static int BlioCallback( const void *input, void *output, unsigned long frameCou
       /* copy the data */
       /*printf( "reading %d\n", toRead );*/
       assert( toRead == RingBuffer_Write( &blio->inputRingBuffer, input, toRead ) );
+#ifdef PA_MAC__BLIO_MUTEX
       /* Priority inversion. See notes below. */
       blioSetIsInputEmpty( blio, false );
+#endif
    }
 
 
@@ -263,10 +279,13 @@ static int BlioCallback( const void *input, void *output, unsigned long frameCou
       /* copy the data */
       /*printf( "writing %d\n", toWrite );*/
       assert( toWrite == RingBuffer_Read( &blio->outputRingBuffer, output, toWrite ) );
-      /* We have a priority inversion here. However, we will only have to wait if
-         this was true and is now false, which means we've got some room in the buffer.
+#ifdef PA_MAC__BLIO_MUTEX
+      /* We have a priority inversion here. However, we will only have to
+         wait if this was true and is now false, which means we've got
+         some room in the buffer.
          Hopefully problems will be minimized. */
       blioSetIsOutputFull( blio, false );
+#endif
    }
 
    return paContinue;
@@ -280,7 +299,7 @@ static PaError ReadStream( PaStream* stream,
 {
     PaMacBlio *blio = & ((PaMacCoreStream*)stream) -> blio;
     char *cbuf = (char *) buffer;
-    PaError ret;
+    PaError ret = paNoError;
     VVDBUG(("ReadStream()\n"));
 
     while( frames > 0 ) {
@@ -288,7 +307,13 @@ static PaError ReadStream( PaStream* stream,
        long toRead;
        do {
           avail = RingBuffer_GetReadAvailable( &blio->inputRingBuffer );
+/*
+          printf( "Read Buffer is %%%g full: %ld of %ld.\n",
+                  100 * (float)avail / (float) blio->inputRingBuffer.bufferSize,
+                  avail, blio->inputRingBuffer.bufferSize );
+*/
           if( avail == 0 ) {
+#ifdef PA_MAC_BLIO_MUTEX
              /**block when empty*/
              ret = UNIX_ERR( pthread_mutex_lock( &blio->inputMutex ) );
              if( ret )
@@ -301,6 +326,9 @@ static PaError ReadStream( PaStream* stream,
              ret = UNIX_ERR( pthread_mutex_unlock( &blio->inputMutex ) );
              if( ret )
                 return ret;
+#else
+             Pa_Sleep( PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL );
+#endif
           }
        } while( avail == 0 );
        toRead = MIN( avail, frames * blio->inputSampleSize * blio->inChan );
@@ -310,17 +338,20 @@ static PaError ReadStream( PaStream* stream,
        frames -= toRead / ( blio->inputSampleSize * blio->inChan );
 
        if( toRead == avail ) {
+#ifdef PA_MAC_BLIO_MUTEX
           /* we just emptied the buffer, so we need to mark it as empty. */
           ret = blioSetIsInputEmpty( blio, true );
           if( ret )
              return ret;
-          /* of course, in the meantime, the callback may have put some sats in, so
+          /* of course, in the meantime, the callback may have put some sats
+             in, so
              so check for that, too, to avoid a race condition. */
           if( RingBuffer_GetReadAvailable( &blio->inputRingBuffer ) ) {
              blioSetIsInputEmpty( blio, false );
              if( ret )
                 return ret;
           }
+#endif
        }
     }
 
@@ -341,8 +372,8 @@ static PaError WriteStream( PaStream* stream,
 {
     PaMacBlio *blio = & ((PaMacCoreStream*)stream) -> blio;
     char *cbuf = (char *) buffer;
+    PaError ret = paNoError;
     VVDBUG(("WriteStream()\n"));
-    PaError ret;
 
     while( frames > 0 ) {
        long avail = 0;
@@ -350,7 +381,13 @@ static PaError WriteStream( PaStream* stream,
 
        do {
           avail = RingBuffer_GetWriteAvailable( &blio->outputRingBuffer );
+/*
+          printf( "Write Buffer is %%%g full: %ld of %ld.\n",
+                  100 - 100 * (float)avail / (float) blio->outputRingBuffer.bufferSize,
+                  avail, blio->outputRingBuffer.bufferSize );
+*/
           if( avail == 0 ) {
+#ifdef PA_MAC_BLIO_MUTEX
              /*block while full*/
              ret = UNIX_ERR( pthread_mutex_lock( &blio->outputMutex ) );
              if( ret )
@@ -363,6 +400,9 @@ static PaError WriteStream( PaStream* stream,
              ret = UNIX_ERR( pthread_mutex_unlock( &blio->outputMutex ) );
              if( ret )
                 return ret;
+#else
+             Pa_Sleep( PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL );
+#endif
           }
        } while( avail == 0 );
 
@@ -372,6 +412,7 @@ static PaError WriteStream( PaStream* stream,
        cbuf += toWrite;
        frames -= toWrite / ( blio->outputSampleSize * blio->outChan );
 
+#ifdef PA_MAC_BLIO_MUTEX
        if( toWrite == avail ) {
           /* we just filled up the buffer, so we need to mark it as filled. */
           ret = blioSetIsOutputFull( blio, true );
@@ -385,6 +426,7 @@ static PaError WriteStream( PaStream* stream,
                 return ret;
           }
        }
+#endif
     }
 
     /*   Report either paNoError or paOutputUnderflowed. */

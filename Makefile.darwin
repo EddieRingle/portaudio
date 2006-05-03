@@ -136,6 +136,7 @@ all: lib/$(PALIB) lib/$(PASHLIBNAME) tests
 tests: bin/ $(TESTS)
 
 lib/$(PALIB): lib/ $(OBJS) Makefile $(PAINC)
+	-rm lib/$(PALIB)
 	$(AR) ruv lib/$(PALIB) $(OBJS)
 	$(RANLIB) lib/$(PALIB)
 
