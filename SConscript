@@ -161,8 +161,9 @@ CommonSources = [os.path.join("pa_common", f) for f in "pa_allocation.c pa_conve
 # Host API implementations
 ImplSources = []
 if Platform in Posix:
-    env.AppendUnique(LINKFLAGS=["-pthread"])
-    BaseCFlags = "-Wall -pedantic -pipe -pthread"
+    ThreadCFlags = "-pthread"
+    env.AppendUnique(LINKFLAGS=[ThreadCFlags])
+    BaseCFlags = "-Wall -pedantic -pipe %s" % ThreadCFlags
     DebugCFlags = "-g"
     OptCFlags  = "-O2"
     ImplSources += [os.path.join("pa_unix", f) for f in "pa_unix_hostapis.c pa_unix_util.c".split()]
@@ -200,10 +201,12 @@ staticLib = env.StaticLibrary(target="portaudio", source=sources)
 
 if Platform in Posix:
     prefix = env["prefix"]
-    env.Alias("install", env.Install(os.path.join(prefix, "include"), os.path.join("pa_common", "portaudio.h")))
+    includeDir = os.path.join(prefix, "include")
+    env.Alias("install", env.Install(includeDir, os.path.join("pa_common", "portaudio.h")))
+    libDir = os.path.join(prefix, "lib")
 
     if env["enableStatic"]:
-        env.Alias("install", env.Install(os.path.join(prefix, "lib"), staticLib))
+        env.Alias("install", env.Install(libDir, staticLib))
 
     def symlink(env, target, source):
         trgt = str(target[0])
@@ -217,15 +220,37 @@ if Platform in Posix:
         major, minor, micro = [int(c) for c in ApiVer.split(".")]
         
         soFile = "%s.%s" % (sharedLib[0], ApiVer)
-        env.Alias("install", env.InstallAs(target=os.path.join(prefix, "lib", soFile), source=sharedLib))
+        env.Alias("install", env.InstallAs(target=os.path.join(libDir, soFile), source=sharedLib))
         # Install symlinks
-        symTrgt = os.path.join(prefix, "lib", soFile)
-        env.Alias("install", env.Command(os.path.join(prefix, "lib", "libportaudio.so.%d.%d" % (major, minor)),
+        symTrgt = os.path.join(libDir, soFile)
+        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d.%d" % (major, minor)),
             symTrgt, symlink))
         symTrgt = symTrgt.rsplit(".", 1)[0]
-        env.Alias("install", env.Command(os.path.join(prefix, "lib", "libportaudio.so.%d" % major), symTrgt, symlink))
+        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d" % major), symTrgt, symlink))
         symTrgt = symTrgt.rsplit(".", 1)[0]
-        env.Alias("install", env.Command(os.path.join(prefix, "lib", "libportaudio.so"), symTrgt, symlink))
+        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so"), symTrgt, symlink))
+
+    # pkg-config
+
+    def installPkgconfig(env, target, source):
+        tgt = str(target[0])
+        src = str(source[0])
+        f = open(src)
+        try: txt = f.read()
+        finally: f.close()
+        txt = txt.replace("@prefix@", prefix)
+        txt = txt.replace("@libdir@", libDir)
+        txt = txt.replace("@includedir@", includeDir)
+        txt = txt.replace("@LIBS@", " ".join(["-l%s" % l for l in env["LIBS"]]))
+        txt = txt.replace("@THREAD_CFLAGS@", ThreadCFlags)
+
+        f = open(tgt, "w")
+        try: f.write(txt)
+        finally: f.close()
+
+    pkgconfigTgt = "portaudio-%d.0.pc" % int(ApiVer.split(".", 1)[0])
+    env.Alias("install", env.Command(os.path.join(libDir, "pkgconfig", pkgconfigTgt),
+        pkgconfigTgt + ".in", installPkgconfig))
 
 testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer", "patest_callbackstop", "patest_clip", \
         "patest_dither", "patest_hang", "patest_in_overflow", "patest_latency", "patest_leftright", "patest_longsine", \
