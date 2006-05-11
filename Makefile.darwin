@@ -135,15 +135,15 @@ all: lib/$(PALIB) lib/$(PASHLIBNAME) tests
 
 tests: bin/ $(TESTS)
 
-lib/$(PALIB): lib/ $(OBJS) Makefile $(PAINC)
+lib/$(PALIB): lib/ $(OBJS) Makefile.darwin $(PAINC)
 	-rm lib/$(PALIB)
 	$(AR) ruv lib/$(PALIB) $(OBJS)
 	$(RANLIB) lib/$(PALIB)
 
-lib/$(PASHLIBNAME): lib/ $(OBJS) Makefile $(PAINC)
+lib/$(PASHLIBNAME): lib/ $(OBJS) Makefile.darwin $(PAINC)
 	$(CC) $(SHARED_FLAGS) -o lib/$(PASHLIBNAME) $(OBJS) $(DLL_LIBS) -install_name $(PREFIX)/lib/$(PASHLIBNAME) -compatibility_version $(PADLLV) -current_version $(PADLLV)
 
-$(TESTS): bin/%: lib/$(PALIB) Makefile $(PAINC) pa_tests/%.c
+$(TESTS): bin/%: lib/$(PALIB) Makefile.darwin $(PAINC) pa_tests/%.c
 	$(CC) -o $@ $(CFLAGS) pa_tests/$*.c lib/$(PALIB) $(LIBS)
 
 install: lib/$(PALIB) lib/$(PASHLIBNAME) portaudio-2.0.pc
@@ -175,10 +175,10 @@ uninstall:
 clean:
 	rm -f $(OBJS) $(TESTS) lib/$(PALIB) lib/$(PASHLIBNAME)
 
-%.o: %.c Makefile $(PAINC)
+%.o: %.c Makefile.darwin $(PAINC)
 	$(CC) -c $(CFLAGS) $< -o $@
 
-%.o: %.cpp Makefile $(PAINC)
+%.o: %.cpp Makefile.darwin $(PAINC)
 	$(CXX) -c $(CXXFLAGS) $< -o $@
 
 %.o: %.asm
