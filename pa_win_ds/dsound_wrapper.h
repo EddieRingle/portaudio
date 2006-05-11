@@ -56,25 +56,6 @@ extern "C"
 {
 #endif /* __cplusplus */
 
-
-typedef struct
-{
-    HINSTANCE hInstance_;
-    
-    HRESULT (WINAPI *DirectSoundCreate)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN);
-    HRESULT (WINAPI *DirectSoundEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
-    HRESULT (WINAPI *DirectSoundEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
-
-    HRESULT (WINAPI *DirectSoundCaptureCreate)(LPGUID, LPDIRECTSOUNDCAPTURE *, LPUNKNOWN);
-    HRESULT (WINAPI *DirectSoundCaptureEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
-    HRESULT (WINAPI *DirectSoundCaptureEnumerateA)(LPDSENUMCALLBACKA, LPVOID);
-}DSoundEntryPoints;
-
-extern DSoundEntryPoints dswDSoundEntryPoints;
-
-void DSW_InitializeDSoundEntryPoints(void);
-void DSW_TerminateDSoundEntryPoints(void);
-
 #define DSW_NUM_POSITIONS     (4)
 #define DSW_NUM_EVENTS        (5)
 #define DSW_TERMINATION_EVENT     (DSW_NUM_POSITIONS)

@@ -38,6 +38,7 @@
 #include <math.h>
 
 #include "dsound_wrapper.h"
+#include "pa_dsound_dynlink.h"
 #include "pa_trace.h"
 
 /*
@@ -49,121 +50,7 @@
 DEFINE_GUID(IID_IDirectSoundNotify, 0xb0210783, 0x89cd, 0x11d0, 0xaf, 0x8, 0x0, 0xa0, 0xc9, 0x25, 0xcd, 0x16);
 
 
-/************************************************************************************/
-DSoundEntryPoints dswDSoundEntryPoints = { 0, 0, 0, 0, 0, 0, 0 };
-/************************************************************************************/
-static HRESULT WINAPI DummyDirectSoundCreate(LPGUID lpcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter)
-{
-    (void)lpcGuidDevice; /* unused parameter */
-    (void)ppDS; /* unused parameter */
-    (void)pUnkOuter; /* unused parameter */
-    return E_NOTIMPL;
-}
 
-static HRESULT WINAPI DummyDirectSoundEnumerateW(LPDSENUMCALLBACKW lpDSEnumCallback, LPVOID lpContext)
-{
-    (void)lpDSEnumCallback; /* unused parameter */
-    (void)lpContext; /* unused parameter */
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI DummyDirectSoundEnumerateA(LPDSENUMCALLBACKA lpDSEnumCallback, LPVOID lpContext)
-{
-    (void)lpDSEnumCallback; /* unused parameter */
-    (void)lpContext; /* unused parameter */
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI DummyDirectSoundCaptureCreate(LPGUID lpcGUID, LPDIRECTSOUNDCAPTURE *lplpDSC, LPUNKNOWN pUnkOuter)
-{
-    (void)lpcGUID; /* unused parameter */
-    (void)lplpDSC; /* unused parameter */
-    (void)pUnkOuter; /* unused parameter */
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI DummyDirectSoundCaptureEnumerateW(LPDSENUMCALLBACKW lpDSCEnumCallback, LPVOID lpContext)
-{
-    (void)lpDSCEnumCallback; /* unused parameter */
-    (void)lpContext; /* unused parameter */
-    return E_NOTIMPL;
-}
-
-static HRESULT WINAPI DummyDirectSoundCaptureEnumerateA(LPDSENUMCALLBACKA lpDSCEnumCallback, LPVOID lpContext)
-{
-    (void)lpDSCEnumCallback; /* unused parameter */
-    (void)lpContext; /* unused parameter */
-    return E_NOTIMPL;
-}
-/************************************************************************************/
-void DSW_InitializeDSoundEntryPoints(void)
-{
-    dswDSoundEntryPoints.hInstance_ = LoadLibrary("dsound.dll");
-    if( dswDSoundEntryPoints.hInstance_ != NULL )
-    {
-        dswDSoundEntryPoints.DirectSoundCreate =
-                (HRESULT (WINAPI *)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundCreate" );
-        if( dswDSoundEntryPoints.DirectSoundCreate == NULL )
-            dswDSoundEntryPoints.DirectSoundCreate = DummyDirectSoundCreate;
-
-        dswDSoundEntryPoints.DirectSoundEnumerateW =
-                (HRESULT (WINAPI *)(LPDSENUMCALLBACKW, LPVOID))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundEnumerateW" );
-        if( dswDSoundEntryPoints.DirectSoundEnumerateW == NULL )
-            dswDSoundEntryPoints.DirectSoundEnumerateW = DummyDirectSoundEnumerateW;
-
-        dswDSoundEntryPoints.DirectSoundEnumerateA =
-                (HRESULT (WINAPI *)(LPDSENUMCALLBACKA, LPVOID))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundEnumerateA" );
-        if( dswDSoundEntryPoints.DirectSoundEnumerateA == NULL )
-            dswDSoundEntryPoints.DirectSoundEnumerateA = DummyDirectSoundEnumerateA;
-
-        dswDSoundEntryPoints.DirectSoundCaptureCreate =
-                (HRESULT (WINAPI *)(LPGUID, LPDIRECTSOUNDCAPTURE *, LPUNKNOWN))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundCaptureCreate" );
-        if( dswDSoundEntryPoints.DirectSoundCaptureCreate == NULL )
-            dswDSoundEntryPoints.DirectSoundCaptureCreate = DummyDirectSoundCaptureCreate;
-
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateW =
-                (HRESULT (WINAPI *)(LPDSENUMCALLBACKW, LPVOID))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundCaptureEnumerateW" );
-        if( dswDSoundEntryPoints.DirectSoundCaptureEnumerateW == NULL )
-            dswDSoundEntryPoints.DirectSoundCaptureEnumerateW = DummyDirectSoundCaptureEnumerateW;
-
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateA =
-                (HRESULT (WINAPI *)(LPDSENUMCALLBACKA, LPVOID))
-                GetProcAddress( dswDSoundEntryPoints.hInstance_, "DirectSoundCaptureEnumerateA" );
-        if( dswDSoundEntryPoints.DirectSoundCaptureEnumerateA == NULL )
-            dswDSoundEntryPoints.DirectSoundCaptureEnumerateA = DummyDirectSoundCaptureEnumerateA;
-    }
-    else
-    {
-        /* initialize with dummy entry points to make live easy when ds isn't present */
-        dswDSoundEntryPoints.DirectSoundCreate = DummyDirectSoundCreate;
-        dswDSoundEntryPoints.DirectSoundEnumerateW = DummyDirectSoundEnumerateW;
-        dswDSoundEntryPoints.DirectSoundEnumerateA = DummyDirectSoundEnumerateA;
-        dswDSoundEntryPoints.DirectSoundCaptureCreate = DummyDirectSoundCaptureCreate;
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateW = DummyDirectSoundCaptureEnumerateW;
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateA = DummyDirectSoundCaptureEnumerateA;
-    }
-}
-/************************************************************************************/
-void DSW_TerminateDSoundEntryPoints(void)
-{
-    if( dswDSoundEntryPoints.hInstance_ != NULL )
-    {
-        FreeLibrary( dswDSoundEntryPoints.hInstance_ );
-        dswDSoundEntryPoints.hInstance_ = NULL;
-        /* ensure that we crash reliably if the entry points arent initialised */
-        dswDSoundEntryPoints.DirectSoundCreate = 0;
-        dswDSoundEntryPoints.DirectSoundEnumerateW = 0;
-        dswDSoundEntryPoints.DirectSoundEnumerateA = 0;
-        dswDSoundEntryPoints.DirectSoundCaptureCreate = 0;
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateW = 0;
-        dswDSoundEntryPoints.DirectSoundCaptureEnumerateA = 0;
-    }
-}
 /************************************************************************************/
 void DSW_Term( DSoundWrapper *dsw )
 {
@@ -204,7 +91,7 @@ HRESULT DSW_Init( DSoundWrapper *dsw )
 HRESULT DSW_InitOutputDevice( DSoundWrapper *dsw, LPGUID lpGUID )
 {
     // Create the DS object
-    HRESULT hr = dswDSoundEntryPoints.DirectSoundCreate( lpGUID, &dsw->dsw_pDirectSound, NULL );
+    HRESULT hr = paWinDsDSoundEntryPoints.DirectSoundCreate( lpGUID, &dsw->dsw_pDirectSound, NULL );
     if( hr != DS_OK ) return hr;
     return hr;
 }
@@ -509,7 +396,7 @@ DWORD DSW_GetOutputStatus( DSoundWrapper *dsw )
 /************************************************************************************/
 HRESULT DSW_InitInputDevice( DSoundWrapper *dsw, LPGUID lpGUID )
 {
-    HRESULT hr = dswDSoundEntryPoints.DirectSoundCaptureCreate(  lpGUID, &dsw->dsw_pDirectSoundCapture,   NULL );
+    HRESULT hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate(  lpGUID, &dsw->dsw_pDirectSoundCapture,   NULL );
     if( hr != DS_OK ) return hr;
     return hr;
 }

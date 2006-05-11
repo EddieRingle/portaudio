@@ -68,6 +68,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 
+#include "pa_dsound_dynlink.h"
 #include "dsound_wrapper.h"
 
 #if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
@@ -432,7 +433,7 @@ static PaError AddOutputDeviceInfoFromDirectSound(
     /* Create a DirectSound object for the specified GUID
         Note that using CoCreateInstance doesn't work on windows CE.
     */
-    hr = dswDSoundEntryPoints.DirectSoundCreate( lpGUID, &lpDirectSound, NULL );
+    hr = paWinDsDSoundEntryPoints.DirectSoundCreate( lpGUID, &lpDirectSound, NULL );
 
     /** try using CoCreateInstance because DirectSoundCreate was hanging under
         some circumstances - note this was probably related to the
@@ -605,7 +606,7 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
     }
 
 
-    hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
+    hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
 
     /** try using CoCreateInstance because DirectSoundCreate was hanging under
         some circumstances - note this was probably related to the
@@ -750,7 +751,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     inputNamesAndGUIDs.items = NULL;
     outputNamesAndGUIDs.items = NULL;
 
-    DSW_InitializeDSoundEntryPoints();
+    PaWinDs_InitializeDSoundEntryPoints();
 
     winDsHostApi = (PaWinDsHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinDsHostApiRepresentation) );
     if( !winDsHostApi )
@@ -787,9 +788,9 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     if( result != paNoError )
         goto error;
 
-    dswDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&inputNamesAndGUIDs );
+    paWinDsDSoundEntryPoints.DirectSoundCaptureEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&inputNamesAndGUIDs );
 
-    dswDSoundEntryPoints.DirectSoundEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&outputNamesAndGUIDs );
+    paWinDsDSoundEntryPoints.DirectSoundEnumerate( (LPDSENUMCALLBACK)CollectGUIDsProc, (void *)&outputNamesAndGUIDs );
 
     if( inputNamesAndGUIDs.enumerationError != paNoError )
     {
@@ -925,7 +926,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     PaUtil_FreeMemory( winDsHostApi );
 
-    DSW_TerminateDSoundEntryPoints();
+    PaWinDs_TerminateDSoundEntryPoints();
 
     CoUninitialize();
 }
@@ -1310,7 +1311,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
 
 
-            hr = dswDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputParameters->device].lpGUID,
+            hr = paWinDsDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputParameters->device].lpGUID,
                 &dsw->dsw_pDirectSound,   NULL );
             if( hr != DS_OK )
             {
@@ -1355,7 +1356,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
 
-            hr = dswDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputParameters->device].lpGUID,
+            hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputParameters->device].lpGUID,
                 &dsw->dsw_pDirectSoundCapture,   NULL );
             if( hr != DS_OK )
             {
