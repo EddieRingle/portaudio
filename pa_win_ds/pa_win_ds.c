@@ -69,7 +69,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 
-#include "pa_dsound_dynlink.h"
+#include "pa_win_ds_dynlink.h"
 
 #if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
 #pragma comment( lib, "dsound.lib" )
@@ -159,33 +159,6 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
 #define DSW_TERMINATION_EVENT     (DSW_NUM_POSITIONS)
 
 
-/************************************************* struct previously in dsound_wrapper.h **********/
-
-typedef struct
-{
-/* Output */
-    LPDIRECTSOUND        dsw_pDirectSound;
-    LPDIRECTSOUNDBUFFER  dsw_OutputBuffer;
-    DWORD                dsw_WriteOffset;     /* last write position */
-    INT                  dsw_OutputSize;
-    INT                  dsw_BytesPerOutputFrame;
-    /* Try to detect play buffer underflows. */
-    LARGE_INTEGER        dsw_CounterTicksPerBuffer; /* counter ticks it should take to play a full buffer */
-    LARGE_INTEGER        dsw_LastPlayTime;
-    UINT                 dsw_LastPlayCursor;
-    UINT                 dsw_OutputUnderflows;
-    BOOL                 dsw_OutputRunning;
-    /* use double which lets us can play for several thousand years with enough precision */
-    double               dsw_FramesWritten;
-    double               dsw_FramesPlayed;
-/* Input */
-    INT                  dsw_BytesPerInputFrame;
-    LPDIRECTSOUNDCAPTURE dsw_pDirectSoundCapture;
-    LPDIRECTSOUNDCAPTUREBUFFER   dsw_InputBuffer;
-    UINT                 dsw_ReadOffset;      /* last read position */
-    UINT                 dsw_InputSize;
-} DSoundWrapper;
-
 /************************************************************************************/
 /********************** Structures **************************************************/
 /************************************************************************************/
@@ -220,7 +193,30 @@ typedef struct PaWinDsStream
     PaUtilBufferProcessor bufferProcessor;
 
 /* DirectSound specific data. */
-    DSoundWrapper    directSoundWrapper;
+
+/* Output */
+    LPDIRECTSOUND        pDirectSound;
+    LPDIRECTSOUNDBUFFER  pDirectSoundOutputBuffer;
+    DWORD                writeOffset;     /* last write position */
+    INT                  outputSize;
+    INT                  bytesPerOutputFrame;
+    /* Try to detect play buffer underflows. */
+    LARGE_INTEGER        counterTicksPerBuffer; /* counter ticks it should take to play a full buffer */
+    LARGE_INTEGER        lastPlayTime;
+    UINT                 lastPlayCursor;
+    UINT                 outputUnderflows;
+    BOOL                 outputRunning;
+    /* use double which lets us can play for several thousand years with enough precision */
+    double               dsw_framesWritten;
+    double               framesPlayed;
+/* Input */
+    LPDIRECTSOUNDCAPTURE pDirectSoundCapture;
+    LPDIRECTSOUNDCAPTUREBUFFER   pDirectSoundInputBuffer;
+    INT                  bytesPerInputFrame;
+    UINT                 readOffset;      /* last read position */
+    UINT                 inputSize;
+
+///
     MMRESULT         timerID;
     BOOL             ifInsideCallback;  /* Test for reentrancy. */
     int              framesPerDSBuffer;
@@ -1117,13 +1113,13 @@ static int PaWinDs_GetMinLatencyFrames( double sampleRate )
 }
 
 
-static HRESULT InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitInputBuffer( PaWinDsStream *stream, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     DSCBUFFERDESC  captureDesc;
     WAVEFORMATEX   wfFormat;
     HRESULT        result;
     
-    dsw->dsw_BytesPerInputFrame = nChannels * sizeof(short);
+    stream->bytesPerInputFrame = nChannels * sizeof(short);
 
     // Define the buffer format
     wfFormat.wFormatTag      = WAVE_FORMAT_PCM;
@@ -1133,7 +1129,7 @@ static HRESULT InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WO
     wfFormat.nBlockAlign     = (WORD)(wfFormat.nChannels * (wfFormat.wBitsPerSample / 8));
     wfFormat.nAvgBytesPerSec = wfFormat.nSamplesPerSec * wfFormat.nBlockAlign;
     wfFormat.cbSize          = 0;   /* No extended format info. */
-    dsw->dsw_InputSize = bytesPerBuffer;
+    stream->inputSize = bytesPerBuffer;
     // ----------------------------------------------------------------------
     // Setup the secondary buffer description
     ZeroMemory(&captureDesc, sizeof(DSCBUFFERDESC));
@@ -1142,14 +1138,14 @@ static HRESULT InitInputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WO
     captureDesc.dwBufferBytes = bytesPerBuffer;
     captureDesc.lpwfxFormat = &wfFormat;
     // Create the capture buffer
-    if ((result = IDirectSoundCapture_CreateCaptureBuffer( dsw->dsw_pDirectSoundCapture,
-                  &captureDesc, &dsw->dsw_InputBuffer, NULL)) != DS_OK) return result;
-    dsw->dsw_ReadOffset = 0;  // reset last read position to start of buffer
+    if ((result = IDirectSoundCapture_CreateCaptureBuffer( stream->pDirectSoundCapture,
+                  &captureDesc, &stream->pDirectSoundInputBuffer, NULL)) != DS_OK) return result;
+    stream->readOffset = 0;  // reset last read position to start of buffer
     return DS_OK;
 }
 
 
-static HRESULT InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitOutputBuffer( PaWinDsStream *stream, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     DWORD          dwDataLen;
     DWORD          playCursor;
@@ -1163,11 +1159,11 @@ static HRESULT InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, W
     unsigned char* pDSBuffData;
     LARGE_INTEGER  counterFrequency;
 
-    dsw->dsw_OutputSize = bytesPerBuffer;
-    dsw->dsw_OutputRunning = FALSE;
-    dsw->dsw_OutputUnderflows = 0;
-    dsw->dsw_FramesWritten = 0;
-    dsw->dsw_BytesPerOutputFrame = nChannels * sizeof(short);
+    stream->outputSize = bytesPerBuffer;
+    stream->outputRunning = FALSE;
+    stream->outputUnderflows = 0;
+    stream->dsw_framesWritten = 0;
+    stream->bytesPerOutputFrame = nChannels * sizeof(short);
 
     // We were using getForegroundWindow() but sometimes the ForegroundWindow may not be the
     // applications's window. Also if that window is closed before the Buffer is closed
@@ -1183,7 +1179,7 @@ static HRESULT InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, W
 
     // Set cooperative level to DSSCL_EXCLUSIVE so that we can get 16 bit output, 44.1 KHz.
     // Exclusize also prevents unexpected sounds from other apps during a performance.
-    if ((hr = IDirectSound_SetCooperativeLevel( dsw->dsw_pDirectSound,
+    if ((hr = IDirectSound_SetCooperativeLevel( stream->pDirectSound,
               hWnd, DSSCL_EXCLUSIVE)) != DS_OK)
     {
         return hr;
@@ -1199,7 +1195,7 @@ static HRESULT InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, W
     primaryDesc.dwBufferBytes = 0;
     primaryDesc.lpwfxFormat   = NULL;
     // Create the buffer
-    if ((result = IDirectSound_CreateSoundBuffer( dsw->dsw_pDirectSound,
+    if ((result = IDirectSound_CreateSoundBuffer( stream->pDirectSound,
                   &primaryDesc, &pPrimaryBuffer, NULL)) != DS_OK) return result;
     // Define the buffer format
     wfFormat.wFormatTag = WAVE_FORMAT_PCM;
@@ -1220,32 +1216,33 @@ static HRESULT InitOutputBuffer( DSoundWrapper *dsw, unsigned long nFrameRate, W
     secondaryDesc.dwBufferBytes = bytesPerBuffer;
     secondaryDesc.lpwfxFormat = &wfFormat;
     // Create the secondary buffer
-    if ((result = IDirectSound_CreateSoundBuffer( dsw->dsw_pDirectSound,
-                  &secondaryDesc, &dsw->dsw_OutputBuffer, NULL)) != DS_OK) return result;
+    if ((result = IDirectSound_CreateSoundBuffer( stream->pDirectSound,
+                  &secondaryDesc, &stream->pDirectSoundOutputBuffer, NULL)) != DS_OK) return result;
     // Lock the DS buffer
-    if ((result = IDirectSoundBuffer_Lock( dsw->dsw_OutputBuffer, 0, dsw->dsw_OutputSize, (LPVOID*)&pDSBuffData,
+    if ((result = IDirectSoundBuffer_Lock( stream->pDirectSoundOutputBuffer, 0, stream->outputSize, (LPVOID*)&pDSBuffData,
                                            &dwDataLen, NULL, 0, 0)) != DS_OK) return result;
     // Zero the DS buffer
     ZeroMemory(pDSBuffData, dwDataLen);
     // Unlock the DS buffer
-    if ((result = IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, pDSBuffData, dwDataLen, NULL, 0)) != DS_OK) return result;
+    if ((result = IDirectSoundBuffer_Unlock( stream->pDirectSoundOutputBuffer, pDSBuffData, dwDataLen, NULL, 0)) != DS_OK) return result;
     if( QueryPerformanceFrequency( &counterFrequency ) )
     {
         int framesInBuffer = bytesPerBuffer / (nChannels * sizeof(short));
-        dsw->dsw_CounterTicksPerBuffer.QuadPart = (counterFrequency.QuadPart * framesInBuffer) / nFrameRate;
+        stream->counterTicksPerBuffer.QuadPart = (counterFrequency.QuadPart * framesInBuffer) / nFrameRate;
     }
     else
     {
-        dsw->dsw_CounterTicksPerBuffer.QuadPart = 0;
+        stream->counterTicksPerBuffer.QuadPart = 0;
     }
     // Let DSound set the starting write position because if we set it to zero, it looks like the
     // buffer is full to begin with. This causes a long pause before sound starts when using large buffers.
-    hr = IDirectSoundBuffer_GetCurrentPosition( dsw->dsw_OutputBuffer, &playCursor, &dsw->dsw_WriteOffset );
+    hr = IDirectSoundBuffer_GetCurrentPosition( stream->pDirectSoundOutputBuffer,
+            &playCursor, &stream->writeOffset );
     if( hr != DS_OK )
     {
         return hr;
     }
-    dsw->dsw_FramesWritten = dsw->dsw_WriteOffset / dsw->dsw_BytesPerOutputFrame;
+    stream->dsw_framesWritten = stream->writeOffset / stream->bytesPerOutputFrame;
     /* printf("DSW_InitOutputBuffer: playCursor = %d, writeCursor = %d\n", playCursor, dsw->dsw_WriteOffset ); */
     return DS_OK;
 }
@@ -1364,6 +1361,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         goto error;
     }
 
+    memset( stream, 0, sizeof(PaWinDsStream) ); /* initialize all stream variables to 0 */
+
     if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
@@ -1411,18 +1410,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     
-/* DirectSound specific initialization */
+/* DirectSound specific initialization */ 
     {
         HRESULT          hr;
         int              bytesPerDirectSoundBuffer;
-        DSoundWrapper   *dsw;
         int              userLatencyFrames;
         int              minLatencyFrames;
 
         stream->timerID = 0;
-        dsw = &stream->directSoundWrapper;
-
-        memset( &stream->directSoundWrapper, 0, sizeof(DSoundWrapper) );
 
     /* Get system minimum latency. */
         minLatencyFrames = PaWinDs_GetMinLatencyFrames( sampleRate );
@@ -1481,7 +1476,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 
             hr = paWinDsDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputParameters->device].lpGUID,
-                &dsw->dsw_pDirectSound,   NULL );
+                        &stream->pDirectSound, NULL );
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCreate() failed!\n"));
@@ -1489,7 +1484,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
-            hr = InitOutputBuffer( dsw,
+            hr = InitOutputBuffer( stream,
                                        (unsigned long) (sampleRate + 0.5),
                                        (WORD)outputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("InitOutputBuffer() returns %x\n", hr));
@@ -1526,7 +1521,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
 
             hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputParameters->device].lpGUID,
-                &dsw->dsw_pDirectSoundCapture,   NULL );
+                        &stream->pDirectSoundCapture,   NULL );
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCaptureCreate() failed!\n"));
@@ -1534,7 +1529,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
-            hr = InitInputBuffer( dsw,
+            hr = InitInputBuffer( stream,
                                       (unsigned long) (sampleRate + 0.5),
                                       (WORD)inputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("InitInputBuffer() returns %x\n", hr));
@@ -1566,7 +1561,7 @@ error:
  * Detect underflows and overflows.
  * Does not allow writing into safety gap maintained by DirectSound.
  */
-static HRESULT QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
+static HRESULT QueryOutputSpace( PaWinDsStream *stream, long *bytesEmpty )
 {
     HRESULT hr;
     DWORD   playCursor;
@@ -1574,17 +1569,18 @@ static HRESULT QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
     long    numBytesEmpty;
     long    playWriteGap;
     // Query to see how much room is in buffer.
-    hr = IDirectSoundBuffer_GetCurrentPosition( dsw->dsw_OutputBuffer, &playCursor, &writeCursor );
+    hr = IDirectSoundBuffer_GetCurrentPosition( stream->pDirectSoundOutputBuffer,
+            &playCursor, &writeCursor );
     if( hr != DS_OK )
     {
         return hr;
     }
     // Determine size of gap between playIndex and WriteIndex that we cannot write into.
     playWriteGap = writeCursor - playCursor;
-    if( playWriteGap < 0 ) playWriteGap += dsw->dsw_OutputSize; // unwrap
+    if( playWriteGap < 0 ) playWriteGap += stream->outputSize; // unwrap
     /* DirectSound doesn't have a large enough playCursor so we cannot detect wrap-around. */
     /* Attempt to detect playCursor wrap-around and correct it. */
-    if( dsw->dsw_OutputRunning && (dsw->dsw_CounterTicksPerBuffer.QuadPart != 0) )
+    if( stream->outputRunning && (stream->counterTicksPerBuffer.QuadPart != 0) )
     {
         /* How much time has elapsed since last check. */
         LARGE_INTEGER   currentTime;
@@ -1593,34 +1589,34 @@ static HRESULT QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
         long            bytesExpected;
         long            buffersWrapped;
         QueryPerformanceCounter( &currentTime );
-        elapsedTime.QuadPart = currentTime.QuadPart - dsw->dsw_LastPlayTime.QuadPart;
-        dsw->dsw_LastPlayTime = currentTime;
+        elapsedTime.QuadPart = currentTime.QuadPart - stream->lastPlayTime.QuadPart;
+        stream->lastPlayTime = currentTime;
         /* How many bytes does DirectSound say have been played. */
-        bytesPlayed = playCursor - dsw->dsw_LastPlayCursor;
-        if( bytesPlayed < 0 ) bytesPlayed += dsw->dsw_OutputSize; // unwrap
-        dsw->dsw_LastPlayCursor = playCursor;
+        bytesPlayed = playCursor - stream->lastPlayCursor;
+        if( bytesPlayed < 0 ) bytesPlayed += stream->outputSize; // unwrap
+        stream->lastPlayCursor = playCursor;
         /* Calculate how many bytes we would have expected to been played by now. */
-        bytesExpected = (long) ((elapsedTime.QuadPart * dsw->dsw_OutputSize) / dsw->dsw_CounterTicksPerBuffer.QuadPart);
-        buffersWrapped = (bytesExpected - bytesPlayed) / dsw->dsw_OutputSize;
+        bytesExpected = (long) ((elapsedTime.QuadPart * stream->outputSize) / stream->counterTicksPerBuffer.QuadPart);
+        buffersWrapped = (bytesExpected - bytesPlayed) / stream->outputSize;
         if( buffersWrapped > 0 )
         {
-            playCursor += (buffersWrapped * dsw->dsw_OutputSize);
-            bytesPlayed += (buffersWrapped * dsw->dsw_OutputSize);
+            playCursor += (buffersWrapped * stream->outputSize);
+            bytesPlayed += (buffersWrapped * stream->outputSize);
         }
         /* Maintain frame output cursor. */
-        dsw->dsw_FramesPlayed += (bytesPlayed / dsw->dsw_BytesPerOutputFrame);
+        stream->framesPlayed += (bytesPlayed / stream->bytesPerOutputFrame);
     }
-    numBytesEmpty = playCursor - dsw->dsw_WriteOffset;
-    if( numBytesEmpty < 0 ) numBytesEmpty += dsw->dsw_OutputSize; // unwrap offset
+    numBytesEmpty = playCursor - stream->writeOffset;
+    if( numBytesEmpty < 0 ) numBytesEmpty += stream->outputSize; // unwrap offset
     /* Have we underflowed? */
-    if( numBytesEmpty > (dsw->dsw_OutputSize - playWriteGap) )
+    if( numBytesEmpty > (stream->outputSize - playWriteGap) )
     {
-        if( dsw->dsw_OutputRunning )
+        if( stream->outputRunning )
         {
-            dsw->dsw_OutputUnderflows += 1;
+            stream->outputUnderflows += 1;
         }
-        dsw->dsw_WriteOffset = writeCursor;
-        numBytesEmpty = dsw->dsw_OutputSize - playWriteGap;
+        stream->writeOffset = writeCursor;
+        numBytesEmpty = stream->outputSize - playWriteGap;
     }
     *bytesEmpty = numBytesEmpty;
     return hr;
@@ -1630,7 +1626,6 @@ static HRESULT QueryOutputSpace( DSoundWrapper *dsw, long *bytesEmpty )
 static PaError Pa_TimeSlice( PaWinDsStream *stream )
 {
     PaError           result = 0;   /* FIXME: this should be declared int and this function should also return that type (same as stream callback return type)*/
-    DSoundWrapper    *dsw;
     long              numFrames = 0;
     long              bytesEmpty = 0;
     long              bytesFilled = 0;
@@ -1654,8 +1649,6 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     DWORD             dwOutSize1 = 0;
     DWORD             dwOutSize2 = 0;
 
-    dsw = &stream->directSoundWrapper;
-
     /* How much input data is available? */
     if( stream->bufferProcessor.inputChannelCount > 0 )
     {
@@ -1666,16 +1659,16 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         // Query to see how much data is in buffer.
         // We don't need the capture position but sometimes DirectSound doesn't handle NULLS correctly
         // so let's pass a pointer just to be safe.
-        hr = IDirectSoundCaptureBuffer_GetCurrentPosition( dsw->dsw_InputBuffer, &capturePos, &readPos );
+        hr = IDirectSoundCaptureBuffer_GetCurrentPosition( stream->pDirectSoundInputBuffer, &capturePos, &readPos );
         if( hr == DS_OK )
         {
-            filled = readPos - dsw->dsw_ReadOffset;
-            if( filled < 0 ) filled += dsw->dsw_InputSize; // unwrap offset
+            filled = readPos - stream->readOffset;
+            if( filled < 0 ) filled += stream->inputSize; // unwrap offset
             bytesFilled = filled;
         }
             // FIXME: what happens if IDirectSoundCaptureBuffer_GetCurrentPosition fails?
 
-        framesToXfer = numInFramesReady = bytesFilled / dsw->dsw_BytesPerInputFrame;
+        framesToXfer = numInFramesReady = bytesFilled / stream->bytesPerInputFrame;
         outputLatency = ((double)bytesFilled) * stream->secondsPerHostByte;
 
         /** @todo Check for overflow */
@@ -1684,12 +1677,12 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     /* How much output room is available? */
     if( stream->bufferProcessor.outputChannelCount > 0 )
     {
-        UINT previousUnderflowCount = dsw->dsw_OutputUnderflows;
-        QueryOutputSpace( dsw, &bytesEmpty );
-        framesToXfer = numOutFramesReady = bytesEmpty / dsw->dsw_BytesPerOutputFrame;
+        UINT previousUnderflowCount = stream->outputUnderflows;
+        QueryOutputSpace( stream, &bytesEmpty );
+        framesToXfer = numOutFramesReady = bytesEmpty / stream->bytesPerOutputFrame;
 
         /* Check for underflow */
-        if( dsw->dsw_OutputUnderflows != previousUnderflowCount )
+        if( stream->outputUnderflows != previousUnderflowCount )
             stream->callbackFlags |= paOutputUnderflow;
     }
 
@@ -1715,9 +1708,9 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     /* Input */
         if( stream->bufferProcessor.inputChannelCount > 0 )
         {
-            bytesToXfer = framesToXfer * dsw->dsw_BytesPerInputFrame;
-            hresult = IDirectSoundCaptureBuffer_Lock ( dsw->dsw_InputBuffer,
-                dsw->dsw_ReadOffset, bytesToXfer,
+            bytesToXfer = framesToXfer * stream->bytesPerInputFrame;
+            hresult = IDirectSoundCaptureBuffer_Lock ( stream->pDirectSoundInputBuffer,
+                stream->readOffset, bytesToXfer,
                 (void **) &lpInBuf1, &dwInSize1,
                 (void **) &lpInBuf2, &dwInSize2, 0);
             if (hresult != DS_OK)
@@ -1728,13 +1721,13 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
                 goto error2;
             }
 
-            numFrames = dwInSize1 / dsw->dsw_BytesPerInputFrame;
+            numFrames = dwInSize1 / stream->bytesPerInputFrame;
             PaUtil_SetInputFrameCount( &stream->bufferProcessor, numFrames );
             PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, 0, lpInBuf1, 0 );
         /* Is input split into two regions. */
             if( dwInSize2 > 0 )
             {
-                numFrames = dwInSize2 / dsw->dsw_BytesPerInputFrame;
+                numFrames = dwInSize2 / stream->bytesPerInputFrame;
                 PaUtil_Set2ndInputFrameCount( &stream->bufferProcessor, numFrames );
                 PaUtil_Set2ndInterleavedInputChannels( &stream->bufferProcessor, 0, lpInBuf2, 0 );
             }
@@ -1743,9 +1736,9 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
     /* Output */
         if( stream->bufferProcessor.outputChannelCount > 0 )
         {
-            bytesToXfer = framesToXfer * dsw->dsw_BytesPerOutputFrame;
-            hresult = IDirectSoundBuffer_Lock ( dsw->dsw_OutputBuffer,
-                dsw->dsw_WriteOffset, bytesToXfer,
+            bytesToXfer = framesToXfer * stream->bytesPerOutputFrame;
+            hresult = IDirectSoundBuffer_Lock ( stream->pDirectSoundOutputBuffer,
+                stream->writeOffset, bytesToXfer,
                 (void **) &lpOutBuf1, &dwOutSize1,
                 (void **) &lpOutBuf2, &dwOutSize2, 0);
             if (hresult != DS_OK)
@@ -1756,14 +1749,14 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
                 goto error1;
             }
 
-            numFrames = dwOutSize1 / dsw->dsw_BytesPerOutputFrame;
+            numFrames = dwOutSize1 / stream->bytesPerOutputFrame;
             PaUtil_SetOutputFrameCount( &stream->bufferProcessor, numFrames );
             PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, 0, lpOutBuf1, 0 );
 
         /* Is output split into two regions. */
             if( dwOutSize2 > 0 )
             {
-                numFrames = dwOutSize2 / dsw->dsw_BytesPerOutputFrame;
+                numFrames = dwOutSize2 / stream->bytesPerOutputFrame;
                 PaUtil_Set2ndOutputFrameCount( &stream->bufferProcessor, numFrames );
                 PaUtil_Set2ndInterleavedOutputChannels( &stream->bufferProcessor, 0, lpOutBuf2, 0 );
             }
@@ -1778,10 +1771,10 @@ static PaError Pa_TimeSlice( PaWinDsStream *stream )
         /* FIXME: an underflow could happen here */
 
         /* Update our buffer offset and unlock sound buffer */
-            bytesProcessed = numFrames * dsw->dsw_BytesPerOutputFrame;
-            dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + bytesProcessed) % dsw->dsw_OutputSize;
-            IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, lpOutBuf1, dwOutSize1, lpOutBuf2, dwOutSize2);
-            dsw->dsw_FramesWritten += numFrames;
+            bytesProcessed = numFrames * stream->bytesPerOutputFrame;
+            stream->writeOffset = (stream->writeOffset + bytesProcessed) % stream->outputSize;
+            IDirectSoundBuffer_Unlock( stream->pDirectSoundOutputBuffer, lpOutBuf1, dwOutSize1, lpOutBuf2, dwOutSize2);
+            stream->dsw_framesWritten += numFrames;
         }
 
 error1:
@@ -1790,9 +1783,9 @@ error1:
         /* FIXME: an overflow could happen here */
 
         /* Update our buffer offset and unlock sound buffer */
-            bytesProcessed = numFrames * dsw->dsw_BytesPerInputFrame;
-            dsw->dsw_ReadOffset = (dsw->dsw_ReadOffset + bytesProcessed) % dsw->dsw_InputSize;
-            IDirectSoundCaptureBuffer_Unlock( dsw->dsw_InputBuffer, lpInBuf1, dwInSize1, lpInBuf2, dwInSize2);
+            bytesProcessed = numFrames * stream->bytesPerInputFrame;
+            stream->readOffset = (stream->readOffset + bytesProcessed) % stream->inputSize;
+            IDirectSoundCaptureBuffer_Unlock( stream->pDirectSoundInputBuffer, lpInBuf1, dwInSize1, lpInBuf2, dwInSize2);
         }
 error2:
 
@@ -1804,7 +1797,7 @@ error2:
 }
 /*******************************************************************/
 
-HRESULT ZeroEmptySpace( DSoundWrapper *dsw )
+HRESULT ZeroEmptySpace( PaWinDsStream *stream )
 {
     HRESULT hr;
     LPBYTE lpbuf1 = NULL;
@@ -1812,12 +1805,13 @@ HRESULT ZeroEmptySpace( DSoundWrapper *dsw )
     DWORD dwsize1 = 0;
     DWORD dwsize2 = 0;
     long  bytesEmpty;
-    hr = QueryOutputSpace( dsw, &bytesEmpty ); // updates dsw_FramesPlayed
+    hr = QueryOutputSpace( stream, &bytesEmpty ); // updates dsw_FramesPlayed
     if (hr != DS_OK) return hr;
     if( bytesEmpty == 0 ) return DS_OK;
     // Lock free space in the DS
-    hr = IDirectSoundBuffer_Lock( dsw->dsw_OutputBuffer, dsw->dsw_WriteOffset, bytesEmpty, (void **) &lpbuf1, &dwsize1,
-                                  (void **) &lpbuf2, &dwsize2, 0);
+    hr = IDirectSoundBuffer_Lock( stream->pDirectSoundOutputBuffer, stream->writeOffset,
+                                    bytesEmpty, (void **) &lpbuf1, &dwsize1,
+                                    (void **) &lpbuf2, &dwsize2, 0);
     if (hr == DS_OK)
     {
         // Copy the buffer into the DS
@@ -1827,9 +1821,9 @@ HRESULT ZeroEmptySpace( DSoundWrapper *dsw )
             ZeroMemory(lpbuf2, dwsize2);
         }
         // Update our buffer offset and unlock sound buffer
-        dsw->dsw_WriteOffset = (dsw->dsw_WriteOffset + dwsize1 + dwsize2) % dsw->dsw_OutputSize;
-        IDirectSoundBuffer_Unlock( dsw->dsw_OutputBuffer, lpbuf1, dwsize1, lpbuf2, dwsize2);
-        dsw->dsw_FramesWritten += bytesEmpty / dsw->dsw_BytesPerOutputFrame;
+        stream->writeOffset = (stream->writeOffset + dwsize1 + dwsize2) % stream->outputSize;
+        IDirectSoundBuffer_Unlock( stream->pDirectSoundOutputBuffer, lpbuf1, dwsize1, lpbuf2, dwsize2);
+        stream->dsw_framesWritten += bytesEmpty / stream->bytesPerOutputFrame;
     }
     return hr;
 }
@@ -1856,12 +1850,11 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWO
         }
         else if( stream->stopProcessing )
         {
-            DSoundWrapper   *dsw = &stream->directSoundWrapper;
             if( stream->bufferProcessor.outputChannelCount > 0 )
             {
-                ZeroEmptySpace( dsw );
+                ZeroEmptySpace( stream );
                 /* clear isActive when all sound played */
-                if( dsw->dsw_FramesPlayed >= stream->framesWritten )
+                if( stream->framesPlayed >= stream->framesWritten )
                 {
                     stream->isActive = 0;
                 }
@@ -1897,30 +1890,30 @@ static PaError CloseStream( PaStream* s )
     PaWinDsStream *stream = (PaWinDsStream*)s;
 
     // Cleanup the sound buffers
-    if( stream->directSoundWrapper.dsw_OutputBuffer )
+    if( stream->pDirectSoundOutputBuffer )
     {
-        IDirectSoundBuffer_Stop( stream->directSoundWrapper.dsw_OutputBuffer );
-        IDirectSoundBuffer_Release( stream->directSoundWrapper.dsw_OutputBuffer );
-        stream->directSoundWrapper.dsw_OutputBuffer = NULL;
+        IDirectSoundBuffer_Stop( stream->pDirectSoundOutputBuffer );
+        IDirectSoundBuffer_Release( stream->pDirectSoundOutputBuffer );
+        stream->pDirectSoundOutputBuffer = NULL;
     }
 
-    if( stream->directSoundWrapper.dsw_InputBuffer )
+    if( stream->pDirectSoundInputBuffer )
     {
-        IDirectSoundCaptureBuffer_Stop( stream->directSoundWrapper.dsw_InputBuffer );
-        IDirectSoundCaptureBuffer_Release( stream->directSoundWrapper.dsw_InputBuffer );
-        stream->directSoundWrapper.dsw_InputBuffer = NULL;
+        IDirectSoundCaptureBuffer_Stop( stream->pDirectSoundInputBuffer );
+        IDirectSoundCaptureBuffer_Release( stream->pDirectSoundInputBuffer );
+        stream->pDirectSoundInputBuffer = NULL;
     }
 
-    if( stream->directSoundWrapper.dsw_pDirectSoundCapture )
+    if( stream->pDirectSoundCapture )
     {
-        IDirectSoundCapture_Release( stream->directSoundWrapper.dsw_pDirectSoundCapture );
-        stream->directSoundWrapper.dsw_pDirectSoundCapture = NULL;
+        IDirectSoundCapture_Release( stream->pDirectSoundCapture );
+        stream->pDirectSoundCapture = NULL;
     }
 
-    if( stream->directSoundWrapper.dsw_pDirectSound )
+    if( stream->pDirectSound )
     {
-        IDirectSound_Release( stream->directSoundWrapper.dsw_pDirectSound );
-        stream->directSoundWrapper.dsw_pDirectSound = NULL;
+        IDirectSound_Release( stream->pDirectSound );
+        stream->pDirectSound = NULL;
     }
 
     PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
@@ -1942,9 +1935,9 @@ static PaError StartStream( PaStream *s )
     if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         // Start the buffer playback
-        if( stream->directSoundWrapper.dsw_InputBuffer != NULL ) // FIXME: not sure this check is necessary
+        if( stream->pDirectSoundInputBuffer != NULL ) // FIXME: not sure this check is necessary
         {
-            hr = IDirectSoundCaptureBuffer_Start( stream->directSoundWrapper.dsw_InputBuffer, DSCBSTART_LOOPING );
+            hr = IDirectSoundCaptureBuffer_Start( stream->pDirectSoundInputBuffer, DSCBSTART_LOOPING );
         }
 
         DBUG(("StartStream: DSW_StartInput returned = 0x%X.\n", hr));
@@ -1969,10 +1962,10 @@ static PaError StartStream( PaStream *s )
         result = Pa_TimeSlice( stream );
         if( result != paNoError ) return result; // FIXME - what if finished?
 
-        QueryPerformanceCounter( &stream->directSoundWrapper.dsw_LastPlayTime );
-        stream->directSoundWrapper.dsw_LastPlayCursor = 0;
-        stream->directSoundWrapper.dsw_FramesPlayed = 0;
-        hr = IDirectSoundBuffer_SetCurrentPosition( stream->directSoundWrapper.dsw_OutputBuffer, 0 );
+        QueryPerformanceCounter( &stream->lastPlayTime );
+        stream->lastPlayCursor = 0;
+        stream->framesPlayed = 0;
+        hr = IDirectSoundBuffer_SetCurrentPosition( stream->pDirectSoundOutputBuffer, 0 );
         DBUG(("PaHost_StartOutput: IDirectSoundBuffer_SetCurrentPosition returned = 0x%X.\n", hr));
         if( hr != DS_OK )
         {
@@ -1982,9 +1975,9 @@ static PaError StartStream( PaStream *s )
         }
 
         // Start the buffer playback in a loop.
-        if( stream->directSoundWrapper.dsw_OutputBuffer != NULL ) // FIXME: not sure this needs to be checked here
+        if( stream->pDirectSoundOutputBuffer != NULL ) // FIXME: not sure this needs to be checked here
         {
-            hr = IDirectSoundBuffer_Play( stream->directSoundWrapper.dsw_OutputBuffer, 0, 0, DSBPLAY_LOOPING );
+            hr = IDirectSoundBuffer_Play( stream->pDirectSoundOutputBuffer, 0, 0, DSBPLAY_LOOPING );
             DBUG(("PaHost_StartOutput: IDirectSoundBuffer_Play returned = 0x%X.\n", hr));
             if( hr != DS_OK )
             {
@@ -1992,7 +1985,7 @@ static PaError StartStream( PaStream *s )
                 PA_DS_SET_LAST_DIRECTSOUND_ERROR( hr );
                 goto error;
             }
-            stream->directSoundWrapper.dsw_OutputRunning = TRUE;
+            stream->outputRunning = TRUE;
         }
     }
 
@@ -2049,21 +2042,21 @@ static PaError StopStream( PaStream *s )
     if( stream->bufferProcessor.outputChannelCount > 0 )
     {
         // Stop the buffer playback
-        if( stream->directSoundWrapper.dsw_OutputBuffer != NULL )
+        if( stream->pDirectSoundOutputBuffer != NULL )
         {
-            stream->directSoundWrapper.dsw_OutputRunning = FALSE;
+            stream->outputRunning = FALSE;
             // FIXME: what happens if IDirectSoundBuffer_Stop returns an error?
-            hr = IDirectSoundBuffer_Stop( stream->directSoundWrapper.dsw_OutputBuffer );
+            hr = IDirectSoundBuffer_Stop( stream->pDirectSoundOutputBuffer );
         }
     }
 
     if( stream->bufferProcessor.inputChannelCount > 0 )
     {
         // Stop the buffer capture
-        if( stream->directSoundWrapper.dsw_InputBuffer != NULL )
+        if( stream->pDirectSoundInputBuffer != NULL )
         {
             // FIXME: what happens if IDirectSoundCaptureBuffer_Stop returns an error?
-            hr = IDirectSoundCaptureBuffer_Stop( stream->directSoundWrapper.dsw_InputBuffer );
+            hr = IDirectSoundCaptureBuffer_Stop( stream->pDirectSoundInputBuffer );
         }
     }
 

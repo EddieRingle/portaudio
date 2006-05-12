@@ -1,4 +1,4 @@
-#include "pa_dsound_dynlink.h"
+#include "pa_win_ds_dynlink.h"
 
 
 PaWinDsDSoundEntryPoints paWinDsDSoundEntryPoints = { 0, 0, 0, 0, 0, 0, 0 };
