@@ -153,12 +153,6 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
                                      LPCTSTR lpszDrvName,
                                      LPVOID lpContext );
 
-
-#define DSW_NUM_POSITIONS     (4)
-#define DSW_NUM_EVENTS        (5)
-#define DSW_TERMINATION_EVENT     (DSW_NUM_POSITIONS)
-
-
 /************************************************************************************/
 /********************** Structures **************************************************/
 /************************************************************************************/
@@ -183,6 +177,7 @@ typedef struct
     PaWinDsDeviceInfo       *winDsDeviceInfos;
 
 } PaWinDsHostApiRepresentation;
+
 
 /* PaWinDsStream - a stream data structure specifically for this implementation */
 
@@ -1796,7 +1791,7 @@ error2:
 }
 /*******************************************************************/
 
-HRESULT ZeroEmptySpace( PaWinDsStream *stream )
+static HRESULT ZeroAvailableOutputSpace( PaWinDsStream *stream )
 {
     HRESULT hr;
     LPBYTE lpbuf1 = NULL;
@@ -1851,7 +1846,7 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWO
         {
             if( stream->bufferProcessor.outputChannelCount > 0 )
             {
-                ZeroEmptySpace( stream );
+                ZeroAvailableOutputSpace( stream );
                 /* clear isActive when all sound played */
                 if( stream->framesPlayed >= stream->framesWritten )
                 {
@@ -2109,7 +2104,6 @@ static double GetStreamCpuLoad( PaStream* s )
 
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
-
 
 
 /***********************************************************************************
