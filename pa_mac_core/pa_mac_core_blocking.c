@@ -249,7 +249,7 @@ static int BlioCallback( const void *input, void *output, unsigned long frameCou
 
       /* check for underflow */
       if( avail < frameCount * blio->inputSampleSize * blio->inChan )
-         blio->statusFlags |= paInputOverflowed;
+         blio->statusFlags |= paInputOverflow;
 
       toRead = MIN( avail, frameCount * blio->inputSampleSize * blio->inChan );
 
@@ -269,7 +269,7 @@ static int BlioCallback( const void *input, void *output, unsigned long frameCou
 
       /* check for underflow */
       if( avail < frameCount * blio->outputSampleSize * blio->outChan )
-         blio->statusFlags |= paOutputUnderflowed;
+         blio->statusFlags |= paOutputUnderflow;
 
       toWrite = MIN( avail, frameCount * blio->outputSampleSize * blio->outChan );
 
@@ -355,12 +355,15 @@ static PaError ReadStream( PaStream* stream,
        }
     }
 
-    /*   Report either paNoError or paOutputUnderflowed. */
+    /*   Report either paNoError or paInputOverflowed. */
     /*   may also want to report other errors, but this is non-standard. */
-    ret = blio->statusFlags & paInputOverflowed;
+    ret = blio->statusFlags & paInputOverflow;
 
     /* report overflow only once: */
-    blio->statusFlags &= ~paInputOverflowed;
+    blio->statusFlags &= ~paInputOverflow;
+
+    if (ret)
+      ret = paInputOverflowed;
 
     return ret;
 }
@@ -431,10 +434,14 @@ static PaError WriteStream( PaStream* stream,
 
     /*   Report either paNoError or paOutputUnderflowed. */
     /*   may also want to report other errors, but this is non-standard. */
-    ret = blio->statusFlags & paOutputUnderflowed;
+    ret = blio->statusFlags & paOutputUnderflow;
 
+    /* FIXME: restting this flag is not MP/SMP safe. use compare_and_Swap wherever these flags are changed. */
     /* report underflow only once: */
-    blio->statusFlags &= ~paOutputUnderflowed;
+    blio->statusFlags &= ~paOutputUnderflow;
+
+    if (ret)
+      ret = paOutputUnderflowed;
 
     return ret;
 }
