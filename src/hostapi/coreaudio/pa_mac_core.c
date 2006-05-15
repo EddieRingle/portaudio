@@ -1,6 +1,5 @@
 /*
- * This is the AUHAL implementation of portaudio. Hopefully this will
- * one day replace pa_mac_core.
+ * This is the AUHAL implementation of portaudio.
  *
  * Written by Bjorn Roche of XO Audio LLC, from PA skeleton code.
  * Portions copied from code by Dominic Mazzoni (who wrote a HAL implementation)
@@ -11,6 +10,13 @@
  * Bjorn Roche and XO Audio LLC reserve no rights to this code.
  * The maintainers of PortAudio may redistribute and modify the code and
  * licenses as they deam appropriate.
+ *
+ * The following people also deserve acknowledgements:
+ *
+ * Olivier Tristan for feedback and testing
+ * Glenn Zelniker and Z-Systems engineering for sponsoring the Blocking I/O
+ * interface.
+ * 
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
