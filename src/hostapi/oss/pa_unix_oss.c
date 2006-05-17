@@ -70,7 +70,7 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-#include "../pa_unix/pa_unix_util.h"
+#include "pa_unix_util.h"
 
 static int sysErr_;
 static pthread_t mainThread_;

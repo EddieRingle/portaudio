@@ -52,7 +52,7 @@
 
 #include "portaudio.h"
 #include "pa_util.h"
-#include "../pa_unix/pa_unix_util.h"
+#include "pa_unix_util.h"
 #include "pa_allocation.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
