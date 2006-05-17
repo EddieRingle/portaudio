@@ -49,11 +49,13 @@ import SCons.Errors
 
 # Import common variables
 
+sconsDir = os.path.abspath(os.path.join(os.path.pardir, "build", "scons"))
+
 try:
     Import("Platform", "Posix", "ConfigurationError")
 except SCons.Errors.UserError:
     # The common objects must be exported first
-    SConscript(os.path.join("scons", "SConscript_common"))
+    SConscript(os.path.join(sconsDir, "SConscript_common"))
     Import("Platform", "Posix", "ConfigurationError")
 
 Import("env")
@@ -61,10 +63,10 @@ Import("env")
 # This will be manipulated
 env = env.Copy()
 
-env.Append(CPPPATH="pa_common")
+env.Append(CPPPATH=[os.path.join("#", "include"), "common"])
 
 # Store all signatures in one file, otherwise .sconsign files will get installed along with our own files
-env.SConsignFile(os.path.join("scons", ".sconsign"))
+env.SConsignFile(os.path.join(sconsDir, ".sconsign"))
 
 # We operate with a set of needed libraries and optional libraries, the latter stemming from host API implementations.
 # For libraries of both types we record a set of values that is used to look for the library in question, during
@@ -72,6 +74,7 @@ env.SConsignFile(os.path.join("scons", ".sconsign"))
 neededLibs = []
 optionalImpls = {}
 if Platform in Posix:
+    env.Append(CPPPATH=os.path.join("os", "unix"))
     neededLibs += [("pthread", "pthread.h", "pthread_create"), ("m", "math.h", "sin")]
     if env["useALSA"]:
         optionalImpls["ALSA"] = ("asound", "alsa/asoundlib.h", "snd_pcm_open")
@@ -129,9 +132,8 @@ if env["enableDebugOutput"]:
 # Start configuration
 
 # Use an absolute path for conf_dir, otherwise it gets created both relative to current directory and build directory
-conf = env.Configure(log_file=os.path.join("scons", "sconf.log"), custom_tests={"CheckCTypeSize": CheckCTypeSize},
-        conf_dir=os.path.join(os.getcwd(), "scons", ".sconf_temp"))
-assert os.path.exists(os.path.join("scons", ".sconf_temp"))
+conf = env.Configure(log_file=os.path.join(sconsDir, "sconf.log"), custom_tests={"CheckCTypeSize": CheckCTypeSize},
+        conf_dir=os.path.join(sconsDir, ".sconf_temp"))
 env.Append(CPPDEFINES=["SIZEOF_SHORT=%d" % conf.CheckCTypeSize("short")])
 env.Append(CPPDEFINES=["SIZEOF_INT=%d" % conf.CheckCTypeSize("int")])
 env.Append(CPPDEFINES=["SIZEOF_LONG=%d" % conf.CheckCTypeSize("long")])
@@ -155,7 +157,7 @@ for name, val in optionalImpls.items():
 env = conf.Finish()
 
 # PA infrastructure
-CommonSources = [os.path.join("pa_common", f) for f in "pa_allocation.c pa_converters.c pa_cpuload.c pa_dither.c pa_front.c \
+CommonSources = [os.path.join("common", f) for f in "pa_allocation.c pa_converters.c pa_cpuload.c pa_dither.c pa_front.c \
         pa_process.c pa_skeleton.c pa_stream.c pa_trace.c".split()]
 
 # Host API implementations
@@ -166,14 +168,14 @@ if Platform in Posix:
     BaseCFlags = "-Wall -pedantic -pipe %s" % ThreadCFlags
     DebugCFlags = "-g"
     OptCFlags  = "-O2"
-    ImplSources += [os.path.join("pa_unix", f) for f in "pa_unix_hostapis.c pa_unix_util.c".split()]
+    ImplSources += [os.path.join("os", "unix", f) for f in "pa_unix_hostapis.c pa_unix_util.c".split()]
 
 if "ALSA" in optionalImpls:
-    ImplSources.append(os.path.join("pa_linux_alsa", "pa_linux_alsa.c"))
+    ImplSources.append(os.path.join("hostapi", "alsa", "pa_linux_alsa.c"))
 if "JACK" in optionalImpls:
-    ImplSources.append(os.path.join("pa_jack", "pa_jack.c"))
+    ImplSources.append(os.path.join("hostapi", "jack", "pa_jack.c"))
 if "OSS" in optionalImpls:
-    ImplSources.append(os.path.join("pa_unix_oss", "pa_unix_oss.c"))
+    ImplSources.append(os.path.join("hostapi", "oss", "pa_unix_oss.c"))
 
 env["CCFLAGS"] = BaseCFlags
 if env["enableDebug"]:
@@ -202,7 +204,7 @@ staticLib = env.StaticLibrary(target="portaudio", source=sources)
 if Platform in Posix:
     prefix = env["prefix"]
     includeDir = os.path.join(prefix, "include")
-    env.Alias("install", env.Install(includeDir, os.path.join("pa_common", "portaudio.h")))
+    env.Alias("install", env.Install(includeDir, os.path.join("#", "include", "portaudio.h")))
     libDir = os.path.join(prefix, "lib")
 
     if env["enableStatic"]:
@@ -250,7 +252,7 @@ if Platform in Posix:
 
     pkgconfigTgt = "portaudio-%d.0.pc" % int(ApiVer.split(".", 1)[0])
     env.Alias("install", env.Command(os.path.join(libDir, "pkgconfig", pkgconfigTgt),
-        pkgconfigTgt + ".in", installPkgconfig))
+        os.path.join("#", pkgconfigTgt + ".in"), installPkgconfig))
 
 testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer", "patest_callbackstop", "patest_clip", \
         "patest_dither", "patest_hang", "patest_in_overflow", "patest_latency", "patest_leftright", "patest_longsine", \
@@ -262,7 +264,7 @@ testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer"
 # The test directory ("bin") should be in the top-level PA directory, the calling script should ensure that SCons doesn't
 # switch current directory by calling SConscriptChdir(False). Specifying an absolute directory for each target means it won't
 # be relative to the build directory
-tests = [env.Program(target=os.path.join(os.getcwd(), "bin", name), source=[os.path.join("pa_tests", name + ".c"),
+tests = [env.Program(target=os.path.join(os.getcwd(), "bin", name), source=[os.path.join("#", "test", name + ".c"),
         staticLib]) for name in testNames]
 
 Return("sources", "sharedLib", "staticLib", "tests", "env")
