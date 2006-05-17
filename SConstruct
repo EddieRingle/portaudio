@@ -17,6 +17,7 @@ env.Help(options.GenerateHelpText(env))
 
 buildDir = os.path.join("#", sconsDir, env["PLATFORM"])
 
+env.SConscriptChdir(False)
 sources, sharedLib, staticLib, tests, portEnv=env.SConscript(os.path.join("src", "SConscript"),
         build_dir=buildDir, duplicate=False, exports=["env"])
 # Build these by default

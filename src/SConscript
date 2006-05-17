@@ -49,7 +49,8 @@ import SCons.Errors
 
 # Import common variables
 
-sconsDir = os.path.abspath(os.path.join(os.path.pardir, "build", "scons"))
+# Could use '#' to refer to top-level SConstruct directory, but looks like env.SConsignFile doesn't interpret this at least :(
+sconsDir = os.path.abspath(os.path.join("build", "scons"))
 
 try:
     Import("Platform", "Posix", "ConfigurationError")
@@ -63,7 +64,7 @@ Import("env")
 # This will be manipulated
 env = env.Copy()
 
-env.Append(CPPPATH=[os.path.join("#", "include"), "common"])
+env.Append(CPPPATH=[os.path.join("#", "include"),"common"])
 
 # Store all signatures in one file, otherwise .sconsign files will get installed along with our own files
 env.SConsignFile(os.path.join(sconsDir, ".sconsign"))
@@ -111,7 +112,6 @@ int main() {
 }
 """ % tp, ".c")
     if not ret[0]:
-        print "Hihi"
         context.Result(" Couldn't obtain size of type %s!" % tp)
         return None
 
@@ -120,12 +120,14 @@ int main() {
     context.Result("%d" % sz)
     return sz
 
+"""
 if sys.byteorder == "little":
     env.Append(CPPDEFINES=["PA_LITTLE_ENDIAN"])
 elif sys.byteorder == "big":
     env.Append(CPPDEFINES=["PA_BIG_ENDIAN"])
 else:
     raise ConfigurationError("unknown byte order: %s" % sys.byteorder)
+"""
 if env["enableDebugOutput"]:
     env.Append(CPPDEFINES=["PA_ENABLE_DEBUG_OUTPUT"])
 
@@ -261,10 +263,8 @@ testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer"
         "patest_sine_time", "patest_start_stop", "patest_stop", "patest_sync", \
         "patest_toomanysines", "patest_underflow", "patest_wire", "patest_write_sine", "pa_devs", "pa_fuzz", "pa_minlat"]
 
-# The test directory ("bin") should be in the top-level PA directory, the calling script should ensure that SCons doesn't
-# switch current directory by calling SConscriptChdir(False). Specifying an absolute directory for each target means it won't
-# be relative to the build directory
-tests = [env.Program(target=os.path.join(os.getcwd(), "bin", name), source=[os.path.join("#", "test", name + ".c"),
+# The test directory ("bin") should be in the top-level PA directory
+tests = [env.Program(target=os.path.join("#", "bin", name), source=[os.path.join("#", "test", name + ".c"),
         staticLib]) for name in testNames]
 
 Return("sources", "sharedLib", "staticLib", "tests", "env")
