@@ -5,6 +5,21 @@ import os.path, copy, sys
 # with each addition to the API (backward-compatible), micro changes with each revision of the source code.
 ApiVer = "2.0.0"
 
+def rsplit(toSplit, sub, max=-1):
+    """ str.rsplit seems to have been introduced in 2.4 :( """
+    l = []
+    i = 0
+    while i != max:
+        try: idx = toSplit.rindex(sub)
+        except ValueError: break
+
+        toSplit, splitOff = toSplit[:idx], toSplit[idx + len(sub):]
+        l.insert(0, splitOff)
+        i += 1
+
+    l.insert(0, toSplit)
+    return l
+
 def checkSymbol(conf, header, library=None, symbol=None, autoAdd=True, critical=False, pkgName=None):
     """ Check for symbol in library, optionally look only for header.
     @param conf: Configure instance.
@@ -216,7 +231,7 @@ if Platform in Posix:
         trgt = str(target[0])
         src = str(source[0])
 
-        if os.path.lexists(trgt):
+        if os.path.islink(trgt) or os.path.exists(trgt):
             os.remove(trgt)
         os.symlink(os.path.basename(src), trgt)
 
@@ -229,9 +244,9 @@ if Platform in Posix:
         symTrgt = os.path.join(libDir, soFile)
         env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d.%d" % (major, minor)),
             symTrgt, symlink))
-        symTrgt = symTrgt.rsplit(".", 1)[0]
+        symTrgt = rsplit(symTrgt, ".", 1)[0]
         env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d" % major), symTrgt, symlink))
-        symTrgt = symTrgt.rsplit(".", 1)[0]
+        symTrgt = rsplit(symTrgt, ".", 1)[0]
         env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so"), symTrgt, symlink))
 
     # pkg-config
