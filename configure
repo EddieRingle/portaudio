@@ -18957,7 +18957,8 @@ fi
 
 
 
-PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
+#PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
+have_jack=no
 
 
 echo "$as_me:$LINENO: checking for short" >&5
