@@ -1655,17 +1655,33 @@ error:
     {
         if( stream->num_incoming_connections > 0 )
         {
+            int failed = 0;
             for( i = 0; i < stream->num_incoming_connections; i++ )
-                UNLESS( !jack_disconnect( stream->jack_client,
-                            jack_port_name( stream->remote_output_ports[i] ),
-                            jack_port_name( stream->local_input_ports[i] ) ), paUnanticipatedHostError );
+            {
+                if( jack_port_disconnect( stream->jack_client, stream->local_input_ports[i] ) )
+                {
+                    failed = 1;
+                }
+            }
+            if( failed )
+            {
+                PA_DEBUG(( "%s: Failed to disconnect input, already done externally?\n", __FUNCTION__ ));
+            }
         }
         if( stream->num_outgoing_connections > 0 )
         {
+            int failed = 0;
             for( i = 0; i < stream->num_outgoing_connections; i++ )
-                UNLESS( !jack_disconnect( stream->jack_client,
-                            jack_port_name( stream->local_output_ports[i] ),
-                            jack_port_name( stream->remote_input_ports[i] ) ), paUnanticipatedHostError );
+            {
+                if( jack_port_disconnect( stream->jack_client, stream->local_output_ports[i] ) )
+                {
+                    failed = 1;
+                }
+            }
+            if( failed )
+            {
+                PA_DEBUG(( "%s: Failed to disconnect output, already done externally?\n", __FUNCTION__ ));
+            }
         }
     }
 
