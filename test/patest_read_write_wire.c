@@ -1,5 +1,5 @@
 /** @file patest_read_write_wire.c
-	@brief Tests ifull duplex blocking I/O by passing input straight to output.
+	@brief Tests full duplex blocking I/O by passing input straight to output.
 	@author Bjorn Roche. XO Audio LLC for Z-Systems Engineering.
     @author based on code by: Phil Burk  http://www.softsynth.com
     @author based on code by: Ross Bencina rossb@audiomulch.com
@@ -99,6 +99,7 @@ int main(void)
     if( err != paNoError ) goto error;
 
     inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    printf( "Input device # %d.\n", inputParameters.device );
     printf( "Input LL: %g s\n", Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency );
     printf( "Input HL: %g s\n", Pa_GetDeviceInfo( inputParameters.device )->defaultHighInputLatency );
     inputParameters.channelCount = NUM_CHANNELS;
@@ -107,6 +108,7 @@ int main(void)
     inputParameters.hostApiSpecificStreamInfo = NULL;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    printf( "Output device # %d.\n", outputParameters.device );
     printf( "Output LL: %g s\n", Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency );
     printf( "Output HL: %g s\n", Pa_GetDeviceInfo( outputParameters.device )->defaultHighOutputLatency );
     outputParameters.channelCount = NUM_CHANNELS;
