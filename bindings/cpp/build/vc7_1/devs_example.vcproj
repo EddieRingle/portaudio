@@ -128,7 +128,7 @@
 				RelativePath="..\..\..\..\src\common\pa_allocation.c">
 			</File>
 			<File
-				RelativePath="..\..\..\..\pa_asio\pa_asio.cpp">
+				RelativePath="..\..\..\..\src\hostapi\asio\pa_asio.cpp">
 			</File>
 			<File
 				RelativePath="..\..\..\..\src\common\pa_converters.c">
