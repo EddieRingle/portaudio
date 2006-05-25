@@ -5,6 +5,7 @@
 #include "pa_mac_core_blocking.h"
 #include "pa_mac_core_internal.h"
 #include <assert.h>
+#include <libkern/OSAtomic.h>
 
 /*
  * This fnuction determines the size of a particular sample format.
@@ -260,7 +261,7 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
    long toWrite;
 
    /* set flags returned by OS: */
-   blio->statusFlags |= statusFlags ;
+   OSAtomicOr32( statusFlags, &blio->statusFlags ) ;
 
    /* --- Handle Input Buffer --- */
    if( blio->inChan ) {
@@ -268,7 +269,7 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
 
       /* check for underflow */
       if( avail < frameCount * blio->inputSampleSize * blio->inChan )
-         blio->statusFlags |= paInputOverflow;
+         OSAtomicOr32( paInputOverflow, &blio->statusFlags );
 
       toRead = MIN( avail, frameCount * blio->inputSampleSize * blio->inChan );
 
@@ -288,7 +289,7 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
 
       /* check for underflow */
       if( avail < frameCount * blio->outputSampleSize * blio->outChan )
-         blio->statusFlags |= paOutputUnderflow;
+         OSAtomicOr32( paOutputUnderflow, &blio->statusFlags );
 
       toWrite = MIN( avail, frameCount * blio->outputSampleSize * blio->outChan );
 
@@ -309,8 +310,6 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
 
    return paContinue;
 }
-
-/* FIXME: test that buffer is fully played out on stop */
 
 PaError ReadStream( PaStream* stream,
                            void *buffer,
@@ -378,11 +377,11 @@ PaError ReadStream( PaStream* stream,
     /*   may also want to report other errors, but this is non-standard. */
     ret = blio->statusFlags & paInputOverflow;
 
-    /* report overflow only once: */
-    blio->statusFlags &= ~paInputOverflow;
-
-    if (ret)
-      ret = paInputOverflowed;
+    /* report underflow only once: */
+    if( ret ) {
+       OSAtomicAnd32( ~paInputOverflow, &blio->statusFlags );
+       ret = paInputOverflowed;
+    }
 
     return ret;
 }
@@ -455,12 +454,11 @@ PaError WriteStream( PaStream* stream,
     /*   may also want to report other errors, but this is non-standard. */
     ret = blio->statusFlags & paOutputUnderflow;
 
-    /* FIXME: restting this flag is not MP/SMP safe. use compare_and_Swap wherever these flags are changed. */
     /* report underflow only once: */
-    blio->statusFlags &= ~paOutputUnderflow;
-
-    if (ret)
+    if( ret ) {
+      OSAtomicAnd32( ~paOutputUnderflow, &blio->statusFlags );
       ret = paOutputUnderflowed;
+    }
 
     return ret;
 }
@@ -473,7 +471,6 @@ void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio )
     if( blio->outputRingBuffer.buffer ) {
        long avail = RingBuffer_GetWriteAvailable( &blio->outputRingBuffer );
        while( avail != blio->outputRingBuffer.bufferSize ) {
-          /*FIXME: do a true block.*/
           if( avail == 0 )
              Pa_Sleep( PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL );
           avail = RingBuffer_GetWriteAvailable( &blio->outputRingBuffer );
