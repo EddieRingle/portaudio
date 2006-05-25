@@ -40,6 +40,8 @@
 #include <math.h>
 #include "ringbuffer.h"
 #include <string.h>
+#include <libkern/OSAtomic.h>
+#define MPSAFE
 
 /***************************************************************************
  * Initialize FIFO.
@@ -114,7 +116,13 @@ long RingBuffer_GetWriteRegions( RingBuffer *rbuf, long numBytes,
 */
 long RingBuffer_AdvanceWriteIndex( RingBuffer *rbuf, long numBytes )
 {
+#ifdef MPSAFE
+    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    OSMemoryBarrier();
     return rbuf->writeIndex = (rbuf->writeIndex + numBytes) & rbuf->bigMask;
+#else
+    return rbuf->writeIndex = (rbuf->writeIndex + numBytes) & rbuf->bigMask;
+#endif
 }
 
 /***************************************************************************
@@ -154,7 +162,13 @@ long RingBuffer_GetReadRegions( RingBuffer *rbuf, long numBytes,
 */
 long RingBuffer_AdvanceReadIndex( RingBuffer *rbuf, long numBytes )
 {
+#ifdef MPSAFE
+    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    OSMemoryBarrier();
     return rbuf->readIndex = (rbuf->readIndex + numBytes) & rbuf->bigMask;
+#else
+    return rbuf->readIndex = (rbuf->readIndex + numBytes) & rbuf->bigMask;
+#endif
 }
 
 /***************************************************************************
