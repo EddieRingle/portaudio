@@ -23,7 +23,7 @@ CFLAGS = -g   -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mm
 LIBS = -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon
 AR = /usr/bin/ar
 RANLIB = ranlib
-LIBTOOL = $(SHELL) $(top_builddir/libtool
+LIBTOOL = $(SHELL) $(top_builddir)/libtool
 INSTALL = /usr/bin/install -c
 INSTALL_DATA = ${INSTALL} -m 644
 SHARED_FLAGS = -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3
@@ -38,7 +38,7 @@ LT_REVISION=0
 LT_AGE=0
 
 
-OTHER_OBJS = src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o
+OTHER_OBJS = src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/ringbuffer.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o
 
 PALIB = libportaudio.a
 PADLL = libportaudio
@@ -175,7 +175,7 @@ install: lib/$(PALIB) lib/$(PASHLIBNAME) portaudio-2.0.pc
 	$(INSTALL) -m 644 lib/$(PALIB) $(PREFIX)/lib/$(PALIB)
 	cd $(PREFIX)/lib && rm -f $(PADLL)$(PADLLEXT) && ln -s $(PASHLIBNAME) $(PADLL)$(PADLLEXT)
 	$(INSTALL) -d $(PREFIX)/include
-	$(INSTALL) -m 644 pa_common/portaudio.h $(PREFIX)/include/portaudio.h
+	$(INSTALL) -m 644 include/portaudio.h $(PREFIX)/include/portaudio.h
 	$(INSTALL) -d $(PREFIX)/lib/pkgconfig
 	$(INSTALL) -m 644 portaudio-2.0.pc $(PREFIX)/lib/pkgconfig/portaudio-2.0.pc
 	@echo ""

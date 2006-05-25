@@ -1,10 +1,18 @@
 
+#ifndef PA_MAC_CORE_BLOCKING_H_
+#define PA_MAC_CORE_BLOCKING_H_
+
+#include "ringbuffer.h"
+#include "portaudio.h"
+#include "pa_mac_core_utilities.h"
+
 /*
  * Number of miliseconds to busy wait whil waiting for data in blocking calls.
  */
 #define PA_MAC_BLIO_BUSY_WAIT_SLEEP_INTERVAL (5)
 /*
- *Define exactly one of these blocking methods
+ * Define exactly one of these blocking methods
+ * PA_MAC_BLIO_MUTEX is not actively maintained.
  */
 #define PA_MAC_BLIO_BUSY_WAIT
 /*
@@ -48,7 +56,7 @@ PaMacBlio;
  * This fnuction determines the size of a particular sample format.
  * if the format is not recognized, this returns zero.
  */
-static size_t computeSampleSizeFromFormat( PaSampleFormat format )
+size_t computeSampleSizeFromFormat( PaSampleFormat format )
 {
    switch( format ) {
    case paFloat32: return 4;
@@ -61,7 +69,7 @@ static size_t computeSampleSizeFromFormat( PaSampleFormat format )
 }
 
 
-static PaError initializeBlioRingBuffers(
+PaError initializeBlioRingBuffers(
                                        PaMacBlio *blio,
                                        PaSampleFormat inputSampleFormat,
                                        PaSampleFormat outputSampleFormat,
@@ -69,14 +77,16 @@ static PaError initializeBlioRingBuffers(
                                        long ringBufferSize,
                                        int inChan,
                                        int outChan );
-static PaError destroyBlioRingBuffers( PaMacBlio *blio );
-static PaError resetBlioRingBuffers( PaMacBlio *blio );
+PaError destroyBlioRingBuffers( PaMacBlio *blio );
+PaError resetBlioRingBuffers( PaMacBlio *blio );
 
-static int BlioCallback(
+int BlioCallback(
         const void *input, void *output,
         unsigned long frameCount,
         const PaStreamCallbackTimeInfo* timeInfo,
         PaStreamCallbackFlags statusFlags,
         void *userData );
 
-static void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio );
+void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio );
+
+#endif /*PA_MAC_CORE_BLOCKING_H_*/

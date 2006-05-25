@@ -1,6 +1,9 @@
-/* This file is included in pa_mac_core.c. It contains the implementation
+/* This file contains the implementation
  * required for blocking I/O. It is separated from pa_mac_core.c simply to ease
  * development. */
+
+#include "pa_mac_core_blocking.h"
+#include <assert.h>
 
 /*
  * Functions for initializing, resetting, and destroying BLIO structures.
@@ -9,7 +12,7 @@
 
 /* This should be called with the relevant info when initializing a stream for
    callback. */
-static PaError initializeBlioRingBuffers(
+PaError initializeBlioRingBuffers(
                                        PaMacBlio *blio,
                                        PaSampleFormat inputSampleFormat,
                                        PaSampleFormat outputSampleFormat,
@@ -95,7 +98,7 @@ static PaError initializeBlioRingBuffers(
 }
 
 #ifdef PA_MAC_BLIO_MUTEX
-static PaError blioSetIsInputEmpty( PaMacBlio *blio, bool isEmpty )
+PaError blioSetIsInputEmpty( PaMacBlio *blio, bool isEmpty )
 {
    PaError result = paNoError;
    if( isEmpty == blio->isInputEmpty )
@@ -121,7 +124,7 @@ static PaError blioSetIsInputEmpty( PaMacBlio *blio, bool isEmpty )
  done:
    return result;
 }
-static PaError blioSetIsOutputFull( PaMacBlio *blio, bool isFull )
+PaError blioSetIsOutputFull( PaMacBlio *blio, bool isFull )
 {
    PaError result = paNoError;
    if( isFull == blio->isOutputFull )
@@ -151,21 +154,17 @@ static PaError blioSetIsOutputFull( PaMacBlio *blio, bool isFull )
 
 /* This should be called after stopping or aborting the stream, so that on next
    start, the buffers will be ready. */
-static PaError resetBlioRingBuffers( PaMacBlio *blio )
+PaError resetBlioRingBuffers( PaMacBlio *blio )
 {
+#ifdef PA_MAC__BLIO_MUTEX
    int result;
+#endif
    if( blio->outputRingBuffer.buffer ) {
-      //const int toAdvance = blio->framesPerBuffer*blio->outChan*blio->outputSampleSize;
       RingBuffer_Flush( &blio->outputRingBuffer );
       bzero( blio->outputRingBuffer.buffer,
              blio->outputRingBuffer.bufferSize );
       /* Advance buffer */
-      //if( toAdvance > blio->outputRingBuffer.bufferSize ) {
-      //   result = paInternalError;
-      //   PaUtil_SetLastHostErrorInfo( paCoreAudio, paInternalError, "Output buffer cannot advance more than buffer size." );
-      //   goto error;
-      //}
-      RingBuffer_AdvanceWriteIndex( &blio->outputRingBuffer, blio->outputRingBuffer.bufferSize ); //toAdvance );
+      RingBuffer_AdvanceWriteIndex( &blio->outputRingBuffer, blio->outputRingBuffer.bufferSize );
 
       /* Update isOutputFull. */
 #ifdef PA_MAC__BLIO_MUTEX
@@ -192,13 +191,15 @@ static PaError resetBlioRingBuffers( PaMacBlio *blio )
 #endif
    }
    return paNoError;
+#ifdef PA_MAC__BLIO_MUTEX
  error:
    return result;
+#endif
 }
 
 /*This should be called when you are done with the blio. It can safely be called
   multiple times if there are no exceptions. */
-static PaError destroyBlioRingBuffers( PaMacBlio *blio )
+PaError destroyBlioRingBuffers( PaMacBlio *blio )
 {
    PaError result = paNoError;
    if( blio->inputRingBuffer.buffer ) {
@@ -230,7 +231,7 @@ static PaError destroyBlioRingBuffers( PaMacBlio *blio )
  * pointer as userData.
  *
  */
-static int BlioCallback( const void *input, void *output, unsigned long frameCount,
+int BlioCallback( const void *input, void *output, unsigned long frameCount,
 	const PaStreamCallbackTimeInfo* timeInfo,
         PaStreamCallbackFlags statusFlags,
         void *userData )
@@ -293,7 +294,7 @@ static int BlioCallback( const void *input, void *output, unsigned long frameCou
 
 /* FIXME: test that buffer is fully played out on stop */
 
-static PaError ReadStream( PaStream* stream,
+PaError ReadStream( PaStream* stream,
                            void *buffer,
                            unsigned long frames )
 {
@@ -369,7 +370,7 @@ static PaError ReadStream( PaStream* stream,
 }
 
 
-static PaError WriteStream( PaStream* stream,
+PaError WriteStream( PaStream* stream,
                             const void *buffer,
                             unsigned long frames )
 {
@@ -449,7 +450,7 @@ static PaError WriteStream( PaStream* stream,
 /*
  *
  */
-static void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio )
+void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio )
 {
     if( blio->outputRingBuffer.buffer ) {
        long avail = RingBuffer_GetWriteAvailable( &blio->outputRingBuffer );
@@ -463,7 +464,7 @@ static void waitUntilBlioWriteBufferIsFlushed( PaMacBlio *blio )
 }
 
 
-static signed long GetStreamReadAvailable( PaStream* stream )
+signed long GetStreamReadAvailable( PaStream* stream )
 {
     PaMacBlio *blio = & ((PaMacCoreStream*)stream) -> blio;
     VVDBUG(("GetStreamReadAvailable()\n"));
@@ -473,7 +474,7 @@ static signed long GetStreamReadAvailable( PaStream* stream )
 }
 
 
-static signed long GetStreamWriteAvailable( PaStream* stream )
+signed long GetStreamWriteAvailable( PaStream* stream )
 {
     PaMacBlio *blio = & ((PaMacCoreStream*)stream) -> blio;
     VVDBUG(("GetStreamWriteAvailable()\n"));

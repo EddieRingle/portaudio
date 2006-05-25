@@ -10,9 +10,9 @@
  * by Bjorn Roche.
  */
 
-#define UNIX_ERR(err) PaMacCore_SetUnixError( err, __LINE__ )
+#include "pa_mac_core_utilities.h"
 
-static PaError PaMacCore_SetUnixError( int err, int line )
+PaError PaMacCore_SetUnixError( int err, int line )
 {
    PaError ret;
    const char *errorText;
@@ -41,7 +41,7 @@ static PaError PaMacCore_SetUnixError( int err, int line )
 /*
  * Translates MacOS generated errors into PaErrors
  */
-static PaError PaMacCore_SetError(OSStatus error, int line, int isError)
+PaError PaMacCore_SetError(OSStatus error, int line, int isError)
 {
     /*FIXME: still need to handle possible ComponentResult values.*/
     /*       unfortunately, they don't seem to be documented anywhere.*/
@@ -177,7 +177,7 @@ static PaError PaMacCore_SetError(OSStatus error, int line, int isError)
  *
  * FEEDBACK: too liberal/conservative/another way?
  */
-static long computeRingBufferSize( const PaStreamParameters *inputParameters,
+long computeRingBufferSize( const PaStreamParameters *inputParameters,
                                    const PaStreamParameters *outputParameters,
                                    long inputFramesPerBuffer,
                                    long outputFramesPerBuffer,
@@ -250,13 +250,7 @@ static long computeRingBufferSize( const PaStreamParameters *inputParameters,
  * are acknowledged before another is requested. That seems to help a lot.
  */
 
-#include <pthread.h>
-typedef struct {
-   bool once; /* I didn't end up using this. bdr */
-   pthread_mutex_t mutex;
-} MutexAndBool ;
-
-static OSStatus propertyProc(
+OSStatus propertyProc(
     AudioDeviceID inDevice, 
     UInt32 inChannel, 
     Boolean isInput, 
@@ -373,7 +367,7 @@ PaError AudioDeviceSetPropertyNowAndWaitForChange(
  *             higher than the requested rate. If there isn't a higher one,
  *             just use the highest available.
  */
-static PaError setBestSampleRateForDevice( const AudioDeviceID device,
+PaError setBestSampleRateForDevice( const AudioDeviceID device,
                                     const bool isOutput,
                                     const bool requireExact,
                                     const Float64 desiredSrate )
@@ -479,7 +473,7 @@ static PaError setBestSampleRateForDevice( const AudioDeviceID device,
    The logic is very simmilar too setBestSampleRate only failure here is
    not usually catastrophic.
 */
-static PaError setBestFramesPerBuffer( const AudioDeviceID device,
+PaError setBestFramesPerBuffer( const AudioDeviceID device,
                                        const bool isOutput,
                                        unsigned long requestedFramesPerBuffer, 
                                        unsigned long *actualFramesPerBuffer )

@@ -55,6 +55,8 @@
  * PaMacCore_SetError() will do this.
  */
 
+#include "pa_mac_core.h"
+
 #include <string.h> /* strlen(), memcmp() etc. */
 
 #include <AudioUnit/AudioUnit.h>
@@ -67,17 +69,10 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-#include "../pablio/ringbuffer.h"
+#include "ringbuffer.h"
 #include "pa_mac_core.h"
+#include "pa_mac_core_utilities.h"
 #include "pa_mac_core_blocking.h"
-
-#ifndef MIN
-#define MIN(a, b)  (((a)<(b))?(a):(b))
-#endif
-
-#ifndef MAX
-#define MAX(a, b)  (((a)<(b))?(b):(a))
-#endif
 
 /* prototypes for functions declared in this file */
 
@@ -92,52 +87,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 }
 #endif /* __cplusplus */
 
-#define ERR(mac_error) PaMacCore_SetError(mac_error, __LINE__, 1 )
-#define WARNING(mac_error) PaMacCore_SetError(mac_error, __LINE__, 0 )
-
-/* Help keep track of AUHAL element numbers */
-#define INPUT_ELEMENT  (1)
-#define OUTPUT_ELEMENT (0)
-
-/* Normal level of debugging: fine for most apps that don't mind the occational warning being printf'ed */
-/*
- */
-#define MAC_CORE_DEBUG
-#ifdef MAC_CORE_DEBUG
-# define DBUG(MSG) do { printf("||PaMacCore (AUHAL)|| "); printf MSG ; fflush(stdout); } while(0)
-#else
-# define DBUG(MSG)
-#endif
-
-/* Verbose Debugging: useful for developement */
-/*
-#define MAC_CORE_VERBOSE_DEBUG
-*/
-#ifdef MAC_CORE_VERBOSE_DEBUG
-# define VDBUG(MSG) do { printf("||PaMacCore (v )|| "); printf MSG ; fflush(stdout); } while(0)
-#else
-# define VDBUG(MSG)
-#endif
-
-/* Very Verbose Debugging: Traces every call. */
-/*
-#define MAC_CORE_VERY_VERBOSE_DEBUG
- */
-#ifdef MAC_CORE_VERY_VERBOSE_DEBUG
-# define VVDBUG(MSG) do { printf("||PaMacCore (vv)|| "); printf MSG ; fflush(stdout); } while(0)
-#else
-# define VVDBUG(MSG)
-#endif
-
 #define RING_BUFFER_ADVANCE_DENOMINATOR (4)
-
-/* Special purpose ring buffer just for pa_mac_core input processing. */
-/* #include "pa_mac_core_input_ring_buffer.c" */
-#include "../pablio/ringbuffer.c"
-
-/* Some utilities that sort of belong here, but were getting too unweildy */
-#include "pa_mac_core_utilities.c"
-
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
@@ -168,10 +118,10 @@ static OSStatus AudioIOProc( void *inRefCon,
                                UInt32 inNumberFrames,
                                AudioBufferList *ioData );
 static double GetStreamCpuLoad( PaStream* stream );
-static PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-static PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
-static signed long GetStreamReadAvailable( PaStream* stream );
-static signed long GetStreamWriteAvailable( PaStream* stream );
+PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
+PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
+signed long GetStreamReadAvailable( PaStream* stream );
+signed long GetStreamWriteAvailable( PaStream* stream );
 /* PaMacAUHAL - host api datastructure specific to this implementation */
 typedef struct
 {
@@ -2105,11 +2055,3 @@ static double GetStreamCpuLoad( PaStream* s )
 
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
 }
-
-
-/*
-    As separate stream interfaces are used for blocking and callback
-    streams, the following functions can be guaranteed to only be called
-    for blocking streams. IMPLEMENTME: no blocking interface yet!
-*/
-#include "pa_mac_core_blocking.c"
