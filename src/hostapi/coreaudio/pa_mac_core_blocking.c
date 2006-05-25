@@ -3,7 +3,25 @@
  * development. */
 
 #include "pa_mac_core_blocking.h"
+#include "pa_mac_core_internal.h"
 #include <assert.h>
+
+/*
+ * This fnuction determines the size of a particular sample format.
+ * if the format is not recognized, this returns zero.
+ */
+static size_t computeSampleSizeFromFormat( PaSampleFormat format )
+{
+   switch( format ) {
+   case paFloat32: return 4;
+   case paInt32: return 4;
+   case paInt24: return 3;
+   case paInt16: return 2;
+   case paInt8: case paUInt8: return 1;
+   default: return 0;
+   }
+}
+
 
 /*
  * Functions for initializing, resetting, and destroying BLIO structures.

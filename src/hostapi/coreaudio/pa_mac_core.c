@@ -55,21 +55,10 @@
  * PaMacCore_SetError() will do this.
  */
 
-#include "pa_mac_core.h"
+#include "pa_mac_core_internal.h"
 
 #include <string.h> /* strlen(), memcmp() etc. */
 
-#include <AudioUnit/AudioUnit.h>
-#include <AudioToolbox/AudioToolbox.h>
-
-
-#include "pa_util.h"
-#include "pa_allocation.h"
-#include "pa_hostapi.h"
-#include "pa_stream.h"
-#include "pa_cpuload.h"
-#include "pa_process.h"
-#include "ringbuffer.h"
 #include "pa_mac_core.h"
 #include "pa_mac_core_utilities.h"
 #include "pa_mac_core_blocking.h"
@@ -118,67 +107,6 @@ static OSStatus AudioIOProc( void *inRefCon,
                                UInt32 inNumberFrames,
                                AudioBufferList *ioData );
 static double GetStreamCpuLoad( PaStream* stream );
-PaError ReadStream( PaStream* stream, void *buffer, unsigned long frames );
-PaError WriteStream( PaStream* stream, const void *buffer, unsigned long frames );
-signed long GetStreamReadAvailable( PaStream* stream );
-signed long GetStreamWriteAvailable( PaStream* stream );
-/* PaMacAUHAL - host api datastructure specific to this implementation */
-typedef struct
-{
-    PaUtilHostApiRepresentation inheritedHostApiRep;
-    PaUtilStreamInterface callbackStreamInterface;
-    PaUtilStreamInterface blockingStreamInterface;
-
-    PaUtilAllocationGroup *allocations;
-
-    /* implementation specific data goes here */
-    long devCount;
-    AudioDeviceID *devIds; /*array of all audio devices*/
-    AudioDeviceID defaultIn;
-    AudioDeviceID defaultOut;
-}
-PaMacAUHAL;
-
-/* stream data structure specifically for this implementation */
-typedef struct PaMacCoreStream
-{
-    PaUtilStreamRepresentation streamRepresentation;
-    PaUtilCpuLoadMeasurer cpuLoadMeasurer;
-    PaUtilBufferProcessor bufferProcessor;
-
-    /* implementation specific data goes here */
-    bool bufferProcessorIsInitialized;
-    AudioUnit inputUnit;
-    AudioUnit outputUnit;
-    AudioDeviceID inputDevice;
-    AudioDeviceID outputDevice;
-    size_t userInChan;
-    size_t userOutChan;
-    size_t inputFramesPerBuffer;
-    size_t outputFramesPerBuffer;
-    PaMacBlio blio;
-    /* We use this ring buffer when input and out devs are different. */
-    RingBuffer inputRingBuffer;
-    /* We may need to do SR conversion on input. */
-    AudioConverterRef inputSRConverter;
-    /* We need to preallocate an inputBuffer for reading data. */
-    AudioBufferList inputAudioBufferList;
-    AudioTimeStamp startTime;
-    volatile PaStreamCallbackFlags xrunFlags;
-    volatile enum {
-       STOPPED          = 0, /* playback is completely stopped,
-                                and the user has called StopStream(). */
-       CALLBACK_STOPPED = 1, /* callback has requested stop,
-                                but user has not yet called StopStream(). */
-       STOPPING         = 2, /* The stream is in the process of closing.
-                                This state is just used internally;
-                                externally it is indistinguishable from
-                                ACTIVE.*/
-       ACTIVE           = 3  /* The stream is active and running. */
-    } state;
-    double sampleRate;
-}
-PaMacCoreStream;
 
 static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
                                PaDeviceInfo *deviceInfo,

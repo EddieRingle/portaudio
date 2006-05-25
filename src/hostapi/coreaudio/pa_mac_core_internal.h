@@ -51,27 +51,23 @@
  @brief AUHAL implementation of PortAudio
 */
 
-#ifndef PA_MAC_CORE_H__
-#define PA_MAC_CORE_H__
-
-/*
-#include <string.h> /* strlen(), memcmp() etc. */
+#ifndef PA_MAC_CORE_INTERNAL_H__
+#define PA_MAC_CORE_INTERNAL_H__
 
 #include <AudioUnit/AudioUnit.h>
 #include <AudioToolbox/AudioToolbox.h>
 
 
+#include "portaudio.h"
 #include "pa_util.h"
-#include "pa_allocation.h"
 #include "pa_hostapi.h"
 #include "pa_stream.h"
+#include "pa_allocation.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
 #include "ringbuffer.h"
-#include "pa_mac_core.h"
-#include "pa_mac_core_utilities.h"
+
 #include "pa_mac_core_blocking.h"
-*/
 
 /* function prototypes */
 
@@ -108,6 +104,8 @@ typedef struct
     AudioDeviceID defaultOut;
 }
 PaMacAUHAL;
+
+
 
 /* stream data structure specifically for this implementation */
 typedef struct PaMacCoreStream
@@ -150,4 +148,4 @@ typedef struct PaMacCoreStream
 }
 PaMacCoreStream;
 
-#endif /* PA_MAC_CORE_H__ */
+#endif /* PA_MAC_CORE_INTERNAL_H__ */

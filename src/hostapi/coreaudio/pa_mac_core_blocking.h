@@ -52,23 +52,6 @@ PaMacBlio;
  * These functions operate on condition and related variables.
  */
 
-/*
- * This fnuction determines the size of a particular sample format.
- * if the format is not recognized, this returns zero.
- */
-size_t computeSampleSizeFromFormat( PaSampleFormat format )
-{
-   switch( format ) {
-   case paFloat32: return 4;
-   case paInt32: return 4; 
-   case paInt24: return 3;
-   case paInt16: return 2;
-   case paInt8: case paUInt8: return 1;
-   default: return 0;
-   }
-}
-
-
 PaError initializeBlioRingBuffers(
                                        PaMacBlio *blio,
                                        PaSampleFormat inputSampleFormat,
