@@ -1,3 +1,5 @@
+Note: Because PortAudioCpp is now in the main PortAudio SVN repository, having these per-release changelogs probably doesn't make much sense anymore. Perhaps it's better to just note mayor changes by date from now on.
+
 PortAudioCpp v19 revision 16 06/05/22:
 
 	mblaauw:
