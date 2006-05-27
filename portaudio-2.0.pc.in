@@ -1,4 +1,5 @@
 prefix=@prefix@
+exec_prefix=@exec-prefix@
 libdir=@libdir@
 includedir=@includedir@
 

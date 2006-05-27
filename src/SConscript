@@ -258,6 +258,7 @@ if Platform in Posix:
         try: txt = f.read()
         finally: f.close()
         txt = txt.replace("@prefix@", prefix)
+        txt = txt.replace("@exec-prefix@", prefix)
         txt = txt.replace("@libdir@", libDir)
         txt = txt.replace("@includedir@", includeDir)
         txt = txt.replace("@LIBS@", " ".join(["-l%s" % l for l in env["LIBS"]]))
