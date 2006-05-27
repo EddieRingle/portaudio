@@ -32,7 +32,8 @@ typedef struct {
     int inChan;
     int outChan;
 
-    PaStreamCallbackFlags statusFlags;
+    //PaStreamCallbackFlags statusFlags;
+    uint32_t statusFlags;
     PaError errors;
 
     /* Here we handle blocking, using condition variables. */
