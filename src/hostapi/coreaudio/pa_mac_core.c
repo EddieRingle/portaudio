@@ -1555,10 +1555,12 @@ static OSStatus AudioIOProc( void *inRefCon,
       /* Sometimes, when stopping a duplex stream we get erroneous
          xrun flags, so if this is our last run, clear the flags. */
       int xrunFlags = stream->xrunFlags;
+/*
       if( xrunFlags & paInputUnderflow )
          printf( "input underflow.\n" );
       if( xrunFlags & paInputOverflow )
          printf( "input overflow.\n" );
+*/
       if( stream->state == STOPPING || stream->state == CALLBACK_STOPPED )
          xrunFlags = 0;
 
