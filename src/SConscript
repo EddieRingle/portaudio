@@ -1,25 +1,5 @@
 import os.path, copy, sys
 
-# Inspired by the versioning scheme followed by Qt, it seems sensible enough. There are three components: major, minor
-# and micro. Major changes with each subtraction from the API (backward-incompatible, i.e. V19 vs. V18), minor changes
-# with each addition to the API (backward-compatible), micro changes with each revision of the source code.
-ApiVer = "2.0.0"
-
-def rsplit(toSplit, sub, max=-1):
-    """ str.rsplit seems to have been introduced in 2.4 :( """
-    l = []
-    i = 0
-    while i != max:
-        try: idx = toSplit.rindex(sub)
-        except ValueError: break
-
-        toSplit, splitOff = toSplit[:idx], toSplit[idx + len(sub):]
-        l.insert(0, splitOff)
-        i += 1
-
-    l.insert(0, toSplit)
-    return l
-
 def checkSymbol(conf, header, library=None, symbol=None, autoAdd=True, critical=False, pkgName=None):
     """ Check for symbol in library, optionally look only for header.
     @param conf: Configure instance.
@@ -68,21 +48,16 @@ import SCons.Errors
 sconsDir = os.path.abspath(os.path.join("build", "scons"))
 
 try:
-    Import("Platform", "Posix", "ConfigurationError")
+    Import("Platform", "Posix", "ConfigurationError", "ApiVer")
 except SCons.Errors.UserError:
     # The common objects must be exported first
     SConscript(os.path.join(sconsDir, "SConscript_common"))
-    Import("Platform", "Posix", "ConfigurationError")
+    Import("Platform", "Posix", "ConfigurationError", "ApiVer")
 
 Import("env")
 
 # This will be manipulated
 env = env.Copy()
-
-env.Append(CPPPATH=[os.path.join("#", "include"),"common"])
-
-# Store all signatures in one file, otherwise .sconsign files will get installed along with our own files
-env.SConsignFile(os.path.join(sconsDir, ".sconsign"))
 
 # We operate with a set of needed libraries and optional libraries, the latter stemming from host API implementations.
 # For libraries of both types we record a set of values that is used to look for the library in question, during
@@ -180,11 +155,6 @@ CommonSources = [os.path.join("common", f) for f in "pa_allocation.c pa_converte
 # Host API implementations
 ImplSources = []
 if Platform in Posix:
-    ThreadCFlags = "-pthread"
-    env.AppendUnique(LINKFLAGS=[ThreadCFlags])
-    BaseCFlags = "-Wall -pedantic -pipe %s" % ThreadCFlags
-    DebugCFlags = "-g"
-    OptCFlags  = "-O2"
     ImplSources += [os.path.join("os", "unix", f) for f in "pa_unix_hostapis.c pa_unix_util.c".split()]
 
 if "ALSA" in optionalImpls:
@@ -194,83 +164,20 @@ if "JACK" in optionalImpls:
 if "OSS" in optionalImpls:
     ImplSources.append(os.path.join("hostapi", "oss", "pa_unix_oss.c"))
 
-env["CCFLAGS"] = BaseCFlags
-if env["enableDebug"]:
-    env["CCFLAGS"] += " " + DebugCFlags
-if env["enableOptimize"]:
-    env["CCFLAGS"] += " " + OptCFlags
-if not env["enableAsserts"]:
-    env.Append(CPPDEFINES=["-DNDEBUG"])
-if env["customCFlags"]:
-    env["CCFLAGS"] += " " + env["customCFlags"]
-if env["customLinkFlags"]:
-    env["LINKFLAGS"] += " " + env["customLinkFlags"]
-
 sources = CommonSources + ImplSources
 
-if env["enableShared"]:
-    sharedLibEnv = env.Copy()
-    if Platform in Posix:
-        # Add soname to library, this is so a reference is made to the versioned library in programs linking against libportaudio.so
-        sharedLibEnv.AppendUnique(SHLINKFLAGS="-Wl,-soname=libportaudio.so.%d" % int(ApiVer.split(".")[0]))
-    sharedLib = sharedLibEnv.SharedLibrary(target="portaudio", source=sources)
-else:
-    sharedLib = None
+sharedLibEnv = env.Copy()
+if Platform in Posix:
+    # Add soname to library, this is so a reference is made to the versioned library in programs linking against libportaudio.so
+    sharedLibEnv.AppendUnique(SHLINKFLAGS="-Wl,-soname=libportaudio.so.%d" % int(ApiVer.split(".")[0]))
+sharedLib = sharedLibEnv.SharedLibrary(target="portaudio", source=sources)
+
 staticLib = env.StaticLibrary(target="portaudio", source=sources)
 
 if Platform in Posix:
     prefix = env["prefix"]
     includeDir = os.path.join(prefix, "include")
-    env.Alias("install", env.Install(includeDir, os.path.join("#", "include", "portaudio.h")))
     libDir = os.path.join(prefix, "lib")
-
-    if env["enableStatic"]:
-        env.Alias("install", env.Install(libDir, staticLib))
-
-    def symlink(env, target, source):
-        trgt = str(target[0])
-        src = str(source[0])
-
-        if os.path.islink(trgt) or os.path.exists(trgt):
-            os.remove(trgt)
-        os.symlink(os.path.basename(src), trgt)
-
-    if env["enableShared"]:
-        major, minor, micro = [int(c) for c in ApiVer.split(".")]
-        
-        soFile = "%s.%s" % (sharedLib[0], ApiVer)
-        env.Alias("install", env.InstallAs(target=os.path.join(libDir, soFile), source=sharedLib))
-        # Install symlinks
-        symTrgt = os.path.join(libDir, soFile)
-        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d.%d" % (major, minor)),
-            symTrgt, symlink))
-        symTrgt = rsplit(symTrgt, ".", 1)[0]
-        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so.%d" % major), symTrgt, symlink))
-        symTrgt = rsplit(symTrgt, ".", 1)[0]
-        env.Alias("install", env.Command(os.path.join(libDir, "libportaudio.so"), symTrgt, symlink))
-
-    # pkg-config
-
-    def installPkgconfig(env, target, source):
-        tgt = str(target[0])
-        src = str(source[0])
-        f = open(src)
-        try: txt = f.read()
-        finally: f.close()
-        txt = txt.replace("@prefix@", prefix)
-        txt = txt.replace("@exec-prefix@", prefix)
-        txt = txt.replace("@libdir@", libDir)
-        txt = txt.replace("@includedir@", includeDir)
-        txt = txt.replace("@LIBS@", " ".join(["-l%s" % l for l in env["LIBS"]]))
-        txt = txt.replace("@THREAD_CFLAGS@", ThreadCFlags)
-
-        f = open(tgt, "w")
-        try: f.write(txt)
-        finally: f.close()
-
-    pkgconfigTgt = "portaudio-%d.0.pc" % int(ApiVer.split(".", 1)[0])
-    env.Alias("install", env.Command(os.path.join(libDir, "pkgconfig", pkgconfigTgt),
-        os.path.join("#", pkgconfigTgt + ".in"), installPkgconfig))
 
 testNames = ["patest_sine", "paqa_devs", "paqa_errs", "patest1", "patest_buffer", "patest_callbackstop", "patest_clip", \
         "patest_dither", "patest_hang", "patest_in_overflow", "patest_latency", "patest_leftright", "patest_longsine", \

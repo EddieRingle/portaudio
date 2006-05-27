@@ -20,4 +20,9 @@ else:
         raise ConfigurationError("Unknown platform %s" % env["PLATFORM"])
     Platform = env["PLATFORM"]
 
-Export("Platform", "Posix", "ConfigurationError")
+# Inspired by the versioning scheme followed by Qt, it seems sensible enough. There are three components: major, minor
+# and micro. Major changes with each subtraction from the API (backward-incompatible, i.e. V19 vs. V18), minor changes
+# with each addition to the API (backward-compatible), micro changes with each revision of the source code.
+ApiVer = "2.0.0"
+
+Export("Platform", "Posix", "ConfigurationError", "ApiVer")

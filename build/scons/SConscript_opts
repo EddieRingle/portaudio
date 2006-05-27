@@ -56,7 +56,8 @@ elif Platform in Windows:
     if Platform == "cygwin":
         opts["Installation Dirs"] = [_DirectoryOption("prefix", "installation prefix", "/usr/local")]
 
-opts["Library Types"] = [_BoolOption("shared", "create shared library"), _BoolOption("static", "create static library")]
+opts["Build Targets"] = [_BoolOption("shared", "create shared library"), _BoolOption("static", "create static library"),
+        _BoolOption("tests", "build test programs")]
 
 apis = []
 if Platform in Posix:
@@ -79,7 +80,12 @@ opts["Build Parameters"] = [\
         _BoolOption("debugOutput", "enable debug output", default=0),
         # _BoolOption("python", "create Python binding"),
         ("customCFlags", "customize compilation of C code", ""),
+        ("customCxxFlags", "customize compilation of C++ code", ""),
         ("customLinkFlags", "customize linking", ""),
+        ]
+
+opts["Bindings"] = [\
+        _BoolOption("cxx", "build Merlijn Blauws PA C++ wrapper", default=0)
         ]
     
 Return("opts")
