@@ -61,12 +61,20 @@ long RingBuffer_Init( RingBuffer *rbuf, long numBytes, void *dataPtr )
 ** Return number of bytes available for reading. */
 long RingBuffer_GetReadAvailable( RingBuffer *rbuf )
 {
+#ifdef MPSAFE
+    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    OSMemoryBarrier();
+#endif
     return ( (rbuf->writeIndex - rbuf->readIndex) & rbuf->bigMask );
 }
 /***************************************************************************
 ** Return number of bytes available for writing. */
 long RingBuffer_GetWriteAvailable( RingBuffer *rbuf )
 {
+#ifdef MPSAFE
+    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    OSMemoryBarrier();
+#endif
     return ( rbuf->bufferSize - RingBuffer_GetReadAvailable(rbuf));
 }
 

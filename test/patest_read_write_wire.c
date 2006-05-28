@@ -104,7 +104,7 @@ int main(void)
     printf( "Input HL: %g s\n", Pa_GetDeviceInfo( inputParameters.device )->defaultHighInputLatency );
     inputParameters.channelCount = NUM_CHANNELS;
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
-    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultHighInputLatency;
+    inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultHighInputLatency ;
     inputParameters.hostApiSpecificStreamInfo = NULL;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
@@ -142,6 +142,9 @@ int main(void)
     }
     err = Pa_StopStream( stream );
     if( err != paNoError ) goto error;
+
+    for( i=0; i<FRAMES_PER_BUFFER*NUM_CHANNELS; i++ )
+        sampleBlock[i] = (SAMPLE_SILENCE);
 
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error;

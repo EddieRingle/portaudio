@@ -178,6 +178,7 @@ PaError resetBlioRingBuffers( PaMacBlio *blio )
 #ifdef PA_MAC__BLIO_MUTEX
    int result;
 #endif
+   blio->statusFlags = 0;
    if( blio->outputRingBuffer.buffer ) {
       RingBuffer_Flush( &blio->outputRingBuffer );
       bzero( blio->outputRingBuffer.buffer,
