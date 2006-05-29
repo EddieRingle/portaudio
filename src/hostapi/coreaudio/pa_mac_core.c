@@ -1838,7 +1838,7 @@ static PaError CloseStream( PaStream* s )
           stream->inputUnit = NULL;
        }
        if( stream->inputRingBuffer.buffer )
-          free( stream->inputRingBuffer.buffer );
+          free( (void *) stream->inputRingBuffer.buffer );
        stream->inputRingBuffer.buffer = NULL;
        /*TODO: is there more that needs to be done on error
                from AudioConverterDispose?*/
@@ -1926,7 +1926,8 @@ static PaError StopStream( PaStream *s )
     }
     if( stream->inputRingBuffer.buffer ) {
        RingBuffer_Flush( &stream->inputRingBuffer );
-       bzero(stream->inputRingBuffer.buffer,stream->inputRingBuffer.bufferSize);
+       bzero( (void *)stream->inputRingBuffer.buffer,
+              stream->inputRingBuffer.bufferSize );
        /* advance the write point a little, so we are reading from the
           middle of the buffer. We'll need extra at the end because
           testing has shown that this helps. */

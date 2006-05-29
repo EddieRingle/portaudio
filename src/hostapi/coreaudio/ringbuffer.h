@@ -51,11 +51,11 @@ extern "C"
 typedef struct
 {
     long   bufferSize; /* Number of bytes in FIFO. Power of 2. Set by RingBuffer_Init. */
-    long   writeIndex; /* Index of next writable byte. Set by RingBuffer_AdvanceWriteIndex. */
-    long   readIndex;  /* Index of next readable byte. Set by RingBuffer_AdvanceReadIndex. */
+    volatile long   writeIndex; /* Index of next writable byte. Set by RingBuffer_AdvanceWriteIndex. */
+    volatile long   readIndex;  /* Index of next readable byte. Set by RingBuffer_AdvanceReadIndex. */
     long   bigMask;    /* Used for wrapping indices with extra bit to distinguish full/empty. */
     long   smallMask;  /* Used for fitting indices to buffer. */
-    char *buffer;
+    char * buffer;
 }
 RingBuffer;
 /*
