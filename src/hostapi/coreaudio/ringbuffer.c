@@ -6,6 +6,7 @@
  * Author: Phil Burk, http://www.softsynth.com
  * modified for SMP safety on Mac OS X by Bjorn Roche
  * also, alowed for const where possible
+ * Note that this is safe only for a single-thread reader and a single-thread writer.
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/
@@ -62,7 +63,7 @@ long RingBuffer_Init( RingBuffer *rbuf, long numBytes, void *dataPtr )
 long RingBuffer_GetReadAvailable( RingBuffer *rbuf )
 {
 #ifdef MPSAFE
-    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    /* This could just be a read MB */
     OSMemoryBarrier();
 #endif
     return ( (rbuf->writeIndex - rbuf->readIndex) & rbuf->bigMask );
@@ -71,10 +72,7 @@ long RingBuffer_GetReadAvailable( RingBuffer *rbuf )
 ** Return number of bytes available for writing. */
 long RingBuffer_GetWriteAvailable( RingBuffer *rbuf )
 {
-#ifdef MPSAFE
-    /* this RB is single-reader/single-writer, so we just need a memory barier */
-    OSMemoryBarrier();
-#endif
+    /* Since we are calling RingBuffer_GetReadAvailable, we don't need an aditional MB */
     return ( rbuf->bufferSize - RingBuffer_GetReadAvailable(rbuf));
 }
 
@@ -125,7 +123,8 @@ long RingBuffer_GetWriteRegions( RingBuffer *rbuf, long numBytes,
 long RingBuffer_AdvanceWriteIndex( RingBuffer *rbuf, long numBytes )
 {
 #ifdef MPSAFE
-    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    /* we need to ensure that previous writes are seen before we update the write index */
+    /* this could be just a write MB */
     OSMemoryBarrier();
     return rbuf->writeIndex = (rbuf->writeIndex + numBytes) & rbuf->bigMask;
 #else
@@ -171,7 +170,8 @@ long RingBuffer_GetReadRegions( RingBuffer *rbuf, long numBytes,
 long RingBuffer_AdvanceReadIndex( RingBuffer *rbuf, long numBytes )
 {
 #ifdef MPSAFE
-    /* this RB is single-reader/single-writer, so we just need a memory barier */
+    /* we need to ensure that previous writes are always seen before updating the index. */
+    /* this could be just a write MB */
     OSMemoryBarrier();
     return rbuf->readIndex = (rbuf->readIndex + numBytes) & rbuf->bigMask;
 #else
