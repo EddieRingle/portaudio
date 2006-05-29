@@ -13,6 +13,8 @@ extern "C"
  * Author: Phil Burk, http://www.softsynth.com
  * modified for SMP safety on OS X by Bjorn Roche.
  * also allowed for const where possible.
+ * Note that this is safe only for a single-thread reader
+ * and a single-thread writer.
  *
  * This program is distributed with the PortAudio Portable Audio Library.
  * For more information see: http://www.audiomulch.com/portaudio/
