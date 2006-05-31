@@ -127,12 +127,12 @@ $(ALL_TESTS): bin/%: lib/$(PALIB) $(MAKEFILE) $(PAINC) test/%.c
 
 
 install: lib/$(PALIB) portaudio-2.0.pc
-	$(INSTALL) -d $(DESTDIR)$(PREFIX)/lib
+	$(INSTALL) -d $(DESTDIR)$(libdir)
 	$(LIBTOOL) --mode=install $(INSTALL) lib/$(PALIB) $(DESTDIR)$(libdir)
-	$(INSTALL) -d $(DESTDIR)$(PREFIX)/include
+	$(INSTALL) -d $(DESTDIR)$(includedir)
 	$(INSTALL_DATA) -m 644 $(top_srcdir)/$(PAINC) $(DESTDIR)$(includedir)/portaudio.h
-	$(INSTALL) -d $(DESTDIR)$(PREFIX)/lib/pkgconfig
-	$(INSTALL) -m 644 portaudio-2.0.pc $(DESTDIR)$(PREFIX)/lib/pkgconfig/portaudio-2.0.pc
+	$(INSTALL) -d $(DESTDIR)$(libdir)/pkgconfig
+	$(INSTALL) -m 644 portaudio-2.0.pc $(DESTDIR)$(libdir)/pkgconfig/portaudio-2.0.pc
 	@echo ""
 	@echo "------------------------------------------------------------"
 	@echo "PortAudio was successfully installed."
@@ -145,8 +145,8 @@ install: lib/$(PALIB) portaudio-2.0.pc
 	@echo ""
 
 uninstall:
-	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(PREFIX)/lib/$(PALIB)
-	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(PREFIX)/include/portaudio.h
+	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(libdir)/$(PALIB)
+	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(includedir)/portaudio.h
 
 clean:
 	$(LIBTOOL) --mode=clean rm -f $(LTOBJS) $(ALL_TESTS) lib/$(PALIB)
