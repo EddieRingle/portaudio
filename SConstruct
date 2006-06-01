@@ -44,11 +44,11 @@ env["CCFLAGS"] = baseCFlags.split()
 env["CXXFLAGS"] = baseCxxFlags.split()
 env["LINKFLAGS"] = baseLinkFlags.split()
 if env["enableDebug"]:
-    env.AppendUnique(CCFLAGS=debugCFlags)
-    env.AppendUnique(CXXFLAGS=debugCFlags)
+    env.AppendUnique(CCFLAGS=debugCFlags.split())
+    env.AppendUnique(CXXFLAGS=debugCxxFlags.split())
 if env["enableOptimize"]:
-    env.AppendUnique(CCFLAGS=optCFlags)
-    env.AppendUnique(CXXFLAGS=optCxxFlags)
+    env.AppendUnique(CCFLAGS=optCFlags.split())
+    env.AppendUnique(CXXFLAGS=optCxxFlags.split())
 if not env["enableAsserts"]:
     env.AppendUnique(CPPDEFINES=["-DNDEBUG"])
 if env["customCFlags"]:
@@ -83,7 +83,7 @@ if Platform in Posix:
         try: txt = f.read()
         finally: f.close()
         txt = txt.replace("@prefix@", prefix)
-        txt = txt.replace("@exec-prefix@", prefix)
+        txt = txt.replace("@exec_prefix@", prefix)
         txt = txt.replace("@libdir@", libDir)
         txt = txt.replace("@includedir@", includeDir)
         txt = txt.replace("@LIBS@", " ".join(["-l%s" % l for l in portEnv["LIBS"]]))
