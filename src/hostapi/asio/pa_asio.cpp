@@ -125,6 +125,16 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 
+
+/* This version of pa_asio.cpp is currently only targetted at Win32,
+   It would require a few tweaks to work with pre-OS X Macintosh.
+   To make configuration easier, we define WIN32 here to make sure
+   that the ASIO SDK knows this is Win32.
+*/
+#ifndef WIN32
+#define WIN32
+#endif
+
 #include "asiosys.h"
 #include "asio.h"
 #include "asiodrivers.h"
