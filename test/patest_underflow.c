@@ -134,8 +134,7 @@ int main(void)
     }
 
     printf("Try to stop stream.\n");
-    err = Pa_StopStream( stream ); /* */
-    err = Pa_AbortStream( stream ); /* */
+    err = Pa_StopStream( stream );
     if( err != paNoError ) goto error;
     err = Pa_CloseStream( stream );
     if( err != paNoError ) goto error;
