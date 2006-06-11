@@ -1653,35 +1653,29 @@ error:
 
     if( !stream->hostApi->jackIsDown )  /* XXX: Well? */
     {
-        if( stream->num_incoming_connections > 0 )
+        for( i = 0; i < stream->num_incoming_connections; i++ )
         {
-            int failed = 0;
-            for( i = 0; i < stream->num_incoming_connections; i++ )
+            UNLESS( !jack_port_lock( stream->jack_client, stream->local_input_ports[i] ),
+                    paUnanticipatedHostError );
+            if( jack_port_connected( stream->local_input_ports[i] ) )
             {
-                if( jack_port_disconnect( stream->jack_client, stream->local_input_ports[i] ) )
-                {
-                    failed = 1;
-                }
+                UNLESS( !jack_port_disconnect( stream->jack_client, stream->local_input_ports[i] ),
+                        paUnanticipatedHostError );
             }
-            if( failed )
-            {
-                PA_DEBUG(( "%s: Failed to disconnect input, already done externally?\n", __FUNCTION__ ));
-            }
+            UNLESS( !jack_port_unlock( stream->jack_client, stream->local_input_ports[i] ),
+                    paUnanticipatedHostError );
         }
-        if( stream->num_outgoing_connections > 0 )
+        for( i = 0; i < stream->num_outgoing_connections; i++ )
         {
-            int failed = 0;
-            for( i = 0; i < stream->num_outgoing_connections; i++ )
+            UNLESS( !jack_port_lock( stream->jack_client, stream->local_output_ports[i] ),
+                    paUnanticipatedHostError );
+            if( jack_port_connected( stream->local_output_ports[i] ) )
             {
-                if( jack_port_disconnect( stream->jack_client, stream->local_output_ports[i] ) )
-                {
-                    failed = 1;
-                }
+                UNLESS( !jack_port_disconnect( stream->jack_client, stream->local_output_ports[i] ),
+                        paUnanticipatedHostError );
             }
-            if( failed )
-            {
-                PA_DEBUG(( "%s: Failed to disconnect output, already done externally?\n", __FUNCTION__ ));
-            }
+            UNLESS( !jack_port_unlock( stream->jack_client, stream->local_output_ports[i] ),
+                    paUnanticipatedHostError );
         }
     }
 
