@@ -36,6 +36,29 @@ sharedLib = env.SharedLibrary("portaudiocpp", src, LIBS=["portaudio"])
 staticLib = env.Library("portaudiocpp", src, LIBS=["portaudio"])
 sharedLibs.append(sharedLib)
 staticLibs.append(staticLib)
-from glob import glob
-headers = [File(f) for f in glob(os.path.join("include", "portaudiocpp", "*"))]
+
+headers = Split("""AutoSystem.hxx                         
+                   BlockingStream.hxx                     
+                   CallbackInterface.hxx                  
+                   CallbackStream.hxx
+                   CFunCallbackStream.hxx                 
+                   CppFunCallbackStream.hxx               
+                   Device.hxx                             
+                   DirectionSpecificStreamParameters.hxx  
+                   Exception.hxx                           
+                   HostApi.hxx
+                   InterfaceCallbackStream.hxx
+                   MemFunCallbackStream.hxx
+                   PortAudioCpp.hxx
+                   SampleDataFormat.hxx
+                   Stream.hxx
+                   StreamParameters.hxx
+                   SystemDeviceIterator.hxx
+                   SystemHostApiIterator.hxx
+                   System.hxx
+                   """)
+if env["PLATFORM"] == "win32":
+    headers.append("AsioDeviceAdapter.hxx") 
+headers = [File(os.path.join("include", "portaudiocpp", h)) for h in headers]
+
 Return("sharedLibs", "staticLibs", "headers")
