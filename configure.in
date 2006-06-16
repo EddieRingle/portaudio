@@ -53,6 +53,10 @@ AC_ARG_ENABLE(debug-output,
           fi
         ])
 
+AC_ARG_ENABLE(cxx,
+              [  --enable-cxx (default=no)],
+              enable_cxx=$enableval, enable_cxx="no")
+
 dnl Checks for programs.
 
 AC_PROG_CC
@@ -278,5 +282,16 @@ case "${host_os}" in
         OTHER_OBJS="$OTHER_OBJS src/os/unix/pa_unix_hostapis.o src/os/unix/pa_unix_util.o"
 esac
 CFLAGS="$CFLAGS $THREAD_CFLAGS"
+
+if test "$enable_cxx" = "yes"; then
+   AC_CONFIG_SUBDIRS([bindings/cpp])
+   ENABLE_CXX_TRUE=""
+   ENABLE_CXX_FALE="#"
+else
+   ENABLE_CXX_TRUE="#"
+   ENABLE_CXX_FALE=""
+fi
+AC_SUBST(ENABLE_CXX_TRUE)
+AC_SUBST(ENABLE_CXX_FALSE)
 
 AC_OUTPUT([Makefile portaudio-2.0.pc])

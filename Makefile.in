@@ -114,7 +114,10 @@ OBJS = $(COMMON_OBJS) $(OTHER_OBJS)
 
 LTOBJS:= $(OBJS:.o=.lo)
 
-all: lib/$(PALIB) tests
+SUBDIRS =
+@ENABLE_CXX_TRUE@SUBDIRS += bindings/cpp
+
+all: lib/$(PALIB) all-recursive tests
 
 tests: bin-stamp $(TESTS)
 
@@ -143,10 +146,12 @@ install: lib/$(PALIB) portaudio-2.0.pc
 	@echo "the directory $(libdir)"
 	@echo "------------------------------------------------------------"
 	@echo ""
+	$(MAKE) install-recursive
 
 uninstall:
 	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(libdir)/$(PALIB)
 	$(LIBTOOL) --mode=uninstall rm -f $(DESTDIR)$(includedir)/portaudio.h
+	$(MAKE) uninstall-recursive
 
 clean:
 	$(LIBTOOL) --mode=clean rm -f $(LTOBJS) $(ALL_TESTS) lib/$(PALIB)
@@ -184,3 +189,12 @@ src/hostapi/wdmks src/hostapi/dsound src/hostapi/wasapi
 
 Makefile: Makefile.in config.status
 	$(SHELL) config.status
+
+all-recursive:
+	for dir in $(SUBDIRS); do make -C $$dir all; done
+
+install-recursive:
+	for dir in $(SUBDIRS); do make -C $$dir install; done
+
+uninstall-recursive:
+	for dir in $(SUBDIRS); do make -C $$dir uninstall; done
