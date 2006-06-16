@@ -518,6 +518,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         if( snd_ctl_open( &ctl, alsaCardName, 0 ) < 0 )
         {
             /* Unable to open card :( */
+            PA_DEBUG(( "%s: Unable to open device %s\n", __FUNCTION__, alsaCardName ));
             continue;
         }
         snd_ctl_card_info( ctl, cardInfo );
