@@ -157,9 +157,6 @@ clean:
 	$(LIBTOOL) --mode=clean rm -f $(LTOBJS) $(ALL_TESTS) lib/$(PALIB)
 	rm -f bin-stamp lib-stamp
 	-rm -rf bin lib
-	-rmdir src/os/win src/os/unix src/os/mac_osx src/common \
-src/hostapi/oss src/hostapi/alsa src/hostapi/jack src/hostapi/wmme \
-src/hostapi/wdmks src/hostapi/dsound src/hostapi/wasapi src/hostapi src/os src
 
 distclean: clean
 	rm -f config.log config.status Makefile libtool portaudio-2.0.pc
