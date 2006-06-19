@@ -25,6 +25,10 @@ AC_ARG_WITH(oss,
             [  --with-oss (default=yes)],
             with_oss=$withval, with_oss="yes")
 
+AC_ARG_WITH(asihpi,
+            [  --with-asihpi (default=auto)],
+            with_asihpi=$withval, with_asihpi="yes")
+
 AC_ARG_WITH(host_os, 
             [  --with-host_os (no default)],
             host_os=$withval)
@@ -76,6 +80,7 @@ dnl checks for various host APIs and arguments to configure that
 dnl turn them on or off
 
 AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
+AC_CHECK_LIB(hpi, HPI_SubSysCreate, have_asihpi=yes, have_asihpi=no, -lm)
 
 dnl Determine the host description for the subsequent test.
 dnl PKG_CHECK_MODULES seems to check and set the host variable also, but
@@ -273,6 +278,14 @@ case "${host_os}" in
 		OTHER_OBJS="$OTHER_OBJS src/hostapi/oss/pa_unix_oss.o"
 		AC_DEFINE(PA_USE_OSS)
 	fi
+	
+	if [[ $have_asihpi = "yes" ] && [ $with_asihpi != "no" ]] ; then
+                LIBS="$LIBS -lhpi"
+		DLL_LIBS="$DLL_LIBS -lhpi"
+		OTHER_OBJS="$OTHER_OBJS src/hostapi/asihpi/pa_linux_asihpi.o"
+                AC_DEFINE(PA_USE_ASIHPI)
+	fi
+	
 	THREAD_CFLAGS="-pthread"
 	DLL_LIBS="$DLL_LIBS -lm -lpthread";
 	LIBS="$LIBS -lm -lpthread";

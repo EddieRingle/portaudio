@@ -37,6 +37,8 @@ PaError PaAlsa_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 PaError PaOSS_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 /* Added for IRIX, Pieter, oct 2, 2003: */
 PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+/* Linux AudioScience HPI */
+PaError PaAsiHpi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 
 PaUtilHostApiInitializer *paHostApiInitializers[] =
@@ -56,9 +58,11 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #ifdef PA_USE_SGI 
         PaSGI_Initialize,
 #endif
+
+#ifdef PA_USE_ASIHPI
+        PaAsiHpi_Initialize,
+#endif
         0   /* NULL terminated array */
     };
 
 int paDefaultHostApiIndex = 0;
-
-

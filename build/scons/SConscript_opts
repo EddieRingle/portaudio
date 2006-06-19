@@ -65,6 +65,7 @@ if Platform in Posix:
     apis.append(_PackageOption("JACK"))
     if Platform == "linux":
         apis.append(_PackageOption("ALSA"))
+        apis.append(_PackageOption("ASIHPI"))
 elif Platform in Windows:
     if Platform == "cygwin":
         apis.append(_EnumOption("winAPI", "Windows API to use", ("wmme", "directx", "asio"), "wmme"))
@@ -85,7 +86,7 @@ opts["Build Parameters"] = [\
         ]
 
 opts["Bindings"] = [\
-        _BoolOption("cxx", "build Merlijn Blauws PA C++ wrapper", default=0)
+        _BoolOption("cxx", "build Merlijn Blaauw's PA C++ wrapper", default=0)
         ]
     
 Return("opts")

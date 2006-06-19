@@ -74,6 +74,8 @@ if Platform in Posix:
     if env["useOSS"]:
         # TODO: It looks like the prefix for soundcard.h depends on the platform
         optionalImpls["OSS"] = ("oss", "sys/soundcard.h", None)
+    if env["useASIHPI"]:
+        optionalImpls["ASIHPI"] = ("hpi", "asihpi/hpi.h", "HPI_SubSysCreate")
 else:
     raise ConfigurationError("unknown platform %s" % Platform)
 
@@ -163,6 +165,9 @@ if "JACK" in optionalImpls:
     ImplSources.append(os.path.join("hostapi", "jack", "pa_jack.c"))
 if "OSS" in optionalImpls:
     ImplSources.append(os.path.join("hostapi", "oss", "pa_unix_oss.c"))
+if "ASIHPI" in optionalImpls:
+    ImplSources.append(os.path.join("hostapi", "asihpi", "pa_linux_asihpi.c"))
+
 
 sources = CommonSources + ImplSources
 
