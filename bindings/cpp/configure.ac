@@ -15,6 +15,7 @@ m4_define([lt_age], [0])
 AC_INIT([PortAudioCpp], [12])
 AC_CONFIG_SRCDIR([include/portaudiocpp/PortAudioCpp.hxx])
 AM_INIT_AUTOMAKE
+AM_MAINTAINER_MODE
 
 ###### Top-level directory of pacpp
 ###### This makes it easy to shuffle the build directories
