@@ -128,13 +128,13 @@ if env["enableDebugOutput"]:
 # Use an absolute path for conf_dir, otherwise it gets created both relative to current directory and build directory
 conf = env.Configure(log_file=os.path.join(sconsDir, "sconf.log"), custom_tests={"CheckCTypeSize": CheckCTypeSize},
         conf_dir=os.path.join(sconsDir, ".sconf_temp"))
-env.Append(CPPDEFINES=["SIZEOF_SHORT=%d" % conf.CheckCTypeSize("short")])
-env.Append(CPPDEFINES=["SIZEOF_INT=%d" % conf.CheckCTypeSize("int")])
-env.Append(CPPDEFINES=["SIZEOF_LONG=%d" % conf.CheckCTypeSize("long")])
+conf.env.Append(CPPDEFINES=["SIZEOF_SHORT=%d" % conf.CheckCTypeSize("short")])
+conf.env.Append(CPPDEFINES=["SIZEOF_INT=%d" % conf.CheckCTypeSize("int")])
+conf.env.Append(CPPDEFINES=["SIZEOF_LONG=%d" % conf.CheckCTypeSize("long")])
 if checkSymbol(conf, "time.h", "rt", "clock_gettime"):
-    env.Append(CPPDEFINES=["HAVE_CLOCK_GETTIME"])
+    conf.env.Append(CPPDEFINES=["HAVE_CLOCK_GETTIME"])
 if checkSymbol(conf, "time.h", symbol="nanosleep"):
-    env.Append(CPPDEFINES=["HAVE_NANOSLEEP"])
+    conf.env.Append(CPPDEFINES=["HAVE_NANOSLEEP"])
 
 # Look for needed libraries and link with them
 for lib, hdr, sym in neededLibs:
@@ -143,7 +143,7 @@ for lib, hdr, sym in neededLibs:
 for name, val in optionalImpls.items():
     lib, hdr, sym = val
     if checkSymbol(conf, hdr, lib, sym, critical=False, pkgName=name.lower()):
-        env.Append(CPPDEFINES=["PA_USE_%s=1" % name.upper()])
+        conf.env.Append(CPPDEFINES=["PA_USE_%s=1" % name.upper()])
     else:
         del optionalImpls[name]
 
