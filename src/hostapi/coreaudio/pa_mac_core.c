@@ -1442,9 +1442,6 @@ static OSStatus AudioIOProc( void *inRefCon,
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-   if( !stream->isTimeSet )
-      setStreamStartTime( stream );
-
    /* -----------------------------------------------------------------*\
       This output may be useful for debugging,
       But printing durring the callback is a bad enough idea that
@@ -1471,6 +1468,9 @@ static OSStatus AudioIOProc( void *inRefCon,
          printf( "--- ioData buffer %d size: %lu.\n", i, ioData->mBuffers[i].mDataByteSize );
    }
       ----------------------------------------------------------------- */
+
+   if( !stream->isTimeSet )
+      setStreamStartTime( stream );
 
    if( isRender ) {
       AudioTimeStamp currentTime;
@@ -1903,7 +1903,7 @@ static PaError StopStream( PaStream *s )
     waitUntilBlioWriteBufferIsFlushed( &stream->blio );
     VDBUG( ( "Stopping stream.\n" ) );
 
-    stream->isTimeSet = false;
+    stream->isTimeSet = FALSE;
     stream->state = STOPPING;
 
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)
