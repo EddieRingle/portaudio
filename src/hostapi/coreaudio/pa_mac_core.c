@@ -1328,13 +1328,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->userInChan  = inputChannelCount;
     stream->userOutChan = outputChannelCount;
 
-    /*stream->isTimeSet   = FALSE;*/
+    stream->isTimeSet   = FALSE;
     stream->state = STOPPED;
     stream->xrunFlags = 0;
 
     *s = (PaStream*)stream;
-
-    setStreamStartTime( stream );
 
     return result;
 
@@ -1352,10 +1350,8 @@ PaTime GetStreamTime( PaStream *s )
 
     VVDBUG(("GetStreamTime()\n"));
 
-/*
-    //if ( !stream->isTimeSet )
-    //    return (PaTime)0;
-*/
+    if ( !stream->isTimeSet )
+        return (PaTime)0;
 
     if ( stream->outputDevice )
         AudioDeviceGetCurrentTime( stream->outputDevice, &timeStamp);
@@ -1373,10 +1369,16 @@ static void setStreamStartTime( PaStream *stream )
              patest_sine_time reports negative latencies, which is wierd.*/
    PaMacCoreStream *s = (PaMacCoreStream *) stream;
    VVDBUG(("setStreamStartTime()\n"));
-   if( s->inputDevice )
+   if( s->outputDevice )
+      AudioDeviceGetCurrentTime( s->outputDevice, &s->startTime);
+   else if( s->inputDevice )
       AudioDeviceGetCurrentTime( s->inputDevice, &s->startTime);
    else
-      AudioDeviceGetCurrentTime( s->outputDevice, &s->startTime);
+      bzero( &s->startTime, sizeof( s->startTime ) );
+
+   //FIXME: we need a memory barier here
+
+   s->isTimeSet = TRUE;
 }
 
 
@@ -1440,12 +1442,8 @@ static OSStatus AudioIOProc( void *inRefCon,
 
    PaUtil_BeginCpuLoadMeasurement( &stream->cpuLoadMeasurer );
 
-/*
-   //if( !stream->isTimeSet )
-   //   setStreamStartTime( stream );
-   //stream->isTimeSet = TRUE;
-*/
-
+   if( !stream->isTimeSet )
+      setStreamStartTime( stream );
 
    /* -----------------------------------------------------------------*\
       This output may be useful for debugging,
@@ -1798,6 +1796,7 @@ static OSStatus AudioIOProc( void *inRefCon,
    case paContinue: break;
    case paComplete:
    case paAbort:
+      stream->isTimeSet = FALSE;
       stream->state = CALLBACK_STOPPED ;
       if( stream->outputUnit )
          AudioOutputUnitStop(stream->outputUnit);
@@ -1885,6 +1884,9 @@ static PaError StartStream( PaStream *s )
        ERR_WRAP( AudioOutputUnitStart(stream->outputUnit) );
     }
 
+    //setStreamStartTime( stream );
+    //stream->isTimeSet = TRUE;
+
     return paNoError;
 #undef ERR_WRAP
 }
@@ -1901,6 +1903,7 @@ static PaError StopStream( PaStream *s )
     waitUntilBlioWriteBufferIsFlushed( &stream->blio );
     VDBUG( ( "Stopping stream.\n" ) );
 
+    stream->isTimeSet = false;
     stream->state = STOPPING;
 
 #define ERR_WRAP(mac_err) do { result = mac_err ; if ( result != noErr ) return ERR(result) ; } while(0)

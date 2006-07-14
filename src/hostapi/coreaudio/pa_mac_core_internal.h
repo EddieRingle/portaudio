@@ -133,6 +133,7 @@ typedef struct PaMacCoreStream
     AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
     volatile PaStreamCallbackFlags xrunFlags;
+    volatile bool isTimeSet;
     volatile enum {
        STOPPED          = 0, /* playback is completely stopped,
                                 and the user has called StopStream(). */
