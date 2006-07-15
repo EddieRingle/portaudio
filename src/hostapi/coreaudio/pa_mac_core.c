@@ -226,7 +226,7 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
     PaError err = paNoError;
     UInt32 i;
     int numChannels = 0;
-    AudioBufferList *buflist;
+    AudioBufferList *buflist = NULL;
     UInt32 frameLatency;
 
     VVDBUG(("GetChannelInfo()\n"));
@@ -239,11 +239,11 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
         return err;
 
     buflist = PaUtil_AllocateMemory(propSize);
+    if( !buflist )
+       return paInsufficientMemory;
     err = ERR(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyStreamConfiguration, &propSize, buflist));
     if (err)
-        return err;
-
-    /*FIXME: dealocate buflist*/
+        goto error;
 
     for (i = 0; i < buflist->mNumberBuffers; ++i)
         numChannels += buflist->mBuffers[i].mNumberChannels;
@@ -278,7 +278,11 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
           }
        }
     }
+    PaUtil_FreeMemory( buflist );
     return paNoError;
+ error:
+    PaUtil_FreeMemory( buflist );
+    return err;
 }
 
 static PaError InitializeDeviceInfo( PaMacAUHAL *auhalHostApi,
