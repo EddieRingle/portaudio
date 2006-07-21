@@ -76,7 +76,7 @@ int main(void);
 int main(void)
 {
     PaStreamParameters inputParameters, outputParameters;
-    PaStream *stream;
+    PaStream *stream = NULL;
     PaError err;
     SAMPLE *sampleBlock;
     int i;
@@ -160,12 +160,19 @@ int main(void)
     err = Pa_StopStream( stream );
     if( err != paNoError ) goto error;
 
+    Pa_CloseStream( stream );
+
     free( sampleBlock );
 
     Pa_Terminate();
     return 0;
 
 xrun:
+    if( stream ) {
+       Pa_AbortStream( stream );
+       Pa_CloseStream( stream );
+    }
+    free( sampleBlock );
     Pa_Terminate();
     if( err & paInputOverflow )
        fprintf( stderr, "Input Overflow.\n" );
@@ -174,6 +181,11 @@ xrun:
     return -2;
 
 error:
+    if( stream ) {
+       Pa_AbortStream( stream );
+       Pa_CloseStream( stream );
+    }
+    free( sampleBlock );
     Pa_Terminate();
     fprintf( stderr, "An error occured while using the portaudio stream\n" );
     fprintf( stderr, "Error number: %d\n", err );
