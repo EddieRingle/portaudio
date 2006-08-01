@@ -1329,6 +1329,32 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     stream->sampleRate  = sampleRate;
+    stream->outDeviceSampleRate = 0;
+    if( stream->outputUnit ) {
+       Float64 rate;
+       UInt32 size = sizeof( rate );
+       result = ERR( AudioDeviceGetProperty( stream->outputDevice,
+                                    0,
+                                    FALSE,
+                                    kAudioDevicePropertyNominalSampleRate,
+                                    &size, &rate ) );
+       if( result )
+          goto error;
+       stream->outDeviceSampleRate = rate;
+    }
+    stream->inDeviceSampleRate = 0;
+    if( stream->inputUnit ) {
+       Float64 rate;
+       UInt32 size = sizeof( rate );
+       result = ERR( AudioDeviceGetProperty( stream->inputDevice,
+                                    0,
+                                    TRUE,
+                                    kAudioDevicePropertyNominalSampleRate,
+                                    &size, &rate ) );
+       if( result )
+          goto error;
+       stream->inDeviceSampleRate = rate;
+    }
     stream->userInChan  = inputChannelCount;
     stream->userOutChan = outputChannelCount;
 
@@ -1357,14 +1383,15 @@ PaTime GetStreamTime( PaStream *s )
     if ( !stream->isTimeSet )
         return (PaTime)0;
 
-    if ( stream->outputDevice )
+    if ( stream->outputDevice ) {
         AudioDeviceGetCurrentTime( stream->outputDevice, &timeStamp);
-    else if ( stream->inputDevice )
+        return (PaTime)(timeStamp.mSampleTime - stream->startTime.mSampleTime)/stream->outDeviceSampleRate;
+    } else if ( stream->inputDevice ) {
         AudioDeviceGetCurrentTime( stream->inputDevice, &timeStamp);
-    else
+    return (PaTime)(timeStamp.mSampleTime - stream->startTime.mSampleTime)/stream->inDeviceSampleRate;
+    } else {
         return (PaTime)0;
-
-    return (PaTime)(timeStamp.mSampleTime - stream->startTime.mSampleTime)/stream->sampleRate;
+    }
 }
 
 static void setStreamStartTime( PaStream *stream )
@@ -1389,6 +1416,7 @@ static void setStreamStartTime( PaStream *stream )
 static PaTime TimeStampToSecs(PaMacCoreStream *stream, const AudioTimeStamp* timeStamp)
 {
     VVDBUG(("TimeStampToSecs()\n"));
+    //printf( "ATS: %lu, %g, %g\n", timeStamp->mFlags, timeStamp->mSampleTime, timeStamp->mRateScalar );
     if (timeStamp->mFlags & kAudioTimeStampSampleTimeValid)
         return (timeStamp->mSampleTime / stream->sampleRate);
     else
@@ -1491,6 +1519,7 @@ static OSStatus AudioIOProc( void *inRefCon,
       timeInfo.currentTime = TimeStampToSecs(stream, &currentTime);
    }
 
+   //printf( "---%g, %g, %g\n", timeInfo.inputBufferAdcTime, timeInfo.currentTime, timeInfo.outputBufferDacTime );
 
    if( isRender && stream->inputUnit == stream->outputUnit
                 && !stream->inputSRConverter )

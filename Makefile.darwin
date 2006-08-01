@@ -91,6 +91,7 @@ TESTS = \
 	bin/patest_start_stop \
 	bin/patest_stop \
 	bin/patest_sync \
+	bin/patest_timing \
 	bin/patest_toomanysines \
 	bin/patest_underflow \
 	bin/patest_wire \
@@ -146,6 +147,7 @@ ALL_TESTS = \
 	bin/patest_start_stop \
 	bin/patest_stop \
 	bin/patest_sync \
+	bin/patest_timing \
 	bin/patest_toomanysines \
 	bin/patest_underflow \
 	bin/patest_wire \

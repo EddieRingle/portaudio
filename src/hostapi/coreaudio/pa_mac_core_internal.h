@@ -146,6 +146,9 @@ typedef struct PaMacCoreStream
        ACTIVE           = 3  /* The stream is active and running. */
     } state;
     double sampleRate;
+    //these may be different from the stream sample rate due to SR conversion:
+    double outDeviceSampleRate;
+    double inDeviceSampleRate;
 }
 PaMacCoreStream;
 
