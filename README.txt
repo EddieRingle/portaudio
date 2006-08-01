@@ -46,7 +46,7 @@ Documentation:
 For information on compiling programs with PortAudio, please see the
 tutorial at:
 
-  http://www.portaudio.com/docs/pa_tutorial.html
+  http://portaudio.com/trac/wiki/TutorialDir/TutorialStart
   
 Important Files and Folders:
 	pa_common/              = platform independant code
