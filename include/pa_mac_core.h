@@ -6,9 +6,9 @@
 /*
  * A pointer to a paMacCoreStreamInfo may be passed as
  * the hostApiSpecificStreamInfo in the PaStreamParameters struct
- * when opening a stream. Use NULL, for the defaults. Note that for
- * duplex streams, both infos should be the same or behaviour
- * is undefined.
+ * when opening a stream or querying the format. Use NULL, for the
+ * defaults. Note that for duplex streams, both infos should be the
+ * same or behaviour is undefined.
  */
 typedef struct paMacCoreStreamInfo
 {
@@ -36,7 +36,8 @@ void paSetupMacCoreStreamInfo( paMacCoreStreamInfo *data, unsigned long flags )
  */
 /* Allows PortAudio to change things like the device's frame size,
  * which allows for much lower latency, but might disrupt the device
- * if other programs are using it. */
+ * if other programs are using it, even when you are just Querying
+ * the device. */
 const unsigned long paMacCore_ChangeDeviceParameters      = 0x01;
 
 /* In combination with the above flag,
