@@ -265,6 +265,15 @@ static PaError GetChannelInfo( PaMacAUHAL *auhalHostApi,
        err = WARNING(AudioDeviceGetProperty(macCoreDeviceId, 0, isInput, kAudioDevicePropertyLatency, &propSize, &frameLatency));
        if (!err)
        {
+          /** FEEDBACK:
+           * This code was arrived at by trial and error, and some extentive, but not exhaustive
+           * testing. Sebastien Beaulieu <seb@plogue.com> has suggested using
+           * kAudioDevicePropertyLatency + kAudioDevicePropertySafetyOffset + buffer size instead.
+           * At the time this code was written, many users were reporting dropouts with audio
+           * programs that probably used this formula. This was probably
+           * around 10.4.4, and the problem is probably fixed now. So perhaps
+           * his formula should be reviewed and used.
+           * */
           double secondLatency = frameLatency / deviceInfo->defaultSampleRate;
           if (isInput)
           {
