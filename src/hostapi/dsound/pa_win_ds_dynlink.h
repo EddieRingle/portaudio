@@ -1,10 +1,8 @@
-#ifndef INCLUDED_PA_DSOUND_DYNLINK_H
-#define INCLUDED_PA_DSOUND_DYNLINK_H
 /*
  * Interface for dynamically loading directsound and providing a dummy
  * implementation if it isn't present.
  *
- * Author: Ross Bencina (some portions Phil Burk & Robert Marsanyi
+ * Author: Ross Bencina (some portions Phil Burk & Robert Marsanyi)
  *
  * For PortAudio Portable Real-Time Audio Library
  * For more information see: http://www.portaudio.com
@@ -21,10 +19,6 @@
  * The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
  *
- * Any person wishing to distribute modifications to the Software is
- * requested to send the modifications to the original developer so that
- * they can be incorporated into the canonical version.
- *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
@@ -32,8 +26,22 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
  */
+
+/*
+ * The text above constitutes the entire PortAudio license; however, 
+ * the PortAudio community also makes the following non-binding requests:
+ *
+ * Any person wishing to distribute modifications to the Software is
+ * requested to send the modifications to the original developer so that
+ * they can be incorporated into the canonical version. It is also 
+ * requested that these non-binding requests be included along with the 
+ * license above.
+ */
+
+
+#ifndef INCLUDED_PA_DSOUND_DYNLINK_H
+#define INCLUDED_PA_DSOUND_DYNLINK_H
 
 /* on Borland compilers, WIN32 doesn't seem to be defined by default, which
     breaks DSound.h. Adding the define here fixes the problem. - rossb. */
