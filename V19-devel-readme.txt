@@ -1,3 +1,6 @@
+this file is very out of date, needs to be fixed -- rossb 23rd August 2006.
+
+
 STATUS:
 
 MME, DirectSound and ASIO versions are more-or-less working. See FIXMEs @todos
