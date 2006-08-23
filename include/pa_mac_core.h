@@ -3,6 +3,11 @@
  * portaudio.h should be included before this file.
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 /*
  * A pointer to a paMacCoreStreamInfo may be passed as
  * the hostApiSpecificStreamInfo in the PaStreamParameters struct
@@ -68,3 +73,8 @@ const unsigned long paMacCorePro      = 0x01;
 const unsigned long paMacCoreMinimizeCPUButPlayNice = 0x0100;
 /*This is a setting to minimize CPU usage, even if that means interrupting the device. */
 const unsigned long paMacCoreMinimizeCPU = 0x0101;
+
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
