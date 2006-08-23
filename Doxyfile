@@ -82,12 +82,14 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 # configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = src \
+INPUT                  = doc/src \
+                         src \
                          include \
                          test
 FILE_PATTERNS          = *.h \
                          *.c \
-                         *.cpp
+                         *.cpp \
+                         *.dox
 RECURSIVE              = YES
 EXCLUDE                = 
 EXCLUDE_SYMLINKS       = NO
