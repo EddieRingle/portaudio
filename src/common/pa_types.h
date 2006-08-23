@@ -1,14 +1,16 @@
 #ifndef PA_TYPES_H
 #define PA_TYPES_H
 
-/*
-    SIZEOF_SHORT, SIZEOF_INT and SIZEOF_LONG are set by the configure script
-    when it is used. Otherwise we default to the common 32 bit values, if your
-    platform doesn't use configure, and doesn't use the default values below
-    you will need to explicitly define these symbols in your make file.
+/** @file
+ @brief Definition of 16 and 32 bit integer types (PaInt16, PaInt32 etc)
 
-    A PA_VALIDATE_SIZES macro is provided to assert that the values set in this
-    file are correct.
+ SIZEOF_SHORT, SIZEOF_INT and SIZEOF_LONG are set by the configure script
+ when it is used. Otherwise we default to the common 32 bit values, if your
+ platform doesn't use configure, and doesn't use the default values below
+ you will need to explicitly define these symbols in your make file.
+
+ A PA_VALIDATE_SIZES macro is provided to assert that the values set in this
+ file are correct.
 */
 
 #ifndef SIZEOF_SHORT
