@@ -1,6 +1,6 @@
 /*
  * $Id$
- * Portable Audio I/O Library Windows initialization table
+ * Portable Audio I/O Library Macintosh initialization table
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
