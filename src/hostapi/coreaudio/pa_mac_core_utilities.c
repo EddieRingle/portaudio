@@ -1,17 +1,5 @@
 /*
- *
- * pa_mac_core_utilities.c
- *
- * utilitiy functions for pa_mac_core.c
- *
- * This functions are more like helper functions than part of the core,
- *  so I moved them to a separate file so the core code would be cleaner.
- *
- * by Bjorn Roche.
- */
-
-/*
- * Implementation of the PortAudio API for Apple AUHAL
+ * Helper and utility functions for pa_mac_core.c (Apple AUHAL implementation)
  *
  * PortAudio Portable Real-Time Audio Library
  * Latest Version at: http://www.portaudio.com
@@ -21,10 +9,6 @@
  *
  * Dominic's code was based on code by Phil Burk, Darren Gibbs,
  * Gord Peters, Stephane Letz, and Greg Pfiel.
- *
- * Bjorn Roche and XO Audio LLC reserve no rights to this code.
- * The maintainers of PortAudio may redistribute and modify the code and
- * licenses as they deam appropriate.
  *
  * The following people also deserve acknowledgements:
  *

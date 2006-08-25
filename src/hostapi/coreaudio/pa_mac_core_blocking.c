@@ -10,10 +10,6 @@
  * Dominic's code was based on code by Phil Burk, Darren Gibbs,
  * Gord Peters, Stephane Letz, and Greg Pfiel.
  *
- * Bjorn Roche and XO Audio LLC reserve no rights to this code.
- * The maintainers of PortAudio may redistribute and modify the code and
- * licenses as they deam appropriate.
- *
  * The following people also deserve acknowledgements:
  *
  * Olivier Tristan for feedback and testing
