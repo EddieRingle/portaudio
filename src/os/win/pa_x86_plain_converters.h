@@ -33,6 +33,10 @@
  * license above.
  */
 
+/** @file
+ @ingroup win_src
+*/
+
 #ifndef PA_X86_PLAIN_CONVERTERS_H
 #define PA_X86_PLAIN_CONVERTERS_H
 

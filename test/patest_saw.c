@@ -1,4 +1,5 @@
 /** @file patest_saw.c
+	@ingroup test_src
 	@brief Play a simple (aliasing) sawtooth wave.
 	@author Phil Burk  http://www.softsynth.com
 */

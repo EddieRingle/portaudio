@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
     @brief Prototypes for utility functions used by PortAudio implementations.
 
     @todo Document and adhere to the alignment guarantees provided by

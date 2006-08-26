@@ -38,6 +38,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Implements public PortAudio API, checks some errors, forwards to
  host API implementations.
  

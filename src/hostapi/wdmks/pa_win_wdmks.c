@@ -38,6 +38,7 @@
  */
 
 /** @file
+ @ingroup hostaip_src
  @brief Portaudio WDM-KS host API.
 
  @note This is the implementation of the Portaudio host API using the

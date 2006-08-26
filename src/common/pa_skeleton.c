@@ -39,6 +39,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Skeleton implementation of support for a host API.
 
  @note This file is provided as a starting point for implementing support for

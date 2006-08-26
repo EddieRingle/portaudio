@@ -1,4 +1,5 @@
 /** @file patest_ringmix.c
+	@ingroup test_src
 	@brief Ring modulate inputs to left output, mix inputs to right output.
 */
 /*

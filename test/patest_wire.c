@@ -1,4 +1,5 @@
 /** @file patest_wire.c
+	@ingroup test_src
 	@brief Pass input directly to output.
 
 	Note that some HW devices, for example many ISA audio cards

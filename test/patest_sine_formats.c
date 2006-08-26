@@ -1,4 +1,5 @@
 /** @file patest_sine_formats.c
+	@ingroup test_src
 	@brief Play a sine wave for several seconds. Test various data formats.
 	@author Phil Burk
 */

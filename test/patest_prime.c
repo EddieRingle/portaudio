@@ -1,4 +1,5 @@
 /** @file patest_prime.c
+	@ingroup test_src
 	@brief Test stream priming mode.
 	@author Ross Bencina http://www.audiomulch.com/~rossb
 */

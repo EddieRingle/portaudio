@@ -46,6 +46,7 @@
  */
 
 /** @file
+ @ingroup hostapi_src
  @brief Host API implementation supporting AudioScience cards 
         via the Linux HPI interface.
  

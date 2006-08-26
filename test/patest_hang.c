@@ -1,4 +1,5 @@
 /** @file patest_hang.c
+	@ingroup test_src
 	@brief Play a sine then hang audio callback to test watchdog.
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>

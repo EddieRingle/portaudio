@@ -51,6 +51,10 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostapi_src
+*/
 
 #ifndef PA_MAC_CORE_UTILITIES_H__
 #define PA_MAC_CORE_UTILITIES_H__

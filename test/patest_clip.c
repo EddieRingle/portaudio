@@ -1,4 +1,5 @@
 /** @file patest_clip.c
+	@ingroup test_src
 	@brief Play a sine wave for several seconds at an amplitude 
 	that would require clipping.
 

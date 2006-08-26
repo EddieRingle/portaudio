@@ -1,4 +1,5 @@
 /** @file patest_sine8.c
+	@ingroup test_src
 	@brief Test 8 bit data: play a sine wave for several seconds.
 	@author Ross Bencina <rossb@audiomulch.com>
 */

@@ -1,4 +1,5 @@
 /** @file patest_leftright.c
+	@ingroup test_src
 	@brief Play different tone sine waves that 
 		alternate between left and right channel.
 

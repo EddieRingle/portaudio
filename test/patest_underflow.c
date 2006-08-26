@@ -1,4 +1,5 @@
 /** @file patest_underflow.c
+	@ingroup test_src
 	@brief Simulate an output buffer underflow condition.
 	Tests whether the stream can be stopped when underflowing buffers.
 	@author Ross Bencina <rossb@audiomulch.com>

@@ -1,4 +1,5 @@
 /** @file patest_toomanysines.c
+	@ingroup test_src
 	@brief Play more sine waves than we can handle in real time as a stress test.
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>

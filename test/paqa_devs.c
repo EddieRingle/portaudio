@@ -1,4 +1,5 @@
 /** @file paqa_devs.c
+	@ingroup test_src
     @brief Self Testing Quality Assurance app for PortAudio
  	Try to open each device and run through all the
  	possible configurations.

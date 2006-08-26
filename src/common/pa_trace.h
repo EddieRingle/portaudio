@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Event trace mechanism for debugging.
 
  Allows data to be written to the buffer at interrupt time and dumped later.

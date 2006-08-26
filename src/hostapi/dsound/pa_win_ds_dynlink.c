@@ -39,6 +39,11 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostaip_src
+*/
+
 #include "pa_win_ds_dynlink.h"
 
 PaWinDsDSoundEntryPoints paWinDsDSoundEntryPoints = { 0, 0, 0, 0, 0, 0, 0 };

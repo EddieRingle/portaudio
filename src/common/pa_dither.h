@@ -39,6 +39,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Functions for generating dither noise
 */
 

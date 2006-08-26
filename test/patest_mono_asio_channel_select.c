@@ -1,7 +1,11 @@
+/** @file pa_test_mono_asio_channel_select.c
+	@ingroup test_src
+	@brief Play a monophonic sine wave on a specific ASIO channel.
+	@author Ross Bencina <rossb@audiomulch.com>
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_sine.c
- * Play a monophonic sine wave using the Portable Audio api for several seconds.
  *
  * Authors:
  *    Ross Bencina <rossb@audiomulch.com>

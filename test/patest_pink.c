@@ -1,4 +1,5 @@
 /** @file patest_pink.c
+	@ingroup test_src
 	@brief Generate Pink Noise using Gardner method.
 
 	Optimization suggested by James McCartney uses a tree

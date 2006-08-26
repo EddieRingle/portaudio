@@ -1,4 +1,5 @@
 /** @file patest1.c
+	@ingroup test_src
 	@brief Ring modulate the audio input with a sine wave for 20 seconds.
 	@author Ross Bencina <rossb@audiomulch.com>
 */

@@ -1,4 +1,5 @@
 /** @file patest_longsine.c
+	@ingroup test_src
 	@brief Play a sine wave until ENTER hit.
 	@author Phil Burk  http://www.softsynth.com
 */

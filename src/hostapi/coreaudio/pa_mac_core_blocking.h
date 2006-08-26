@@ -51,6 +51,11 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostaip_src
+*/
+
 #ifndef PA_MAC_CORE_BLOCKING_H_
 #define PA_MAC_CORE_BLOCKING_H_
 

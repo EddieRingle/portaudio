@@ -1,6 +1,7 @@
 /** @file patest_timing.c
+	@ingroup test_src
 	@brief Play a sine wave for several seconds, and spits out a ton of timing info while it's at it. Based on patet_sine.c
-   @author Bjorn Roche
+	@author Bjorn Roche
 	@author Ross Bencina <rossb@audiomulch.com>
     @author Phil Burk <philburk@softsynth.com>
 */

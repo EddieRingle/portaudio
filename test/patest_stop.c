@@ -1,4 +1,5 @@
 /** @file patest_stop.c
+	@ingroup test_src
 	@brief Test different ways of stopping audio.
 
 	Test the three ways of stopping audio:

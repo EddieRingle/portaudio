@@ -1,4 +1,5 @@
 /** @file patest_buffer.c
+	@ingroup test_src
 	@brief Test opening streams with different buffer sizes.
 	@author Phil Burk  http://www.softsynth.com
 */

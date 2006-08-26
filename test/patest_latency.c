@@ -1,4 +1,5 @@
 /** @file
+	@ingroup test_src
 	@brief Hear the latency caused by big buffers.
 	Play a sine wave and change frequency based on letter input.
 	@author Phil Burk <philburk@softsynth.com>, and Darren Gibbs

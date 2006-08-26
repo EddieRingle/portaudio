@@ -1,4 +1,5 @@
 /** @file patest_stop_playout.c
+	@ingroup test_src
 	@brief Test whether all queued samples are played when Pa_StopStream()
             is used with a callback or read/write stream, or when the callback
             returns paComplete.

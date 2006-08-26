@@ -1,4 +1,5 @@
 /** @file patest_multi_sine.c
+	@ingroup test_src
 	@brief Play a different sine wave on each channel.
 	@author Phil Burk  http://www.softsynth.com
 */

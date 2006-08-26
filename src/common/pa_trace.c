@@ -38,6 +38,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Event trace mechanism for debugging.
 */
 

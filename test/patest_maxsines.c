@@ -1,4 +1,5 @@
 /** @file patest_maxsines.c
+	@ingroup test_src
 	@brief How many sine waves can we calculate and play in less than 80% CPU Load.
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>

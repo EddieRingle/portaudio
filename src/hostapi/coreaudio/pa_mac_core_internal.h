@@ -53,6 +53,7 @@
 
 /**
  @file pa_mac_core
+ @ingroup hostapi_src
  @author Bjorn Roche
  @brief AUHAL implementation of PortAudio
 */

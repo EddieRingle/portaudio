@@ -38,6 +38,8 @@
  */
 
 /** @file
+ @ingroup win_src
+
  Win32 platform-specific support functions.
 
     @todo Implement workaround for QueryPerformanceCounter() skipping forward

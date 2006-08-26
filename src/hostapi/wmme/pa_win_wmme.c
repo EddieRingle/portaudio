@@ -62,7 +62,8 @@
 */
 
 /** @file
-	
+	@ingroup hostaip_src
+
 	@todo Fix buffer catch up code, can sometimes get stuck (perhaps fixed now,
             needs to be reviewed and tested.)
 

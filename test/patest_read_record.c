@@ -1,4 +1,5 @@
 /** @file patest_read_record.c
+	@ingroup test_src
 	@brief Record input into an array; Save array to a file; Playback recorded
     data. Implemented using the blocking API (Pa_ReadStream(), Pa_WriteStream() )
 	@author Phil Burk  http://www.softsynth.com

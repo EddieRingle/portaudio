@@ -51,9 +51,14 @@
  * license above.
  */
 
-/* This file contains the implementation
- * required for blocking I/O. It is separated from pa_mac_core.c simply to ease
- * development. */
+/**
+ @file
+ @ingroup hostaip_src
+
+ This file contains the implementation
+ required for blocking I/O. It is separated from pa_mac_core.c simply to ease
+ development.
+*/
 
 #include "pa_mac_core_blocking.h"
 #include "pa_mac_core_internal.h"

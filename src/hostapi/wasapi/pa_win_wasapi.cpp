@@ -37,6 +37,7 @@
  */
 
 /** @file
+ @ingroup hostaip_src
  @brief WASAPI implementation of support for a host API.
 
  @note This file is provided as a starting point for implementing support for

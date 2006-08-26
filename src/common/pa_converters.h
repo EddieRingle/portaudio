@@ -39,6 +39,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Conversion functions used to convert buffers of samples from one
  format to another.
 */

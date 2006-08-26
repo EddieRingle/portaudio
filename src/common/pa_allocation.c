@@ -38,6 +38,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Allocation Group implementation.
 */
 

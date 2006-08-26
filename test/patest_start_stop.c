@@ -1,6 +1,6 @@
 /** @file patest_start_stop.c
-	@brief Play a sine wave for several seconds
-        - start and stop the stream multiple times.
+	@ingroup test_src
+	@brief Play a sine wave for several seconds. Start and stop the stream multiple times.
         
 	@author Ross Bencina <rossb@audiomulch.com>
 	@author Phil Burk <philburk@softsynth.com>

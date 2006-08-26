@@ -39,6 +39,10 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostaip_src
+*/
 
 #ifndef INCLUDED_PA_DSOUND_DYNLINK_H
 #define INCLUDED_PA_DSOUND_DYNLINK_H

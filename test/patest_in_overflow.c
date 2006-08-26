@@ -1,4 +1,5 @@
 /** @file patest_in_overflow.c
+	@ingroup test_src
 	@brief Count input overflows (using paInputOverflow flag) under 
 	overloaded and normal conditions.
     This test uses the same method to overload the stream as does

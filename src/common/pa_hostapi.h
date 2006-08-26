@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Interface used by pa_front to virtualize functions which operate on
  host APIs.
 */

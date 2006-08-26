@@ -37,6 +37,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Conversion functions implementations.
  
  If the C9x function lrintf() is available, define PA_USE_C99_LRINTF to use it

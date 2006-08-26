@@ -1,7 +1,10 @@
+/** @file patest_two_rates.c
+	@ingroup test_src
+	@brief Play two streams at different rates to make sure they don't interfere.
+	@author Phil Burk <philburk@softsynth.com>
+*/
 /*
  * $Id$
- * patest_two_rates.c
- * Play two streams at different rates to make sure they don't interfere.
  *
  * Author: Phil Burk  http://www.softsynth.com
  *

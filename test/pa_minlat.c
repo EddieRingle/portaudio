@@ -1,4 +1,5 @@
 /** @file pa_minlat.c
+	@ingroup test_src
     @brief Experiment with different numbers of buffers to determine the
 	minimum latency for a computer.
 	@author Phil Burk  http://www.softsynth.com

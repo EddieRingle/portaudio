@@ -33,6 +33,10 @@
  * license above.
  */
 
+/** @file
+ @ingroup win_src
+*/
+
 #include "pa_x86_plain_converters.h"
 
 #include "pa_converters.h"

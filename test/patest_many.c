@@ -1,4 +1,5 @@
 /** @file patest_many.c
+	@ingroup test_src
 	@brief Start and stop the PortAudio Driver multiple times.
 	@author Phil Burk  http://www.softsynth.com
 */

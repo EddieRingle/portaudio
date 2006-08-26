@@ -1,5 +1,6 @@
 /** @file pa_fuzz.c
-    @brief Distort input like a fuzz boz.
+	@ingroup test_src
+    @brief Distort input like a fuzz box.
 	@author Phil Burk  http://www.softsynth.com
 */
 /*

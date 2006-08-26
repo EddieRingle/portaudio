@@ -51,6 +51,11 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostapi_src
+*/
+
 #include "pa_mac_core_utilities.h"
 
 PaError PaMacCore_SetUnixError( int err, int line )

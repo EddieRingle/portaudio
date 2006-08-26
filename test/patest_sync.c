@@ -1,4 +1,5 @@
 /** @file patest_sync.c
+	@ingroup test_src
 	@brief Test time stamping and synchronization of audio and video.
 
 	A high latency is used so we can hear the difference in time.

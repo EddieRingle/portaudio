@@ -42,6 +42,11 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup hostaip_src
+*/
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>

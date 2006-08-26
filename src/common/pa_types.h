@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Definition of 16 and 32 bit integer types (PaInt16, PaInt32 etc)
 
  SIZEOF_SHORT, SIZEOF_INT and SIZEOF_LONG are set by the configure script

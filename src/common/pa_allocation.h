@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Allocation Group prototypes. An Allocation Group makes it easy to
  allocate multiple blocks of memory and free them all simultanously.
  

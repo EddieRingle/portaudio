@@ -1,4 +1,5 @@
 /** @file paqa_errs.c
+	@ingroup test_src
 	@brief Self Testing Quality Assurance app for PortAudio
 	Do lots of bad things to test error reporting.
 	@author Phil Burk  http://www.softsynth.com

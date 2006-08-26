@@ -1,4 +1,5 @@
 /** @file patest_sine_time.c
+	@ingroup test_src
 	@brief Play a sine wave for several seconds, pausing in the middle.
 	Uses the Pa_GetStreamTime() call.
 	@author Ross Bencina <rossb@audiomulch.com>

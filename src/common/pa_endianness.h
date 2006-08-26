@@ -39,6 +39,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Configure endianness symbols for the target processor.
 
  Arrange for either the PA_LITTLE_ENDIAN or PA_BIG_ENDIAN preprocessor symbols

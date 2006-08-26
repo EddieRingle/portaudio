@@ -38,6 +38,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Buffer Processor implementation.
     
  The code in this file is not optimised yet - although it's not clear that

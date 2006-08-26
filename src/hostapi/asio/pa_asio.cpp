@@ -71,6 +71,7 @@
 */
 
 /** @file
+	@ingroup hostapi_src
 
     Note that specific support for paInputUnderflow, paOutputOverflow and
     paNeverDropInput is not necessary or possible with this driver due to the

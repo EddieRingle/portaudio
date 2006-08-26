@@ -1,4 +1,5 @@
 /** @file patest_record.c
+	@ingroup test_src
 	@brief Record input into an array; Save array to a file; Playback recorded data.
 	@author Phil Burk  http://www.softsynth.com
 */

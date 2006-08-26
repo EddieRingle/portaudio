@@ -37,6 +37,10 @@
  * license above.
  */
 
+/** @file
+ @ingroup unix_src
+*/
+
 #ifndef PA_UNIX_UTIL_H
 #define PA_UNIX_UTIL_H
 

@@ -1,4 +1,5 @@
 /** @file patest_read_write_wire.c
+	@ingroup test_src
 	@brief Tests full duplex blocking I/O by passing input straight to output.
 	@author Bjorn Roche. XO Audio LLC for Z-Systems Engineering.
     @author based on code by: Phil Burk  http://www.softsynth.com

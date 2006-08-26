@@ -40,6 +40,8 @@
  */
 
 /** @file
+ @ingroup common_src
+
  @brief Functions to assist in measuring the CPU utilization of a callback
  stream. Used to implement the Pa_GetStreamCpuLoad() function.
 */

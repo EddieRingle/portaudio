@@ -36,6 +36,9 @@
  * license above.
  */
 
+/** @file
+ @ingroup unix_src
+*/
 
 #include "pa_hostapi.h"
 

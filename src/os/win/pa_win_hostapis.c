@@ -37,6 +37,8 @@
  */
 
 /** @file
+ @ingroup win_src
+
     Win32 host API initialization function table.
 
     @todo Consider using PA_USE_WMME etc instead of PA_NO_WMME. This is what

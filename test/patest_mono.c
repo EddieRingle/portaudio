@@ -1,7 +1,10 @@
+/** @file patest_mono.c
+	@ingroup test_src
+	@brief Play a monophonic sine wave using the Portable Audio api for several seconds.
+	@author Phil Burk  http://www.softsynth.com
+*/
 /*
  * $Id$
- * patest_sine.c
- * Play a monophonic sine wave using the Portable Audio api for several seconds.
  *
  * Authors:
  *    Ross Bencina <rossb@audiomulch.com>

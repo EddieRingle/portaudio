@@ -39,6 +39,8 @@
  */
  
 /** @file
+ @ingroup common_src
+
  @brief Buffer Processor prototypes. A Buffer Processor performs buffer length
  adaption, coordinates sample format conversion, and interleaves/deinterleaves
  channels.

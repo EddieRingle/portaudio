@@ -37,6 +37,7 @@
  */
 
 /** @file
+ @ingroup macosx_src
 Mac OS host API initialization function table.
 */
 
