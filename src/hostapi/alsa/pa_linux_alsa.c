@@ -847,7 +847,8 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
 {
     PaError result = paNoError;
     int ret;
-    const char *deviceName = alloca( 50 );
+    const char _dname[50];
+    const char* deviceName = _dname;
     const PaAlsaDeviceInfo *deviceInfo = NULL;
     PaAlsaStreamInfo *streamInfo = (PaAlsaStreamInfo *)params->hostApiSpecificStreamInfo;
 

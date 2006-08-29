@@ -54,8 +54,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <alloca.h>
-#include <malloc.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
 #include <sys/types.h>
