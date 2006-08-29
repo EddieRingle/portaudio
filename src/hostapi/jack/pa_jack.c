@@ -466,12 +466,12 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
 
     const char **jack_ports = NULL;
     char **client_names = NULL;
-    char *regex_pattern = alloca( jack_client_name_size() + 3 );
+    char *regex_pattern = MALLOC( jack_client_name_size() + 3 );
     int port_index, client_index, i;
     double globalSampleRate;
     regex_t port_regex;
     unsigned long numClients = 0, numPorts = 0;
-    char *tmp_client_name = alloca( jack_client_name_size() );
+    char *tmp_client_name = MALLOC( jack_client_name_size() );
 
     commonApi->info.defaultInputDevice = paNoDevice;
     commonApi->info.defaultOutputDevice = paNoDevice;
@@ -494,7 +494,7 @@ static PaError BuildDeviceList( PaJackHostApiRepresentation *jackApi )
     while( jack_ports[numPorts] )
         ++numPorts;
     /* At least there will be one port per client :) */
-    UNLESS( client_names = alloca( numPorts * sizeof (char *) ), paInsufficientMemory );
+    UNLESS( client_names = MALLOC( numPorts * sizeof (char *) ), paInsufficientMemory );
 
     /* Build a list of clients from the list of ports */
     for( numClients = 0, port_index = 0; jack_ports[port_index] != NULL; port_index++ )
@@ -709,7 +709,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
 
     UNLESS( jackHostApi = (PaJackHostApiRepresentation*)
         PaUtil_AllocateMemory( sizeof(PaJackHostApiRepresentation) ), paInsufficientMemory );
-    jackHostApi->deviceInfoMemory = NULL;
+    UNLESS( jackHostApi->deviceInfoMemory = PaUtil_CreateAllocationGroup(), paInsufficientMemory );
 
     mainThread_ = pthread_self();
     ASSERT_CALL( pthread_mutex_init( &jackHostApi->mtx, NULL ), 0 );
@@ -718,7 +718,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     /* Try to become a client of the JACK server.  If we cannot do
      * this, then this API cannot be used. */
 
-    clientName = alloca( jack_client_name_size() );
+    clientName = PaUtil_GroupAllocateMemory( jackHostApi->deviceInfoMemory, jack_client_name_size() );
     written = snprintf( clientName, jack_client_name_size(), "PortAudio-%d", getpid() );
     assert( written < jack_client_name_size() );
     jackHostApi->jack_client = jack_client_new( clientName );
@@ -731,7 +731,6 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
        goto error;
     }
 
-    UNLESS( jackHostApi->deviceInfoMemory = PaUtil_CreateAllocationGroup(), paInsufficientMemory );
     jackHostApi->hostApiIndex = hostApiIndex;
 
     *hostApi = &jackHostApi->commonHostApiRep;
@@ -1067,9 +1066,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaError result = paNoError;
     PaJackHostApiRepresentation *jackHostApi = (PaJackHostApiRepresentation*)hostApi;
     PaJackStream *stream = NULL;
-    char *port_string = alloca( jack_port_name_size() );
+    char *port_string = PaUtil_GroupAllocateMemory( jackHostApi->deviceInfoMemory, jack_port_name_size() );
     unsigned long regexSz = jack_client_name_size() + 3;
-    char *regex_pattern = alloca( regexSz );
+    char *regex_pattern = PaUtil_GroupAllocateMemory( jackHostApi->deviceInfoMemory, regexSz );
     const char **jack_ports = NULL;
     /* int jack_max_buffer_size = jack_get_buffer_size( jackHostApi->jack_client ); */
     int i;
