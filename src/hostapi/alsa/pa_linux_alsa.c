@@ -847,8 +847,8 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
 {
     PaError result = paNoError;
     int ret;
-    const char dname_[50];
-    const char* deviceName = dname_;
+    char dnameArray[50];
+    const char* deviceName = dnameArray;
     const PaAlsaDeviceInfo *deviceInfo = NULL;
     PaAlsaStreamInfo *streamInfo = (PaAlsaStreamInfo *)params->hostApiSpecificStreamInfo;
 
@@ -861,7 +861,7 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
         if( !strncmp( "hw:", deviceInfo->alsaName, 3 ) && getenv( "PA_ALSA_PLUGHW" ) )
             usePlug = atoi( getenv( "PA_ALSA_PLUGHW" ) );
         if( usePlug )
-            snprintf( (char* )deviceName, 50, "plug%s", deviceInfo->alsaName );
+            snprintf( dnameArray, 50, "plug%s", deviceInfo->alsaName );
         else
             deviceName = deviceInfo->alsaName;
     }
