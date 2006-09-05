@@ -4,53 +4,47 @@ Hello
 (Currently v19-devel) into a VC6 DLL and lib file.
 This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
 
-1)Copy the source dirs that comes with the ASIO SDK inside pa_win\msvc
-  so you should now have:
+1)Copy the source dirs that comes with the ASIO SDK inside src\hostapi\asio\ASIOSDK
+  so you should now have example:
   
-  pa_win\msvc\common
-  pa_win\msvc\host
-  pa_win\msvc\host\sample
-  pa_win\msvc\host\pc
-  pa_win\msvc\host\mac (not needed)
+  portaudio19svn\src\hostapi\asio\ASIOSDK\common
+  portaudio19svn\src\hostapi\asio\ASIOSDK\host
+  portaudio19svn\src\hostapi\asio\ASIOSDK\host\sample
+  portaudio19svn\src\hostapi\asio\ASIOSDK\host\pc
+  portaudio19svn\src\hostapi\asio\ASIOSDK\host\mac (not needed)
   
   You dont need "driver"
   
 
-2)execure "make.bat", this assumes VC6 is installed in 
-     C:\Program Files\Microsoft Visual Studio\
+2)If you have Visual Studio 6.0, 7.0(VC.NET/2001) or 7.1(VC.2003) 
+  then I suggest you open portaudio.dsp (and convert if needed)
  
- if its not, 
-  
-  Open a command Prompt and execute "vcvars32.bat" which sets the environment
-  so that you can use Microsoft's "nmake"  
-  EX: C:\Program Files\Microsoft Visual Studio\VC98\Bin\vcvars32.bat
-  or (C:\progra~1\micros~2\VC98\bin\vcvars32) dumb de dumb
-  
-  You should now have seen a line that said:
-  "Setting environment for using Microsoft Visual C++ tools."
-  While in pa_win\msvc , type "nmake makefile.msvc"  
-  this _should_ create portaudio.dll and portaudio.lib 
+  If you have Visual Studio 2005, I suggest you open the portaudio.sln file
+  which contains 4 configurations. Win32/x64 in both Release and Debug variants
+
+  hit compile and hope for the best.
  
-3)Now in any VC6 project, in which you require portaudio,
-  you can just link with portaudio.lib, and of course include the 
+3)Now in any  project, in which you require portaudio,
+  you can just link with portaudio_x86.lib, (or _x64) and of course include the 
   relevant headers
   (portaudio.h, and/or pa_asio.h , pa_x86_plain_converters.h) See (*)
   
-4) Your new exe should now use portaudio.dll.
+4) Your new exe should now use portaudio_xXX.dll.
 
 
 Have fun!
 
 (*): you may want to add/remove some DLL entry points.
-Right now those 3 entries are _not_ from portaudio.h
+Right now those 6 entries are _not_ from portaudio.h
 
 (from portaudio.def)
 (...)
 PaAsio_GetAvailableLatencyValues    @50
 PaAsio_ShowControlPanel             @51
 PaUtil_InitializeX86PlainConverters @52
-
+PaAsio_GetInputChannelName          @53
+PaAsio_GetOutputChannelName         @54
+PaUtil_SetLogPrintFunction          @55
 
 -----
-last update April 16th 2003
 David Viens, davidv@plogue.com
