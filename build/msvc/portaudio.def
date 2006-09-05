@@ -1,4 +1,3 @@
-LIBRARY  portaudio.dll
 EXPORTS
 
 ;
@@ -41,3 +40,4 @@ PaAsio_ShowControlPanel             @51
 PaUtil_InitializeX86PlainConverters @52
 PaAsio_GetInputChannelName          @53
 PaAsio_GetOutputChannelName         @54
+PaUtil_SetLogPrintFunction          @55
