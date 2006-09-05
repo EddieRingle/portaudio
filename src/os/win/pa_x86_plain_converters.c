@@ -130,6 +130,19 @@ static const float const_float_dither_scale_ = PA_FLOAT_DITHER_SCALE_;
 
 /* -------------------------------------------------------------------------- */
 
+#ifdef _WIN64
+
+/*
+	-EMT64/AMD64 uses different asm
+	-VC2005 doesnt allow _WIN64 with inline assembly either!
+ */
+void PaUtil_InitializeX86PlainConverters( void )
+{
+}
+
+#else
+
+
 static void Float32_To_Int32(
     void *destinationBuffer, signed int destinationStride,
     void *sourceBuffer, signed int sourceStride,
@@ -1200,5 +1213,7 @@ void PaUtil_InitializeX86PlainConverters( void )
     paConverters.Float32_To_Int16_Clip = Float32_To_Int16_Clip;
     paConverters.Float32_To_Int16_DitherClip = Float32_To_Int16_DitherClip;
 }
+
+#endif
 
 /* -------------------------------------------------------------------------- */
