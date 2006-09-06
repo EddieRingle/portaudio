@@ -125,7 +125,7 @@ int PaWinMME_GetStreamInputHandleCount( PaStream* stream );
 
  @param stream The stream to query.
  @param handleIndex The zero based index of the wave in handle to retrieve. This
-    should be in the range [0, PaWinMME_GetStreamInputHandle(stream)-1].
+    should be in the range [0, PaWinMME_GetStreamInputHandleCount(stream)-1].
 
  @return A valid wave in handle, or NULL if an error occurred.
 
