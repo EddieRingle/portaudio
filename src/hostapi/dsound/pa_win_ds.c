@@ -1296,6 +1296,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else
     {
         inputChannelCount = 0;
+		inputSampleFormat = 0;
         suggestedInputLatencyFrames = 0;
     }
 
@@ -1322,6 +1323,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     else
     {
         outputChannelCount = 0;
+		outputSampleFormat = 0;
         suggestedOutputLatencyFrames = 0;
     }
 
@@ -1385,6 +1387,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputParameters->sampleFormat );
     }
+	else
+	{
+		hostInputSampleFormat = 0;
+	}
 
     if( outputParameters )
     {
@@ -1392,7 +1398,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputParameters->sampleFormat );
     }
-    
+    else
+	{
+		hostOutputSampleFormat = 0;
+	}
+
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
                     inputChannelCount, inputSampleFormat, hostInputSampleFormat,
                     outputChannelCount, outputSampleFormat, hostOutputSampleFormat,
