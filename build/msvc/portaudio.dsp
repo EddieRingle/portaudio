@@ -109,15 +109,15 @@ SOURCE=..\..\src\common\pa_cpuload.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\..\src\common\pa_debugprint.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\..\src\common\pa_dither.c
 # End Source File
 # Begin Source File
 
 SOURCE=..\..\src\common\pa_front.c
-# End Source File
-# Begin Source File
-
-SOURCE=..\..\src\common\pa_log.c
 # End Source File
 # Begin Source File
 
@@ -130,10 +130,6 @@ SOURCE=..\..\src\common\pa_skeleton.c
 # Begin Source File
 
 SOURCE=..\..\src\common\pa_stream.c
-# End Source File
-# Begin Source File
-
-SOURCE=..\..\src\common\pa_trace.c
 # End Source File
 # End Group
 # Begin Group "hostapi"
