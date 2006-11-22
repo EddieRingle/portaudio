@@ -1358,6 +1358,9 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     if( inputChannelCount > 0 )
     {
         hostApiInputParameters.device = Pa_GetDefaultInputDevice();
+		if( hostApiInputParameters.device == paNoDevice )
+			return paDeviceUnavailable; 
+	
         hostApiInputParameters.channelCount = inputChannelCount;
         hostApiInputParameters.sampleFormat = sampleFormat;
         /* defaultHighInputLatency is used below instead of
@@ -1378,6 +1381,9 @@ PaError Pa_OpenDefaultStream( PaStream** stream,
     if( outputChannelCount > 0 )
     {
         hostApiOutputParameters.device = Pa_GetDefaultOutputDevice();
+		if( hostApiOutputParameters.device == paNoDevice )
+			return paDeviceUnavailable; 
+
         hostApiOutputParameters.channelCount = outputChannelCount;
         hostApiOutputParameters.sampleFormat = sampleFormat;
         /* defaultHighOutputLatency is used below instead of
