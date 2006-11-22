@@ -72,7 +72,6 @@
 
 
 #include <stdio.h>
-#include <stdarg.h>
 #include <memory.h>
 #include <string.h>
 #include <assert.h> /* needed by PA_VALIDATE_ENDIANNESS */
@@ -158,17 +157,6 @@ void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
     strncpy( lastHostErrorText_, errorText, PA_LAST_HOST_ERROR_TEXT_LENGTH_ );
 }
 
-
-void PaUtil_DebugPrint( const char *format, ... )
-{
-    va_list ap;
-
-    va_start( ap, format );
-    vfprintf( stderr, format, ap );
-    va_end( ap );
-
-    fflush( stderr );
-}
 
 
 static PaUtilHostApiRepresentation **hostApis_ = 0;
