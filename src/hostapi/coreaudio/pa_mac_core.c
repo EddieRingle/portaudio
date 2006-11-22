@@ -70,14 +70,43 @@
 #include "pa_mac_core_utilities.h"
 #include "pa_mac_core_blocking.h"
 
-/* prototypes for functions declared in this file */
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif /* __cplusplus */
 
+/* prototypes for functions declared in this file */
+
 PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+
+/*
+ * Function declared in pa_mac_core.h. Sets up a PaMacCoreStreamInfoStruct
+ * with the requested flags.
+ */
+void paSetupMacCoreStreamInfo( PaMacCoreStreamInfo *data, unsigned long flags )
+{
+   bzero( data, sizeof( PaMacCoreStreamInfo ) );
+   data->size = sizeof( PaMacCoreStreamInfo );
+   data->hostApiType = paCoreAudio;
+   data->version = 0x01;
+   data->flags = flags;
+}
+AudioDeviceID PaMacCore_GetStreamInputDevice( PaStream* s )
+{
+    PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("PaMacCore_GetStreamInputHandle()\n"));
+
+    return ( stream->inputDevice );
+}
+
+AudioDeviceID PaMacCore_GetStreamOutputDevice( PaStream* s )
+{
+    PaMacCoreStream *stream = (PaMacCoreStream*)s;
+    VVDBUG(("PaMacCore_GetStreamOutputHandle()\n"));
+
+    return ( stream->outputDevice );
+}
 
 #ifdef __cplusplus
 }
@@ -136,7 +165,6 @@ static PaError OpenAndSetupOneAudioUnit(
 /* for setting errors. */
 #define PA_AUHAL_SET_LAST_HOST_ERROR( errorCode, errorText ) \
     PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
-
 
 /*currently, this is only used in initialization, but it might be modified
   to be used when the list of devices changes.*/
@@ -639,11 +667,11 @@ static PaError OpenAndSetupOneAudioUnit(
     /* -- get the user's api specific info, if they set any -- */
     if( inStreamParams && inStreamParams->hostApiSpecificStreamInfo )
        macInputStreamFlags=
-            ((paMacCoreStreamInfo*)inStreamParams->hostApiSpecificStreamInfo)
+            ((PaMacCoreStreamInfo*)inStreamParams->hostApiSpecificStreamInfo)
                   ->flags;
     if( outStreamParams && outStreamParams->hostApiSpecificStreamInfo )
        macOutputStreamFlags=
-            ((paMacCoreStreamInfo*)outStreamParams->hostApiSpecificStreamInfo)
+            ((PaMacCoreStreamInfo*)outStreamParams->hostApiSpecificStreamInfo)
                   ->flags;
     /* Override user's flags here, if desired for testing. */
 
@@ -753,9 +781,9 @@ static PaError OpenAndSetupOneAudioUnit(
                                           requestedFramesPerBuffer,
                                           actualInputFramesPerBuffer );
        if( paResult ) goto error;
-       if( macInputStreamFlags & paMacCore_ChangeDeviceParameters ) {
+       if( macInputStreamFlags & paMacCoreChangeDeviceParameters ) {
           bool requireExact;
-          requireExact=macInputStreamFlags&paMacCore_FailIfConversionRequired;
+          requireExact=macInputStreamFlags & paMacCoreFailIfConversionRequired;
           paResult = setBestSampleRateForDevice( *audioDevice, FALSE,
                                                  requireExact, sampleRate );
           if( paResult ) goto error;
@@ -771,9 +799,9 @@ static PaError OpenAndSetupOneAudioUnit(
                                           requestedFramesPerBuffer,
                                           actualOutputFramesPerBuffer );
        if( paResult ) goto error;
-       if( macOutputStreamFlags & paMacCore_ChangeDeviceParameters ) {
+       if( macOutputStreamFlags & paMacCoreChangeDeviceParameters ) {
           bool requireExact;
-          requireExact=macOutputStreamFlags&paMacCore_FailIfConversionRequired;
+          requireExact=macOutputStreamFlags & paMacCoreFailIfConversionRequired;
           paResult = setBestSampleRateForDevice( *audioDevice, TRUE,
                                                  requireExact, sampleRate );
           if( paResult ) goto error;
