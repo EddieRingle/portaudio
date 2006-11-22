@@ -52,11 +52,11 @@ if env["enableOptimize"]:
 if not env["enableAsserts"]:
     env.AppendUnique(CPPDEFINES=["-DNDEBUG"])
 if env["customCFlags"]:
-    env.Append(CCFLAGS=env["customCFlags"])
+    env.Append(CCFLAGS=Split(env["customCFlags"]))
 if env["customCxxFlags"]:
-    env.Append(CXXFLAGS=env["customCxxFlags"])
+    env.Append(CXXFLAGS=Split(env["customCxxFlags"]))
 if env["customLinkFlags"]:
-    env.Append(LINKFLAGS=env["customLinkFlags"])
+    env.Append(LINKFLAGS=Split(env["customLinkFlags"]))
 
 env.Append(CPPPATH=[os.path.join("#", "include"), "common"])
 
