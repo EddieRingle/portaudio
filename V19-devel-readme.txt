@@ -1,40 +1,20 @@
-this file is very out of date, needs to be fixed -- rossb 23rd August 2006.
+/*
+	This file was a scribble area during the early phases of development.
 
+	It's out of date but will probably hang around untill all the content 
+	has been cleaned out or found a new home.
 
-STATUS:
+	Here's some tasks to undertake:
+		o- make sure that the @brief comments in each file are at least
+			as good as the file descriptions below, then delete the file
+			descriptions below.
 
-MME, DirectSound and ASIO versions are more-or-less working. See FIXMEs @todos
-and the proposals matrix at portaudio.com for further status.
+		o- make sure that the coding guidelines below appear in the
+			pa_proposals style guide, then delete from below.
 
-The pa_tests directory contains tests. pa_tests/README.txt notes which tests
-currently build.  
+		o- verify and move the TODO items into TRAC
+*/
 
-The PaUtil support code is finished enough for other implementations to be
-ported. No changes are expected to be made to the definition of the PaUtil
-functions.
-
-Note that it's not yet 100% clear how the current support functions
-will interact with blocking read/write streams.
-
-BUILD INSTRUCTIONS
-
-to build tests/patest_sine.c you will need to compile and link the following
-files (MME)
-pa_common\pa_process.c
-pa_common\pa_skeleton.c
-pa_common\pa_stream.c
-pa_common\pa_trace.c
-pa_common\pa_converters.c
-pa_common\pa_cpuload.c
-pa_common\pa_dither.c
-pa_common\pa_front.c
-pa_common\pa_allocation.h
-pa_win\pa_win_util.c
-pa_win\pa_win_hostapis.c
-pa_win_wmme\pa_win_wmme.c
-
-see below for a description of these files.
-               
 
 FILES:
 
@@ -136,90 +116,14 @@ If PA_LOG_API_CALLS is defined, all calls to the public PortAudio API
 will be logged to stderr along with parameter and return values.
 
 
-TODO:
-    (this list is totally out of date)
-    
-    finish coding converter functions in pa_converters.c (anyone?)
-
-    implement block adaption in pa_process.c (phil?)
-
-    fix all current tests to work with new code. this should mostly involve
-    changing PortAudioStream to PaStream, and GetDefaultDeviceID to GetDefaultDevice etc.
-
-    write some new tests to exercise the multi-api functions
+TODO: (these need to be turned into TRAC items)
+    write some new tests to exercise the multi-host-api functions
 
     write (doxygen) documentation for pa_trace (phil?)
-
-    remove unused typeids from PaHostAPITypeID
 
     create a global configuration file which documents which PA_ defines can be
     used for configuration
 
     need a coding standard for comment formatting
 
-    migrate directx (phil)
-
-    migrate asio (ross?, stephane?)
-
-    see top of pa_win_wmme.c for MME todo items (ross)
-
     write style guide document (ross)
-    
-    
-DESIGN ISSUES:
-    (this list is totally out of date)
-    
-    consider removing Pa_ConvertHostApiDeviceIndexToGlobalDeviceIndex() from the API
-
-    switch to new latency parameter mechanism now (?)
-    
-    question: if input or outputDriverInfo structures are passed for a different
-    hostApi from the one being called, do we return an error or just ignore
-    them? (i think return error)
-
-    consider renaming PortAudioCallback to PaStreamCallback
-
-    consider renaming PaError, PaResult
-    
-
-ASSORTED DISORGANISED NOTES:
-
-    NOTE:
-        pa_lib.c performs the following validations for Pa_OpenStream() which we do not currently do:
-        - checks the device info to make sure that the device supports the requested sample rate,
-            it may also change the sample rate to the "closest available" sample rate if it
-            is within a particular error margin
-
-    rationale for breaking up internalPortAudioStream:
-        each implementation has its own requirements and behavior, and should be
-        able to choose the best way to operate without being limited by the
-        constraints imposed by a common infrastructure. in other words the
-        implementations should be able to pick and choose services from the
-        common infrastructure. currently identified services include:
-
-        - cpu load tracking
-        - buffering and conversion service (same code works for input and output)
-            - should support buffer multiplexing (non-integer length input and output buffers)
-            - in-place conversion where possible (only for callback, read/write always copies)
-            - should manage allocation of temporary buffers if necessary
-        - instrumentation (should be able to be disabled): callback count, framesProcessed
-        - common data: magic, streamInterface, callback, userdata
-
-
-- conversion functions: 
-	- should handle temp buffer allocation
-	- dithering (random number state per-stream)
-	- buffer size mismatches
-	- with new buffer slip rules, temp buffers may always be needed
-	- we should aim for in-place conversion wherever possible
-	- does phil's code support in-place conversion?  (yes)              
-
-- dicuss relationship between user and host buffer sizes
-	- completely independent.. individual implementations may constrain
-    host buffer sizes if necessary
-
-
-- discuss device capabilities:
-	- i'd like to be able to request certain information:
-	- channel count for example
-
