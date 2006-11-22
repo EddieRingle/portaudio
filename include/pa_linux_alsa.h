@@ -63,6 +63,10 @@ void PaAlsa_EnableRealtimeScheduling( PaStream *s, int enable );
 
 void PaAlsa_EnableWatchdog( PaStream *s, int enable );
 
+int PaAlsa_GetStreamInputCard( PaStream *s, int *card );
+
+int PaAlsa_GetStreamOutputCard( PaStream *s, int *card );
+
 #ifdef __cplusplus
 }
 #endif

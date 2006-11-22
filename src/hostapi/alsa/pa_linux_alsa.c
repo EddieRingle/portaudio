@@ -3321,3 +3321,35 @@ void PaAlsa_EnableWatchdog( PaStream *s, int enable )
     stream->threading.useWatchdog = enable;
 #endif
 }
+
+PaError PaAlsa_GetStreamInputCard(PaStream* s, int* card) {
+    PaAlsaStream *stream = (PaAlsaStream *) s;
+    snd_pcm_info_t* pcmInfo;
+    PaError result = paNoError;
+
+    /* XXX: More descriptive error? */
+    PA_UNLESS( stream->capture.pcm, paDeviceUnavailable );
+
+    snd_pcm_info_alloca( &pcmInfo );
+    PA_ENSURE( snd_pcm_info( stream->capture.pcm, pcmInfo ) );
+    *card = snd_pcm_info_get_card( pcmInfo );
+
+error:
+    return result;
+}
+
+PaError PaAlsa_GetStreamOutputCard(PaStream* s, int* card) {
+    PaAlsaStream *stream = (PaAlsaStream *) s;
+    snd_pcm_info_t* pcmInfo;
+    PaError result = paNoError;
+
+    /* XXX: More descriptive error? */
+    PA_UNLESS( stream->playback.pcm, paDeviceUnavailable );
+
+    snd_pcm_info_alloca( &pcmInfo );
+    PA_ENSURE( snd_pcm_info( stream->playback.pcm, pcmInfo ) );
+    *card = snd_pcm_info_get_card( pcmInfo );
+
+error:
+    return result;
+}
