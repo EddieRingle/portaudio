@@ -1018,6 +1018,10 @@ static ASIOSampleRate defaultSampleRateSearchOrder_[]
         192000.0, 16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
 
 
+/* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
+typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
+IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
+
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
@@ -1097,6 +1101,8 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             goto error;
         }
 
+		IsDebuggerPresent_ = GetProcAddress( LoadLibrary( "Kernel32.dll" ), "IsDebuggerPresent" );
+
         for( i=0; i < driverCount; ++i )
         {
 
@@ -1113,11 +1119,24 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 || strcmp (names[i],"ASIO Multimedia Driver")          == 0
                 || strncmp(names[i],"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
                 || strncmp(names[i],"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
-                || strncmp(names[i],"ReaRoute ASIO",13)                == 0)  //Reaper www.reaper.fm <- fix your stuff man.
+                || strncmp(names[i],"ReaRoute ASIO",13)                == 0   //Reaper www.reaper.fm <- fix your stuff man.
+               )
             {
                 PA_DEBUG(("BLACKLISTED!!!\n"));
                 continue;
             }
+
+
+            if( IsDebuggerPresent_ && IsDebuggerPresent_() )  
+            {
+                /* ASIO Digidesign Driver uses PACE copy protection which quits out
+                   if a debugger is running. So we don't load it if a debugger is running. */
+                if( strcmp(names[i], "ASIO Digidesign Driver") == 0 )  
+                {
+                    PA_DEBUG(("BLACKLISTED!!! ASIO Digidesign Driver would quit the debugger\n"));  
+                    continue;  
+                }  
+            }  
 
 
             /* Attempt to load the asio driver... */
