@@ -114,7 +114,7 @@ const char *Pa_GetErrorText( PaError errorCode );
  This function initialises internal data structures and prepares underlying
  host APIs for use.  With the exception of Pa_GetVersion(), Pa_GetVersionText(),
  and Pa_GetErrorText(), this function MUST be called before using any other
- PortAudio API functions with the exc
+ PortAudio API functions.
 
  If Pa_Initialize() is called multiple times, each successful 
  call must be matched with a corresponding call to Pa_Terminate(). 
