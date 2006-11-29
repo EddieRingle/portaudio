@@ -59,7 +59,7 @@
 #ifndef PA_MAC_CORE_BLOCKING_H_
 #define PA_MAC_CORE_BLOCKING_H_
 
-#include "ringbuffer.h"
+#include "pa_ringbuffer.h"
 #include "portaudio.h"
 #include "pa_mac_core_utilities.h"
 
@@ -77,8 +77,8 @@
 */
 
 typedef struct {
-    RingBuffer inputRingBuffer;
-    RingBuffer outputRingBuffer;
+    PaUtilRingBuffer inputRingBuffer;
+    PaUtilRingBuffer outputRingBuffer;
     PaSampleFormat inputSampleFormat;
     size_t inputSampleSize;
     PaSampleFormat outputSampleFormat;

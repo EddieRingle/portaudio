@@ -1,9 +1,14 @@
 /*
  * $Id$
- * ringbuffer.c
- * Ring Buffer utility..
+ * Portable Audio I/O Library
+ * Ring Buffer utility.
  *
  * Author: Phil Burk, http://www.softsynth.com
+ * modified for SMP safety on Mac OS X by Bjorn Roche
+ * modified for SMP safety on Linux by Leland Lucius
+ * also, allowed for const where possible
+ * Note that this is safe only for a single-thread reader and a
+ * single-thread writer.
  *
  * This program uses the PortAudio Portable Audio Library.
  * For more information see: http://www.portaudio.com
@@ -40,42 +45,81 @@
  * license above.
  */
 
+/**
+ @file
+ @ingroup common_src
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include "ringbuffer.h"
+#include "pa_ringbuffer.h"
 #include <string.h>
+
+/****************
+ * First, we'll define some memory barrier primitives based on the system.
+ * right now only OS X, FreeBSD, and Linux are supported. In addition to providing
+ * memory barriers, these functions should ensure that data cached in registers
+ * is written out to cache where it can be snooped by other CPUs. (ie, the volatile
+ * keyword should not be required)
+ *
+ * the primitives that must be defined are:
+ *
+ * FullMemoryBarrier()
+ * ReadMemoryBarrier()
+ * WriteMemoryBarrier()
+ *
+ ****************/
+
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#   include <libkern/OSAtomic.h>
+    /* Here are the memory barrier functions. Mac OS X and FreeBSD only provide
+       full memory barriers, so the three types of barriers are the same.
+       The asm volatile may be redundant with the memory barrier, but
+       until I have proof of that, I'm leaving it. */
+#   define PaUtil_FullMemoryBarrier()  do{ asm volatile("":::"memory"); OSMemoryBarrier(); }while(false)
+#   define PaUtil_ReadMemoryBarrier()  do{ asm volatile("":::"memory"); OSMemoryBarrier(); }while(false)
+#   define PaUtil_WriteMemoryBarrier() do{ asm volatile("":::"memory"); OSMemoryBarrier(); }while(false)
+#else
+#   warning Memory barriers not defined on this system or system unknown
+#   define PaUtil_FullMemoryBarrier()
+#   define PaUtil_ReadMemoryBarrier()
+#   define PaUtil_WriteMemoryBarrier()
+#endif
 
 /***************************************************************************
  * Initialize FIFO.
  * numBytes must be power of 2, returns -1 if not.
  */
-long RingBuffer_Init( RingBuffer *rbuf, long numBytes, void *dataPtr )
+long PaUtil_InitializeRingBuffer( PaUtilRingBuffer *rbuf, long numBytes, void *dataPtr )
 {
     if( ((numBytes-1) & numBytes) != 0) return -1; /* Not Power of two. */
     rbuf->bufferSize = numBytes;
     rbuf->buffer = (char *)dataPtr;
-    RingBuffer_Flush( rbuf );
+    PaUtil_FlushRingBuffer( rbuf );
     rbuf->bigMask = (numBytes*2)-1;
     rbuf->smallMask = (numBytes)-1;
     return 0;
 }
+
 /***************************************************************************
 ** Return number of bytes available for reading. */
-long RingBuffer_GetReadAvailable( RingBuffer *rbuf )
+long PaUtil_GetRingBufferReadAvailable( PaUtilRingBuffer *rbuf )
 {
+    PaUtil_ReadMemoryBarrier();
     return ( (rbuf->writeIndex - rbuf->readIndex) & rbuf->bigMask );
 }
 /***************************************************************************
 ** Return number of bytes available for writing. */
-long RingBuffer_GetWriteAvailable( RingBuffer *rbuf )
+long PaUtil_GetRingBufferWriteAvailable( PaUtilRingBuffer *rbuf )
 {
-    return ( rbuf->bufferSize - RingBuffer_GetReadAvailable(rbuf));
+    /* Since we are calling PaUtil_GetRingBufferReadAvailable, we don't need an aditional MB */
+    return ( rbuf->bufferSize - PaUtil_GetRingBufferReadAvailable(rbuf));
 }
 
 /***************************************************************************
 ** Clear buffer. Should only be called when buffer is NOT being read. */
-void RingBuffer_Flush( RingBuffer *rbuf )
+void PaUtil_FlushRingBuffer( PaUtilRingBuffer *rbuf )
 {
     rbuf->writeIndex = rbuf->readIndex = 0;
 }
@@ -86,12 +130,12 @@ void RingBuffer_Flush( RingBuffer *rbuf )
 ** If non-contiguous, size2 will be the size of second region.
 ** Returns room available to be written or numBytes, whichever is smaller.
 */
-long RingBuffer_GetWriteRegions( RingBuffer *rbuf, long numBytes,
-                                 void **dataPtr1, long *sizePtr1,
-                                 void **dataPtr2, long *sizePtr2 )
+long PaUtil_GetRingBufferWriteRegions( PaUtilRingBuffer *rbuf, long numBytes,
+                                       void **dataPtr1, long *sizePtr1,
+                                       void **dataPtr2, long *sizePtr2 )
 {
     long   index;
-    long   available = RingBuffer_GetWriteAvailable( rbuf );
+    long   available = PaUtil_GetRingBufferWriteAvailable( rbuf );
     if( numBytes > available ) numBytes = available;
     /* Check to see if write is not contiguous. */
     index = rbuf->writeIndex & rbuf->smallMask;
@@ -117,8 +161,10 @@ long RingBuffer_GetWriteRegions( RingBuffer *rbuf, long numBytes,
 
 /***************************************************************************
 */
-long RingBuffer_AdvanceWriteIndex( RingBuffer *rbuf, long numBytes )
+long PaUtil_AdvanceRingBufferWriteIndex( PaUtilRingBuffer *rbuf, long numBytes )
 {
+    /* we need to ensure that previous writes are seen before we update the write index */
+    PaUtil_WriteMemoryBarrier();
     return rbuf->writeIndex = (rbuf->writeIndex + numBytes) & rbuf->bigMask;
 }
 
@@ -128,12 +174,12 @@ long RingBuffer_AdvanceWriteIndex( RingBuffer *rbuf, long numBytes )
 ** If non-contiguous, size2 will be the size of second region.
 ** Returns room available to be written or numBytes, whichever is smaller.
 */
-long RingBuffer_GetReadRegions( RingBuffer *rbuf, long numBytes,
+long PaUtil_GetRingBufferReadRegions( PaUtilRingBuffer *rbuf, long numBytes,
                                 void **dataPtr1, long *sizePtr1,
                                 void **dataPtr2, long *sizePtr2 )
 {
     long   index;
-    long   available = RingBuffer_GetReadAvailable( rbuf );
+    long   available = PaUtil_GetRingBufferReadAvailable( rbuf );
     if( numBytes > available ) numBytes = available;
     /* Check to see if read is not contiguous. */
     index = rbuf->readIndex & rbuf->smallMask;
@@ -157,18 +203,20 @@ long RingBuffer_GetReadRegions( RingBuffer *rbuf, long numBytes,
 }
 /***************************************************************************
 */
-long RingBuffer_AdvanceReadIndex( RingBuffer *rbuf, long numBytes )
+long PaUtil_AdvanceRingBufferReadIndex( PaUtilRingBuffer *rbuf, long numBytes )
 {
+    /* we need to ensure that previous writes are always seen before updating the index. */
+    PaUtil_WriteMemoryBarrier();
     return rbuf->readIndex = (rbuf->readIndex + numBytes) & rbuf->bigMask;
 }
 
 /***************************************************************************
 ** Return bytes written. */
-long RingBuffer_Write( RingBuffer *rbuf, void *data, long numBytes )
+long PaUtil_WriteRingBuffer( PaUtilRingBuffer *rbuf, const void *data, long numBytes )
 {
     long size1, size2, numWritten;
     void *data1, *data2;
-    numWritten = RingBuffer_GetWriteRegions( rbuf, numBytes, &data1, &size1, &data2, &size2 );
+    numWritten = PaUtil_GetRingBufferWriteRegions( rbuf, numBytes, &data1, &size1, &data2, &size2 );
     if( size2 > 0 )
     {
 
@@ -180,17 +228,17 @@ long RingBuffer_Write( RingBuffer *rbuf, void *data, long numBytes )
     {
         memcpy( data1, data, size1 );
     }
-    RingBuffer_AdvanceWriteIndex( rbuf, numWritten );
+    PaUtil_AdvanceRingBufferWriteIndex( rbuf, numWritten );
     return numWritten;
 }
 
 /***************************************************************************
 ** Return bytes read. */
-long RingBuffer_Read( RingBuffer *rbuf, void *data, long numBytes )
+long PaUtil_ReadRingBuffer( PaUtilRingBuffer *rbuf, void *data, long numBytes )
 {
     long size1, size2, numRead;
     void *data1, *data2;
-    numRead = RingBuffer_GetReadRegions( rbuf, numBytes, &data1, &size1, &data2, &size2 );
+    numRead = PaUtil_GetRingBufferReadRegions( rbuf, numBytes, &data1, &size1, &data2, &size2 );
     if( size2 > 0 )
     {
         memcpy( data, data1, size1 );
@@ -201,6 +249,6 @@ long RingBuffer_Read( RingBuffer *rbuf, void *data, long numBytes )
     {
         memcpy( data, data1, size1 );
     }
-    RingBuffer_AdvanceReadIndex( rbuf, numRead );
+    PaUtil_AdvanceRingBufferReadIndex( rbuf, numRead );
     return numRead;
 }

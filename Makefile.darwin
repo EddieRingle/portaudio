@@ -38,7 +38,7 @@ LT_REVISION=0
 LT_AGE=0
 
 
-OTHER_OBJS = src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/ringbuffer.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o
+OTHER_OBJS = src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o
 
 PALIB = libportaudio.a
 PADLL = libportaudio
@@ -57,6 +57,7 @@ COMMON_OBJS = \
 	src/common/pa_dither.o \
 	src/common/pa_front.o \
 	src/common/pa_process.o \
+	src/common/pa_ringbuffer.o \
 	src/common/pa_skeleton.o \
 	src/common/pa_stream.o \
 	src/common/pa_trace.o

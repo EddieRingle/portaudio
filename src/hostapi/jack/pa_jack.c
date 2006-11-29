@@ -68,7 +68,7 @@
 #include "pa_process.h"
 #include "pa_allocation.h"
 #include "pa_cpuload.h"
-#include "../pablio/ringbuffer.c"
+#include "pa_ringbuffer.h"
 
 static int aErr_;
 static PaError paErr_;     /* For use with ENSURE_PA */
@@ -216,8 +216,8 @@ typedef struct PaJackStream
     /* These are useful for the blocking API */
 
     int                     isBlockingStream;
-    RingBuffer              inFIFO;
-    RingBuffer              outFIFO;
+    PaUtilRingBuffer        inFIFO;
+    PaUtilRingBuffer        outFIFO;
     volatile sig_atomic_t   data_available;
     sem_t                   data_semaphore;
     int                     bytesPerFrame;
@@ -246,17 +246,17 @@ static int JackCallback( jack_nframes_t frames, void *userData );
 /* ---- blocking emulation layer ---- */
 
 /* Allocate buffer. */
-static PaError BlockingInitFIFO( RingBuffer *rbuf, long numFrames, long bytesPerFrame )
+static PaError BlockingInitFIFO( PaUtilRingBuffer *rbuf, long numFrames, long bytesPerFrame )
 {
     long numBytes = numFrames * bytesPerFrame;
     char *buffer = (char *) malloc( numBytes );
     if( buffer == NULL ) return paInsufficientMemory;
     memset( buffer, 0, numBytes );
-    return (PaError) RingBuffer_Init( rbuf, numBytes, buffer );
+    return (PaError) PaUtil_InitializeRingBuffer( rbuf, numBytes, buffer );
 }
 
 /* Free buffer. */
-static PaError BlockingTermFIFO( RingBuffer *rbuf )
+static PaError BlockingTermFIFO( PaUtilRingBuffer *rbuf )
 {
     if( rbuf->buffer ) free( rbuf->buffer );
     rbuf->buffer = NULL;
@@ -277,11 +277,11 @@ BlockingCallback( const void                      *inputBuffer,
     /* This may get called with NULL inputBuffer during initial setup. */
     if( inputBuffer != NULL )
     {
-        RingBuffer_Write( &stream->inFIFO, inputBuffer, numBytes );
+        PaUtil_WriteRingBuffer( &stream->inFIFO, inputBuffer, numBytes );
     }
     if( outputBuffer != NULL )
     {
-        int numRead = RingBuffer_Read( &stream->outFIFO, outputBuffer, numBytes );
+        int numRead = PaUtil_ReadRingBuffer( &stream->outFIFO, outputBuffer, numBytes );
         /* Zero out remainder of buffer if we run out of data. */
         memset( (char *)outputBuffer + numRead, 0, numBytes - numRead );
     }
@@ -323,8 +323,8 @@ BlockingBegin( PaJackStream *stream, int minimum_buffer_size )
         ENSURE_PA( BlockingInitFIFO( &stream->outFIFO, numFrames, stream->bytesPerFrame ) );
 
         /* Make Write FIFO appear full initially. */
-        numBytes = RingBuffer_GetWriteAvailable( &stream->outFIFO );
-        RingBuffer_AdvanceWriteIndex( &stream->outFIFO, numBytes );
+        numBytes = PaUtil_GetRingBufferWriteAvailable( &stream->outFIFO );
+        PaUtil_AdvanceRingBufferWriteIndex( &stream->outFIFO, numBytes );
     }
 
     stream->data_available = 0;
@@ -353,7 +353,7 @@ static PaError BlockingReadStream( PaStream* s, void *data, unsigned long numFra
     long numBytes = stream->bytesPerFrame * numFrames;
     while( numBytes > 0 )
     {
-        bytesRead = RingBuffer_Read( &stream->inFIFO, p, numBytes );
+        bytesRead = PaUtil_ReadRingBuffer( &stream->inFIFO, p, numBytes );
         numBytes -= bytesRead;
         p += bytesRead;
         if( numBytes > 0 )
@@ -378,7 +378,7 @@ static PaError BlockingWriteStream( PaStream* s, const void *data, unsigned long
     long numBytes = stream->bytesPerFrame * numFrames;
     while( numBytes > 0 )
     {
-        bytesWritten = RingBuffer_Write( &stream->outFIFO, p, numBytes );
+        bytesWritten = PaUtil_WriteRingBuffer( &stream->outFIFO, p, numBytes );
         numBytes -= bytesWritten;
         p += bytesWritten;
         if( numBytes > 0 ) 
@@ -412,7 +412,7 @@ BlockingGetStreamReadAvailable( PaStream* s )
 {
     PaJackStream *stream = (PaJackStream *)s;
 
-    int bytesFull = RingBuffer_GetReadAvailable( &stream->inFIFO );
+    int bytesFull = PaUtil_GetRingBufferReadAvailable( &stream->inFIFO );
     return bytesFull / stream->bytesPerFrame;
 }
 
@@ -421,7 +421,7 @@ BlockingGetStreamWriteAvailable( PaStream* s )
 {
     PaJackStream *stream = (PaJackStream *)s;
 
-    int bytesEmpty = RingBuffer_GetWriteAvailable( &stream->outFIFO );
+    int bytesEmpty = PaUtil_GetRingBufferWriteAvailable( &stream->outFIFO );
     return bytesEmpty / stream->bytesPerFrame;
 }
 
@@ -430,7 +430,7 @@ BlockingWaitEmpty( PaStream *s )
 {
     PaJackStream *stream = (PaJackStream *)s;
 
-    while( RingBuffer_GetReadAvailable( &stream->outFIFO ) > 0 )
+    while( PaUtil_GetRingBufferReadAvailable( &stream->outFIFO ) > 0 )
     {
         stream->data_available = 0;
         sem_wait( &stream->data_semaphore );

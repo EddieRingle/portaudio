@@ -1304,12 +1304,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
           /* now we can initialize the ring buffer */
           assert( 0 ==
-            RingBuffer_Init( &stream->inputRingBuffer,
-                             ringSize*szfl, data ) );
+            PaUtil_InitializeRingBuffer( &stream->inputRingBuffer,
+                                   ringSize*szfl, data ) );
           /* advance the read point a little, so we are reading from the
              middle of the buffer */
           if( stream->outputUnit )
-             RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer, ringSize*szfl / RING_BUFFER_ADVANCE_DENOMINATOR );
+             PaUtil_AdvanceRingBufferWriteIndex( &stream->inputRingBuffer, ringSize*szfl / RING_BUFFER_ADVANCE_DENOMINATOR );
        }
     }
 
@@ -1476,22 +1476,22 @@ static OSStatus ringBufferIOProc( AudioConverterRef inAudioConverter,
 {
    void *dummyData;
    long dummySize;
-   RingBuffer *rb = (RingBuffer *) inUserData;
+   PaUtilRingBuffer *rb = (PaUtilRingBuffer *) inUserData;
 
    VVDBUG(("ringBufferIOProc()\n"));
 
    assert( sizeof( UInt32 ) == sizeof( long ) );
-   if( RingBuffer_GetReadAvailable( rb ) == 0 ) {
+   if( PaUtil_GetRingBufferReadAvailable( rb ) == 0 ) {
       *outData = NULL;
       *ioDataSize = 0;
       return RING_BUFFER_EMPTY;
    }
-   RingBuffer_GetReadRegions( rb, *ioDataSize,
-                              outData, (long *)ioDataSize, 
-                              &dummyData, &dummySize );
+   PaUtil_GetRingBufferReadRegions( rb, *ioDataSize,
+                                    outData, (long *)ioDataSize, 
+                                    &dummyData, &dummySize );
       
    assert( *ioDataSize );
-   RingBuffer_AdvanceReadIndex( rb, *ioDataSize );
+   PaUtil_AdvanceRingBufferReadIndex( rb, *ioDataSize );
 
    return noErr;
 }
@@ -1699,10 +1699,10 @@ static OSStatus AudioIOProc( void *inRefCon,
                AudioConverter would otherwise handle for us. */
             void *data1, *data2;
             long size1, size2;
-            RingBuffer_GetReadRegions( &stream->inputRingBuffer,
-                                       inChan*frames*flsz,
-                                       &data1, &size1,
-                                       &data2, &size2 );
+            PaUtil_GetRingBufferReadRegions( &stream->inputRingBuffer,
+                                             inChan*frames*flsz,
+                                             &data1, &size1,
+                                             &data2, &size2 );
             if( size1 / ( flsz * inChan ) == frames ) {
                /* simplest case: all in first buffer */
                PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
@@ -1713,7 +1713,7 @@ static OSStatus AudioIOProc( void *inRefCon,
                framesProcessed =
                     PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                                 &callbackResult );
-               RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1 );
+               PaUtil_AdvanceRingBufferReadIndex(&stream->inputRingBuffer, size1 );
             } else if( ( size1 + size2 ) / ( flsz * inChan ) < frames ) {
                /*we underflowed. take what data we can, zero the rest.*/
                float data[frames*inChan];
@@ -1731,8 +1731,8 @@ static OSStatus AudioIOProc( void *inRefCon,
                framesProcessed =
                     PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                                 &callbackResult );
-               RingBuffer_AdvanceReadIndex( &stream->inputRingBuffer,
-                                            size1+size2 );
+               PaUtil_AdvanceRingBufferReadIndex( &stream->inputRingBuffer,
+                                                  size1+size2 );
                /* flag underflow */
                stream->xrunFlags |= paInputUnderflow;
             } else {
@@ -1752,7 +1752,7 @@ static OSStatus AudioIOProc( void *inRefCon,
                framesProcessed =
                     PaUtil_EndBufferProcessing( &(stream->bufferProcessor),
                                                 &callbackResult );
-               RingBuffer_AdvanceReadIndex(&stream->inputRingBuffer, size1+size2 );
+               PaUtil_AdvanceRingBufferReadIndex(&stream->inputRingBuffer, size1+size2 );
             }
          }
       } else {
@@ -1792,9 +1792,9 @@ static OSStatus AudioIOProc( void *inRefCon,
             into the ring buffer. */
          long bytesIn, bytesOut;
          bytesIn = sizeof( float ) * inNumberFrames * chan;
-         bytesOut = RingBuffer_Write( &stream->inputRingBuffer,
-                                stream->inputAudioBufferList.mBuffers[0].mData,
-                                bytesIn );
+         bytesOut = PaUtil_WriteRingBuffer( &stream->inputRingBuffer,
+                                            stream->inputAudioBufferList.mBuffers[0].mData,
+                                            bytesIn );
          if( bytesIn != bytesOut )
             stream->xrunFlags |= paInputOverflow ;
       }
@@ -2005,16 +2005,16 @@ static PaError StopStream( PaStream *s )
        }
     }
     if( stream->inputRingBuffer.buffer ) {
-       RingBuffer_Flush( &stream->inputRingBuffer );
+       PaUtil_FlushRingBuffer( &stream->inputRingBuffer );
        bzero( (void *)stream->inputRingBuffer.buffer,
               stream->inputRingBuffer.bufferSize );
        /* advance the write point a little, so we are reading from the
           middle of the buffer. We'll need extra at the end because
           testing has shown that this helps. */
        if( stream->outputUnit )
-          RingBuffer_AdvanceWriteIndex( &stream->inputRingBuffer,
-                                    stream->inputRingBuffer.bufferSize
-                                           / RING_BUFFER_ADVANCE_DENOMINATOR );
+          PaUtil_AdvanceRingBufferWriteIndex( &stream->inputRingBuffer,
+                                              stream->inputRingBuffer.bufferSize
+                                              / RING_BUFFER_ADVANCE_DENOMINATOR );
     }
 
     stream->xrunFlags = 0;
