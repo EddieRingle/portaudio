@@ -1669,6 +1669,7 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
 
     PA_ENSURE( PaAlsaStream_DetermineFramesPerBuffer( self, realSr, inParams, outParams, framesPerUserBuffer,
                 hwParamsCapture, hwParamsPlayback, hostBufferSizeMode ) );
+    printf("Determined: %lu\n", self->playback.framesPerBuffer);
 
     if( self->capture.pcm )
     {
@@ -1989,7 +1990,7 @@ static PaError AlsaStop( PaAlsaStream *stream, int abort )
         if( stream->capture.pcm && !stream->pcmsSynced )
         {
             /* We don't need to retrieve any remaining frames */
-            if( snd_pcm_drop( stream->capture.pcm ) < 0 )
+            if( snd_pcm_drain( stream->capture.pcm ) < 0 )
             {
                 PA_DEBUG(( "%s: Draining capture handle failed!\n", __FUNCTION__ ));
             }
