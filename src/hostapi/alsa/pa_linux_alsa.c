@@ -1669,7 +1669,6 @@ static PaError PaAlsaStream_Configure( PaAlsaStream *self, const PaStreamParamet
 
     PA_ENSURE( PaAlsaStream_DetermineFramesPerBuffer( self, realSr, inParams, outParams, framesPerUserBuffer,
                 hwParamsCapture, hwParamsPlayback, hostBufferSizeMode ) );
-    printf("Determined: %lu\n", self->playback.framesPerBuffer);
 
     if( self->capture.pcm )
     {
