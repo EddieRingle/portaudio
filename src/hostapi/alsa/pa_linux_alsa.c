@@ -109,6 +109,7 @@ typedef struct
     unsigned long framesPerBuffer;
     int numUserChannels, numHostChannels;
     int userInterleaved, hostInterleaved;
+    PaDeviceIndex device;     /* Keep the device index */
 
     snd_pcm_t *pcm;
     snd_pcm_uframes_t bufferSize;
@@ -1030,6 +1031,8 @@ static PaError PaAlsaStreamComponent_Initialize( PaAlsaStreamComponent *self, Pa
         /* We're blissfully unaware of the minimum channelCount */
         self->numHostChannels = params->channelCount;
     }
+
+    self->device = params->device;
 
     PA_ENSURE( AlsaOpen( &alsaApi->baseHostApiRep, params, streamDir, &self->pcm ) );
     self->nfds = snd_pcm_poll_descriptors_count( self->pcm );
@@ -1980,6 +1983,17 @@ error:
 static PaError AlsaStop( PaAlsaStream *stream, int abort )
 {
     PaError result = paNoError;
+    /* XXX: Seems that draining the dmix device may trigger a race condition in ALSA */
+    if( stream->capture.pcm && !strcmp( Pa_GetDeviceInfo( stream->capture.device )->name,
+                "dmix" ) )
+    {
+        abort = 1;
+    }
+    else if( stream->playback.pcm && !strcmp( Pa_GetDeviceInfo( stream->playback.device )->name,
+                "dmix" ) )
+    {
+        abort = 1;
+    }
 
     if( abort )
     {
