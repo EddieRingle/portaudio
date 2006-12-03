@@ -482,6 +482,18 @@ static int IgnorePlugin( const char *pluginId )
     return 0;
 }
 
+/* Wrapper around snd_pcm_open which sleeps for a second and retries if the device is dmix and it
+ * is busy. */
+static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode, int isDmix )
+{
+    int ret = snd_pcm_open(pcmp, name, stream, mode);
+    if ( ret==EBUSY && isDmix ) {
+        Pa_Sleep(1);
+        ret = snd_pcm_open(pcmp, name, stream, mode);
+    }
+    return ret;
+}
+
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
 static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 {
@@ -670,6 +682,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
         PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
         int canMmap = -1;
+        int isDmix = !strcmp( deviceNames[i].alsaName, "dmix" );
 
         /* Zero fields */
         InitializeDeviceInfo( baseDeviceInfo );
@@ -679,7 +692,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         /* Query capture */
         if( deviceNames[i].hasCapture &&
-                snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking ) >= 0 )
+                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking, isDmix )
+                >= 0 )
         {
             if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_In, blocking, deviceInfo,
                         &canMmap ) != paNoError )
@@ -692,7 +706,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         /* Query playback */
         if( deviceNames[i].hasPlayback &&
-                snd_pcm_open( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking ) >= 0 )
+                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking, isDmix )
+                >= 0 )
         {
             if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_Out, blocking, deviceInfo,
                         &canMmap ) != paNoError )
@@ -725,8 +740,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                 baseApi->info.defaultInputDevice = devIdx;
             if( (baseApi->info.defaultOutputDevice == paNoDevice || !strcmp(deviceNames[i].alsaName,
                             "default" )) && baseDeviceInfo->maxOutputChannels > 0 )
+            {
                 baseApi->info.defaultOutputDevice = devIdx;
-            PA_DEBUG(("%s: Adding device %s\n", __FUNCTION__, deviceNames[i].name));
+                PA_DEBUG(("Default output device: %s\n", deviceNames[i].name));
+            }
+            PA_DEBUG(("%s: Adding device %s: %d\n", __FUNCTION__, deviceNames[i].name, devIdx));
             baseApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
         }
     }
@@ -869,8 +887,8 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
         deviceName = streamInfo->deviceString;
 
     PA_DEBUG(( "%s: Opening device %s\n", __FUNCTION__, deviceName ));
-    if( (ret = snd_pcm_open( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
-                    SND_PCM_NONBLOCK )) < 0 )
+    if( (ret = OpenPcm( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
+                    SND_PCM_NONBLOCK, !strcmp(deviceName, "dmix") )) < 0 )
     {
         /* Not to be closed */
         *pcm = NULL;
@@ -1405,15 +1423,15 @@ static PaError PaAlsaStreamComponent_DetermineFramesPerBuffer( PaAlsaStreamCompo
 
         if( framesPerHostBuffer < min )
         {
-            framesPerHostBuffer = min;
             PA_DEBUG(( "%s: The determined period size (%lu) is less than minimum (%lu)\n", __FUNCTION__,
                         framesPerHostBuffer, min ));
+            framesPerHostBuffer = min;
         }
         else if( framesPerHostBuffer > max )
         {
-            framesPerHostBuffer = max;
             PA_DEBUG(( "%s: The determined period size (%lu) is greater than maximum (%lu)\n", __FUNCTION__,
                         framesPerHostBuffer, max ));
+            framesPerHostBuffer = max;
         }
 
         assert( framesPerHostBuffer >= min && framesPerHostBuffer <= max );
