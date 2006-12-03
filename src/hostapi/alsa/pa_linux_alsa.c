@@ -487,11 +487,14 @@ static int IgnorePlugin( const char *pluginId )
  * is busy. */
 static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode, int isDmix )
 {
-    int ret = snd_pcm_open(pcmp, name, stream, mode);
-    if ( ret==EBUSY && isDmix ) {
-        Pa_Sleep(1000);
-        ret = snd_pcm_open(pcmp, name, stream, mode);
+    int tries = 0;
+    int ret = snd_pcm_open( pcmp, name, stream, mode );
+    for( tries = 0; tries < 100 && ret == -EBUSY && isDmix; ++tries )
+    {
+        Pa_Sleep( 10 );
+        ret = snd_pcm_open( pcmp, name, stream, mode );
     }
+
     return ret;
 }
 
