@@ -467,10 +467,8 @@ error:
  */
 static int IgnorePlugin( const char *pluginId )
 {
-    /* XXX: dmix and default ignored because after opening and closing, they seem to keep hogging resources.
-     */
     static const char *ignoredPlugins[] = {"hw", "plughw", "plug", "dsnoop", "tee",
-        "file", "null", "shm", "cards", "dmix", "default", NULL};
+        "file", "null", "shm", "cards", NULL};
     int i = 0;
     while( ignoredPlugins[i] )
     {
@@ -722,9 +720,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
          */
         if( baseDeviceInfo->maxInputChannels > 0 || baseDeviceInfo->maxOutputChannels > 0 )
         {
+            /* Make device default if there isn't already one or it is the ALSA "default" device */
             if( baseApi->info.defaultInputDevice == paNoDevice && baseDeviceInfo->maxInputChannels > 0 )
                 baseApi->info.defaultInputDevice = devIdx;
-            if(  baseApi->info.defaultOutputDevice == paNoDevice && baseDeviceInfo->maxOutputChannels > 0 )
+            if( (baseApi->info.defaultOutputDevice == paNoDevice || !strcmp(deviceNames[i].alsaName,
+                            "default" )) && baseDeviceInfo->maxOutputChannels > 0 )
                 baseApi->info.defaultOutputDevice = devIdx;
             PA_DEBUG(("%s: Adding device %s\n", __FUNCTION__, deviceNames[i].name));
             baseApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
