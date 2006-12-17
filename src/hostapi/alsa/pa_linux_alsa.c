@@ -896,7 +896,11 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
     {
         /* Not to be closed */
         *pcm = NULL;
-        ENSURE_( ret, ret == -EBUSY ? paDeviceUnavailable : paBadIODeviceCombination );
+        if( -EBUSY == ret )
+        {
+            PA_DEBUG(( "%s: Device is busy\n", __FUNCTION__ ));
+        }
+        ENSURE_( ret, -EBUSY == ret ? paDeviceUnavailable : paBadIODeviceCombination );
     }
     ENSURE_( snd_pcm_nonblock( *pcm, 0 ), paUnanticipatedHostError );
 
@@ -954,7 +958,23 @@ static PaError TestParameters( const PaUtilHostApiRepresentation *hostApi, const
         int ret = 0;
         if( (ret = snd_pcm_hw_params( pcm, hwParams )) < 0)
         {
-            ENSURE_( ret, ret == -EBUSY ? paDeviceUnavailable : paUnanticipatedHostError );
+            if( -EINVAL == ret )
+            {
+                /* Don't know what to return here */
+                result = paBadIODeviceCombination;
+                goto error;
+            }
+            else if( -EBUSY == ret )
+            {
+                result = paDeviceUnavailable;
+                PA_DEBUG(( "%s: Device is busy\n", __FUNCTION__ ));
+            }
+            else
+            {
+                result = paUnanticipatedHostError;
+            }
+
+            ENSURE_( ret, result );
         }
     }
 
