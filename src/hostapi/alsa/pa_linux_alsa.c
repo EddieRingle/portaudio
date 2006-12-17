@@ -485,14 +485,19 @@ static int IgnorePlugin( const char *pluginId )
 
 /* Wrapper around snd_pcm_open which sleeps for a second and retries if the device is dmix and it
  * is busy. */
-static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode, int isDmix )
+static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode )
 {
     int tries = 0;
     int ret = snd_pcm_open( pcmp, name, stream, mode );
-    for( tries = 0; tries < 100 && ret == -EBUSY && isDmix; ++tries )
+    for( tries = 0; tries < 100 && ret == -EBUSY; ++tries )
     {
         Pa_Sleep( 10 );
         ret = snd_pcm_open( pcmp, name, stream, mode );
+        if( -EBUSY != ret )
+        {
+            PA_DEBUG(( "\n%s: Successfully opened initially busy device after %d tries\n\n",
+                        __FUNCTION__, tries ));
+        }
     }
 
     return ret;
@@ -686,7 +691,6 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
         PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
         int canMmap = -1;
-        int isDmix = !strcmp( deviceNames[i].alsaName, "dmix" );
 
         /* Zero fields */
         InitializeDeviceInfo( baseDeviceInfo );
@@ -696,7 +700,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         /* Query capture */
         if( deviceNames[i].hasCapture &&
-                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking, isDmix )
+                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking )
                 >= 0 )
         {
             if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_In, blocking, deviceInfo,
@@ -710,7 +714,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
         /* Query playback */
         if( deviceNames[i].hasPlayback &&
-                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking, isDmix )
+                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking )
                 >= 0 )
         {
             if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_Out, blocking, deviceInfo,
@@ -892,7 +896,7 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
 
     PA_DEBUG(( "%s: Opening device %s\n", __FUNCTION__, deviceName ));
     if( (ret = OpenPcm( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
-                    SND_PCM_NONBLOCK, !strcmp(deviceName, "dmix") )) < 0 )
+                    SND_PCM_NONBLOCK )) < 0 )
     {
         /* Not to be closed */
         *pcm = NULL;
