@@ -211,6 +211,9 @@ int main(void)
 
         err = Pa_StopStream( stream );
         if( err != paNoError ) goto error;
+
+        printf( "sleeping for 1 second...\n" );
+        Pa_Sleep( 1000 );
     }
 
     err = Pa_CloseStream( stream );

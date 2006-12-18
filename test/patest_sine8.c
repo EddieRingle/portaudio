@@ -184,7 +184,8 @@ int main(void)
     while( (Pa_GetStreamTime( stream ) - streamOpened) < (PaTime)NUM_SECONDS / 2.0 )
         Pa_Sleep(10);
 
-    /* Stop sound until ENTER hit. (Hu? don't see any keyboard-input here.) */
+    /* Stop sound. */
+    printf("Stopping Stream.\n");
     err = Pa_StopStream( stream );
     if( err != paNoError )
         goto error;
@@ -192,6 +193,7 @@ int main(void)
     printf("Pause for 2 seconds.\n");
     Pa_Sleep( 2000 );
 
+    printf("Starting again.\n");
     err = Pa_StartStream( stream );
     if( err != paNoError )
         goto error;
