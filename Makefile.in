@@ -86,6 +86,7 @@ TESTS = \
 	bin/patest_sine_time \
 	bin/patest_start_stop \
 	bin/patest_stop \
+	bin/patest_stop_playout \
 	bin/patest_toomanysines \
 	bin/patest_underflow \
 	bin/patest_wire \
