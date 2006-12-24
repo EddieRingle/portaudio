@@ -742,7 +742,9 @@ static PaError OpenAndSetupOneAudioUnit(
     /* make sure input and output are the same device if we are doing input and
        output. */
     if( inStreamParams && outStreamParams )
+    {
        assert( outStreamParams->device == inStreamParams->device );
+    }
     if( inStreamParams )
     {
        *audioDevice = auhalHostApi->devIds[inStreamParams->device] ;
@@ -1303,9 +1305,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           }
 
           /* now we can initialize the ring buffer */
-          assert( 0 ==
-            PaUtil_InitializeRingBuffer( &stream->inputRingBuffer,
-                                   ringSize*szfl, data ) );
+          PaUtil_InitializeRingBuffer( &stream->inputRingBuffer,
+                                   ringSize*szfl, data ) ;
           /* advance the read point a little, so we are reading from the
              middle of the buffer */
           if( stream->outputUnit )
