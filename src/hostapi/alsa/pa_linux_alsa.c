@@ -483,8 +483,9 @@ static int IgnorePlugin( const char *pluginId )
     return 0;
 }
 
-/* Wrapper around snd_pcm_open which sleeps for a second and retries if the device is dmix and it
- * is busy. */
+/* Wrapper around snd_pcm_open which repeatedly retries opening a device for up to a second
+ * if it is busy. This is because dmix may temporarily hold on to a device after it (dmix)
+ * has been opened and closed. */
 static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode )
 {
     int tries = 0;
@@ -501,6 +502,84 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
     }
 
     return ret;
+}
+
+PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking, PaAlsaDeviceInfo* deviceInfoArray, int* devIdx )
+{
+    PaError result = 0;
+    PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[*devIdx];
+    PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
+    snd_pcm_t *pcm;
+    int canMmap = -1;
+    PaUtilHostApiRepresentation *baseApi = &alsaApi->baseHostApiRep;
+
+    /* Zero fields */
+    InitializeDeviceInfo( baseDeviceInfo );
+
+    /* to determine device capabilities, we must open the device and query the
+     * hardware parameter configuration space */
+
+    /* Query capture */
+    if( deviceName->hasCapture &&
+            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_CAPTURE, blocking )
+            >= 0 )
+    {
+        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_In, blocking, deviceInfo,
+                    &canMmap ) != paNoError )
+        {
+            /* Error */
+            PA_DEBUG(("%s: Failed groping %s for capture\n", __FUNCTION__, deviceName->alsaName));
+            goto end;
+        }
+    }
+
+    /* Query playback */
+    if( deviceName->hasPlayback &&
+            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_PLAYBACK, blocking )
+            >= 0 )
+    {
+        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_Out, blocking, deviceInfo,
+                    &canMmap ) != paNoError )
+        {
+            /* Error */
+            PA_DEBUG(("%s: Failed groping %s for playback\n", __FUNCTION__, deviceName->alsaName));
+            goto end;
+        }
+    }
+
+    if( 0 == canMmap )
+    {
+        PA_DEBUG(("%s: Device %s doesn't support mmap\n", __FUNCTION__, deviceName->alsaName));
+        goto end;
+    }
+
+    baseDeviceInfo->structVersion = 2;
+    baseDeviceInfo->hostApi = alsaApi->hostApiIndex;
+    baseDeviceInfo->name = deviceName->name;
+    deviceInfo->alsaName = deviceName->alsaName;
+    deviceInfo->isPlug = deviceName->isPlug;
+
+    /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
+     * Should now be safe to add device info, unless the device supports neither capture nor playback
+     */
+    if( baseDeviceInfo->maxInputChannels > 0 || baseDeviceInfo->maxOutputChannels > 0 )
+    {
+        /* Make device default if there isn't already one or it is the ALSA "default" device */
+        if( baseApi->info.defaultInputDevice == paNoDevice && baseDeviceInfo->maxInputChannels > 0 )
+            baseApi->info.defaultInputDevice = *devIdx;
+        if( (baseApi->info.defaultOutputDevice == paNoDevice || !strcmp(deviceName->alsaName,
+                        "default" )) && baseDeviceInfo->maxOutputChannels > 0 )
+        {
+            baseApi->info.defaultOutputDevice = *devIdx;
+            PA_DEBUG(("Default output device: %s\n", deviceName->name));
+        }
+        PA_DEBUG(("%s: Adding device %s: %d\n", __FUNCTION__, deviceName->name, *devIdx));
+        baseApi->deviceInfos[*devIdx] = (PaDeviceInfo *) deviceInfo;
+        (*devIdx) += 1;
+    }
+
+end:
+    return result;
 }
 
 /* Build PaDeviceInfo list, ignore devices for which we cannot determine capabilities (possibly busy, sigh) */
@@ -687,74 +766,22 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     /* while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 ) */
     for( i = 0, devIdx = 0; i < numDeviceNames; ++i )
     {
-        snd_pcm_t *pcm;
-        PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[devIdx];
-        PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
-        int canMmap = -1;
-
-        /* Zero fields */
-        InitializeDeviceInfo( baseDeviceInfo );
-
-        /* to determine device capabilities, we must open the device and query the
-         * hardware parameter configuration space */
-
-        /* Query capture */
-        if( deviceNames[i].hasCapture &&
-                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_CAPTURE, blocking )
-                >= 0 )
+        if( !strncmp( deviceNames[i].name, "dmix", 4 ) )
         {
-            if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_In, blocking, deviceInfo,
-                        &canMmap ) != paNoError )
-            {
-                /* Error */
-                PA_DEBUG(("%s: Failed groping %s for capture\n", __FUNCTION__, deviceNames[i].alsaName));
-                continue;
-            }
-        }
-
-        /* Query playback */
-        if( deviceNames[i].hasPlayback &&
-                OpenPcm( &pcm, deviceNames[i].alsaName, SND_PCM_STREAM_PLAYBACK, blocking )
-                >= 0 )
-        {
-            if( GropeDevice( pcm, deviceNames[i].isPlug, StreamDirection_Out, blocking, deviceInfo,
-                        &canMmap ) != paNoError )
-            {
-                /* Error */
-                PA_DEBUG(("%s: Failed groping %s for playback\n", __FUNCTION__, deviceNames[i].alsaName));
-                continue;
-            }
-        }
-
-        if( 0 == canMmap )
-        {
-            PA_DEBUG(("%s: Device %s doesn't support mmap\n", __FUNCTION__, deviceNames[i].alsaName));
             continue;
         }
 
-        baseDeviceInfo->structVersion = 2;
-        baseDeviceInfo->hostApi = alsaApi->hostApiIndex;
-        baseDeviceInfo->name = deviceNames[i].name;
-        deviceInfo->alsaName = deviceNames[i].alsaName;
-        deviceInfo->isPlug = deviceNames[i].isPlug;
-
-        /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
-         * Should now be safe to add device info, unless the device supports neither capture nor playback
-         */
-        if( baseDeviceInfo->maxInputChannels > 0 || baseDeviceInfo->maxOutputChannels > 0 )
+        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, deviceInfoArray, &devIdx ) );
+    }
+    assert( devIdx < numDeviceNames );
+    for( i = 0; i < numDeviceNames; ++i )
+    {
+        if( strncmp( deviceNames[i].name, "dmix", 4 ) )
         {
-            /* Make device default if there isn't already one or it is the ALSA "default" device */
-            if( baseApi->info.defaultInputDevice == paNoDevice && baseDeviceInfo->maxInputChannels > 0 )
-                baseApi->info.defaultInputDevice = devIdx;
-            if( (baseApi->info.defaultOutputDevice == paNoDevice || !strcmp(deviceNames[i].alsaName,
-                            "default" )) && baseDeviceInfo->maxOutputChannels > 0 )
-            {
-                baseApi->info.defaultOutputDevice = devIdx;
-                PA_DEBUG(("Default output device: %s\n", deviceNames[i].name));
-            }
-            PA_DEBUG(("%s: Adding device %s: %d\n", __FUNCTION__, deviceNames[i].name, devIdx));
-            baseApi->deviceInfos[devIdx++] = (PaDeviceInfo *) deviceInfo;
+            continue;
         }
+
+        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, deviceInfoArray, &devIdx ) );
     }
     free( deviceNames );
 
