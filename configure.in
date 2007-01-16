@@ -90,6 +90,9 @@ dnl AC_CANONICAL_HOST
 
 PKG_CHECK_MODULES(JACK, jack, have_jack=yes, have_jack=no)
 
+dnl checks for header files
+AC_CHECK_HEADERS([sys/soundcard.h linux/soundcard.h machine/soundcard.h])
+
 dnl sizeof checks: we will need a 16-bit and a 32-bit type
 
 AC_CHECK_SIZEOF(short)
