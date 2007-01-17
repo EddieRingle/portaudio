@@ -504,11 +504,11 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
     return ret;
 }
 
-PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking, PaAlsaDeviceInfo* deviceInfoArray, int* devIdx )
+PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking,
+        PaAlsaDeviceInfo* devInfo, int* devIdx )
 {
     PaError result = 0;
-    PaAlsaDeviceInfo *deviceInfo = &deviceInfoArray[*devIdx];
-    PaDeviceInfo *baseDeviceInfo = &deviceInfo->baseDeviceInfo;
+    PaDeviceInfo *baseDeviceInfo = &devInfo->baseDeviceInfo;
     snd_pcm_t *pcm;
     int canMmap = -1;
     PaUtilHostApiRepresentation *baseApi = &alsaApi->baseHostApiRep;
@@ -524,7 +524,7 @@ PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* device
             OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_CAPTURE, blocking )
             >= 0 )
     {
-        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_In, blocking, deviceInfo,
+        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_In, blocking, devInfo,
                     &canMmap ) != paNoError )
         {
             /* Error */
@@ -538,7 +538,7 @@ PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* device
             OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_PLAYBACK, blocking )
             >= 0 )
     {
-        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_Out, blocking, deviceInfo,
+        if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_Out, blocking, devInfo,
                     &canMmap ) != paNoError )
         {
             /* Error */
@@ -556,8 +556,8 @@ PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* device
     baseDeviceInfo->structVersion = 2;
     baseDeviceInfo->hostApi = alsaApi->hostApiIndex;
     baseDeviceInfo->name = deviceName->name;
-    deviceInfo->alsaName = deviceName->alsaName;
-    deviceInfo->isPlug = deviceName->isPlug;
+    devInfo->alsaName = deviceName->alsaName;
+    devInfo->isPlug = deviceName->isPlug;
 
     /* A: Storing pointer to PaAlsaDeviceInfo object as pointer to PaDeviceInfo object.
      * Should now be safe to add device info, unless the device supports neither capture nor playback
@@ -574,7 +574,7 @@ PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* device
             PA_DEBUG(("Default output device: %s\n", deviceName->name));
         }
         PA_DEBUG(("%s: Adding device %s: %d\n", __FUNCTION__, deviceName->name, *devIdx));
-        baseApi->deviceInfos[*devIdx] = (PaDeviceInfo *) deviceInfo;
+        baseApi->deviceInfos[*devIdx] = (PaDeviceInfo *) devInfo;
         (*devIdx) += 1;
     }
 
@@ -776,12 +776,14 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     assert( devIdx < numDeviceNames );
     for( i = 0; i < numDeviceNames; ++i )
     {
+        PaAlsaDeviceInfo* devInfo = &deviceInfoArray[devIdx];
         if( strncmp( deviceNames[i].name, "dmix", 4 ) )
         {
             continue;
         }
 
-        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, deviceInfoArray, &devIdx ) );
+        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, devInfo,
+                    &devIdx ) );
     }
     free( deviceNames );
 
