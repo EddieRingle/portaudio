@@ -21268,7 +21268,7 @@ case "${host_os}" in
 #define PA_USE_COREAUDIO 1
 _ACEOF
 
-	OTHER_OBJS="src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o";
+	OTHER_OBJS="src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o src/common/pa_ringbuffer.o";
 	LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon";
 	PADLL="libportaudio.dylib";
 	SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib";
@@ -21685,7 +21685,7 @@ _ACEOF
 	if [ $have_jack = "yes" ] && [ $with_jack != "no" ] ; then
 		DLL_LIBS="$DLL_LIBS $JACK_LIBS"
 		CFLAGS="$CFLAGS $JACK_CFLAGS"
-		OTHER_OBJS="$OTHER_OBJS src/hostapi/jack/pa_jack.o"
+		OTHER_OBJS="$OTHER_OBJS src/hostapi/jack/pa_jack.o src/common/pa_ringbuffer.o"
                 cat >>confdefs.h <<\_ACEOF
 #define PA_USE_JACK 1
 _ACEOF

@@ -51,7 +51,6 @@ COMMON_OBJS = \
 	src/common/pa_debugprint.o \
 	src/common/pa_front.o \
 	src/common/pa_process.o \
-	src/common/pa_ringbuffer.o \
 	src/common/pa_skeleton.o \
 	src/common/pa_stream.o \
 	src/common/pa_trace.o
