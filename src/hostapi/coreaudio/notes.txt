@@ -11,43 +11,6 @@ current core audio technology. To select use the old implementation, replace
 pa_mac_core.c with pa_mac_core_old.c (eg. "cp pa_mac_core_auhal.c
 pa_mac_core.c"), then run configure and make as usual.
 
-----------------------------------------
-
-Notes on Original implementation:
-
-by Phil Burk and Darren Gibbs
-
-Last updated March 20, 2002
-
-WHAT WORKS
-
-Output with very low latency, <10 msec.
-Half duplex input or output.
-Full duplex on the same CoreAudio device.
-The paFLoat32, paInt16, paInt8, paUInt8 sample formats.
-Pa_GetCPULoad()
-Pa_StreamTime()
-
-KNOWN BUGS OR LIMITATIONS
-
-We do not yet support simultaneous input and output on different 
-devices. Note that some CoreAudio devices like the Roland UH30 look 
-like one device but are actually two different CoreAudio devices. The 
-Built-In audio is typically one CoreAudio device.
-
-Mono doesn't work.
-
-DEVICE MAPPING
-
-CoreAudio devices can support both input and output. But the sample 
-rates supported may be different. So we have map one or two PortAudio 
-device to each CoreAudio device depending on whether it supports 
-input, output or both.
-
-When we query devices, we first get a list of CoreAudio devices. Then 
-we scan the list and add a PortAudio device for each CoreAudio device 
-that supports input. Then we make a scan for output devices.
-
 -------------------------------------------
 
 Notes on Newer/Default AUHAL implementation:
@@ -120,7 +83,9 @@ where the buffer size and sample rate of the audio device is most likely
 to match the expected values.
 
 - Timing info. It reports on stream time, but I'm probably doing something
-wrong since patest_sine_time often reports negative latency numbers.
+wrong since patest_sine_time often reports negative latency numbers. Also,
+there are currently issues with some devices whehn plugging/unplugging
+devices.
 
 - xrun detection: The only xrun detection performed is when reading
 and writing the ring buffer. There is probably more that can be done.
@@ -130,16 +95,58 @@ but latency should be low enough to make the lack of a separate abort
 unnecessary. Apple clarifies its AudioOutputUnitStop() call here:
 http://lists.apple.com/archives/coreaudio-api/2005/Dec/msg00055.html
 
-- blocking interface: Not implemented.
+- blocking interface: should work fine.
 
 - multichannel: It has been tested successfully on multichannel hardware
-from MOTU: traveler and 896HD.
+from MOTU: traveler and 896HD. Also Presonus firepod and others. It is
+believed to work with all Core Audio devices, including virtual devices
+such as soundflower.
 
 - sample rate conversion quality: By default, SR conversion is the maximum
 available. This can be tweaked using flags pa_mac_core.h. Note that the AU
-render quyality property is used to set the sample rat conversion quality
+render quyality property is used to set the sample rate conversion quality
 as "documented" here:
 http://lists.apple.com/archives/coreaudio-api/2004/Jan/msg00141.html
 
-- x86: I haven't tested it on an x86 Mac myself, but users have reported 
-being able to comiple and run it.
+- x86/Universal Binary: to build a universal binary, be sure to use
+the darwin makefile and not the usual configure && make combo.
+
+
+
+----------------------------------------
+
+Notes on Original implementation:
+
+by Phil Burk and Darren Gibbs
+
+Last updated March 20, 2002
+
+WHAT WORKS
+
+Output with very low latency, <10 msec.
+Half duplex input or output.
+Full duplex on the same CoreAudio device.
+The paFLoat32, paInt16, paInt8, paUInt8 sample formats.
+Pa_GetCPULoad()
+Pa_StreamTime()
+
+KNOWN BUGS OR LIMITATIONS
+
+We do not yet support simultaneous input and output on different 
+devices. Note that some CoreAudio devices like the Roland UH30 look 
+like one device but are actually two different CoreAudio devices. The 
+Built-In audio is typically one CoreAudio device.
+
+Mono doesn't work.
+
+DEVICE MAPPING
+
+CoreAudio devices can support both input and output. But the sample 
+rates supported may be different. So we have map one or two PortAudio 
+device to each CoreAudio device depending on whether it supports 
+input, output or both.
+
+When we query devices, we first get a list of CoreAudio devices. Then 
+we scan the list and add a PortAudio device for each CoreAudio device 
+that supports input. Then we make a scan for output devices.
+
