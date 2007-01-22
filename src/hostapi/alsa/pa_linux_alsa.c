@@ -490,15 +490,20 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
 {
     int tries = 0;
     int ret = snd_pcm_open( pcmp, name, stream, mode );
-    for( tries = 0; tries < 100 && ret == -EBUSY; ++tries )
+    for( tries = 0; tries < 100 && -EBUSY == ret; ++tries )
     {
         Pa_Sleep( 10 );
         ret = snd_pcm_open( pcmp, name, stream, mode );
         if( -EBUSY != ret )
         {
-            PA_DEBUG(( "\n%s: Successfully opened initially busy device after %d tries\n\n",
+            PA_DEBUG(( "%s: Successfully opened initially busy device after %d tries\n",
                         __FUNCTION__, tries ));
         }
+    }
+    if( -EBUSY == ret )
+    {
+        PA_DEBUG(( "%s: Failed to open busy device\n",
+                    __FUNCTION__ ));
     }
 
     return ret;
