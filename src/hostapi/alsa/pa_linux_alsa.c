@@ -445,7 +445,7 @@ typedef struct
     int isPlug;
     int hasPlayback;
     int hasCapture;
-} DeviceNames;
+} HwDevInfo;
 
 static PaError PaAlsa_StrDup( PaAlsaHostApiRepresentation *alsaApi,
         char **dst,
@@ -469,7 +469,7 @@ error:
 static int IgnorePlugin( const char *pluginId )
 {
     static const char *ignoredPlugins[] = {"hw", "plughw", "plug", "dsnoop", "tee",
-        "file", "null", "shm", "cards", NULL};
+        "file", "null", "shm", "cards", "rate_convert", NULL};
     int i = 0;
     while( ignoredPlugins[i] )
     {
@@ -504,7 +504,7 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
     return ret;
 }
 
-static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking,
+static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, HwDevInfo* deviceName, int blocking,
         PaAlsaDeviceInfo* devInfo, int* devIdx )
 {
     PaError result = 0;
@@ -591,7 +591,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     snd_ctl_card_info_t *cardInfo;
     PaError result = paNoError;
     size_t numDeviceNames = 0, maxDeviceNames = 1, i;
-    DeviceNames *deviceNames = NULL;
+    HwDevInfo *hwDevInfos = NULL;
     snd_config_t *topNode = NULL;
     snd_pcm_info_t *pcmInfo;
     int res;
@@ -604,9 +604,9 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     baseApi->info.defaultInputDevice = paNoDevice;
     baseApi->info.defaultOutputDevice = paNoDevice;
 
-    /* count the devices by enumerating all the card numbers */
+    /* Gather info about hw devices
 
-    /* snd_card_next() modifies the integer passed to it to be:
+     * snd_card_next() modifies the integer passed to it to be:
      *      the index of the first card if the parameter is -1
      *      the index of the next card if the parameter is the index of a card
      *      -1 if there are no more cards
@@ -640,7 +640,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             char *alsaDeviceName, *deviceName;
             size_t len;
             int hasPlayback = 0, hasCapture = 0;
-            snprintf( buf, sizeof (buf), "%s:%d,%d", "hw", cardIdx, devIdx );
+            snprintf( buf, sizeof (buf), "hw:%d,%d", cardIdx, devIdx );
 
             /* Obtain info about this particular device */
             snd_pcm_info_set_device( pcmInfo, devIdx );
@@ -659,7 +659,8 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
             if( !hasPlayback && !hasCapture )
             {
-                continue;   /* Error */
+                /* Error */
+                continue;
             }
 
             /* The length of the string written by snprintf plus terminating 0 */
@@ -670,25 +671,26 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                     snd_pcm_info_get_name( pcmInfo ), buf );
 
             ++numDeviceNames;
-            if( !deviceNames || numDeviceNames > maxDeviceNames )
+            if( !hwDevInfos || numDeviceNames > maxDeviceNames )
             {
                 maxDeviceNames *= 2;
-                PA_UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
+                PA_UNLESS( hwDevInfos = (HwDevInfo *) realloc( hwDevInfos, maxDeviceNames * sizeof (HwDevInfo) ),
                         paInsufficientMemory );
             }
 
             PA_ENSURE( PaAlsa_StrDup( alsaApi, &alsaDeviceName, buf ) );
 
-            deviceNames[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
-            deviceNames[ numDeviceNames - 1 ].name = deviceName;
-            deviceNames[ numDeviceNames - 1 ].isPlug = 0;
-            deviceNames[ numDeviceNames - 1 ].hasPlayback = hasPlayback;
-            deviceNames[ numDeviceNames - 1 ].hasCapture = hasCapture;
+            hwDevInfos[ numDeviceNames - 1 ].alsaName = alsaDeviceName;
+            hwDevInfos[ numDeviceNames - 1 ].name = deviceName;
+            hwDevInfos[ numDeviceNames - 1 ].isPlug = 0;
+            hwDevInfos[ numDeviceNames - 1 ].hasPlayback = hasPlayback;
+            hwDevInfos[ numDeviceNames - 1 ].hasCapture = hasCapture;
         }
         snd_ctl_close( ctl );
     }
 
     /* Iterate over plugin devices */
+
     if( NULL == snd_config )
     {
         /* snd_config_update is called implicitly by some functions, if this hasn't happened snd_config will be NULL (bleh) */
@@ -735,18 +737,18 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             strcpy( deviceName, idStr );
 
             ++numDeviceNames;
-            if( !deviceNames || numDeviceNames > maxDeviceNames )
+            if( !hwDevInfos || numDeviceNames > maxDeviceNames )
             {
                 maxDeviceNames *= 2;
-                PA_UNLESS( deviceNames = (DeviceNames *) realloc( deviceNames, maxDeviceNames * sizeof (DeviceNames) ),
+                PA_UNLESS( hwDevInfos = (HwDevInfo *) realloc( hwDevInfos, maxDeviceNames * sizeof (HwDevInfo) ),
                         paInsufficientMemory );
             }
 
-            deviceNames[numDeviceNames - 1].alsaName = alsaDeviceName;
-            deviceNames[numDeviceNames - 1].name = deviceName;
-            deviceNames[numDeviceNames - 1].isPlug = 1;
-            deviceNames[numDeviceNames - 1].hasPlayback = 1;
-            deviceNames[numDeviceNames - 1].hasCapture = 1;
+            hwDevInfos[numDeviceNames - 1].alsaName = alsaDeviceName;
+            hwDevInfos[numDeviceNames - 1].name = deviceName;
+            hwDevInfos[numDeviceNames - 1].isPlug = 1;
+            hwDevInfos[numDeviceNames - 1].hasPlayback = 1;
+            hwDevInfos[numDeviceNames - 1].hasCapture = 1;
         }
     }
     else
@@ -760,32 +762,35 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     PA_UNLESS( deviceInfoArray = (PaAlsaDeviceInfo*)PaUtil_GroupAllocateMemory(
             alsaApi->allocations, sizeof(PaAlsaDeviceInfo) * numDeviceNames ), paInsufficientMemory );
 
-    /* Loop over list of cards, filling in info, if a device is deemed unavailable (can't get name),
+    /* Loop over list of cards, filling in info. If a device is deemed unavailable (can't get name),
      * it's ignored.
      */
-    /* while( snd_card_next( &cardIdx ) == 0 && cardIdx >= 0 ) */
+
     for( i = 0, devIdx = 0; i < numDeviceNames; ++i )
     {
-        if( !strncmp( deviceNames[i].name, "dmix", 4 ) )
+        PaAlsaDeviceInfo* devInfo = &deviceInfoArray[i];
+        HwDevInfo* hwInfo = &hwDevInfos[i];
+        if( !strcmp( hwInfo->name, "dmix" ) || !strcmp( hwInfo->name, "default" ) )
         {
             continue;
         }
 
-        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, deviceInfoArray, &devIdx ) );
+        PA_ENSURE( FillInDevInfo( alsaApi, hwInfo, blocking, devInfo, &devIdx ) );
     }
     assert( devIdx < numDeviceNames );
     for( i = 0; i < numDeviceNames; ++i )
     {
-        PaAlsaDeviceInfo* devInfo = &deviceInfoArray[devIdx];
-        if( strncmp( deviceNames[i].name, "dmix", 4 ) )
+        PaAlsaDeviceInfo* devInfo = &deviceInfoArray[i];
+        HwDevInfo* hwInfo = &hwDevInfos[i];
+        if( strcmp( hwInfo->name, "dmix" ) && strcmp( hwInfo->name, "default" ) )
         {
             continue;
         }
 
-        PA_ENSURE( FillInDevInfo( alsaApi, &deviceNames[i], blocking, devInfo,
+        PA_ENSURE( FillInDevInfo( alsaApi, hwInfo, blocking, devInfo,
                     &devIdx ) );
     }
-    free( deviceNames );
+    free( hwDevInfos );
 
     baseApi->info.deviceCount = devIdx;   /* Number of successfully queried devices */
 
