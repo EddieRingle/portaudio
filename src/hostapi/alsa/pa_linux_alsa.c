@@ -504,7 +504,7 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
     return ret;
 }
 
-PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking,
+static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, DeviceNames* deviceName, int blocking,
         PaAlsaDeviceInfo* devInfo, int* devIdx )
 {
     PaError result = 0;
@@ -1118,11 +1118,13 @@ static void PaAlsaStreamComponent_Terminate( PaAlsaStreamComponent *self )
         PaUtil_FreeMemory( self->userBuffers );
 }
 
-int nearbyint_(float value) {
+/*
+static int nearbyint_(float value) {
     if(  value - (int)value > .5 )
         return (int)ceil( value );
     return (int)floor( value );
 }
+*/
 
 /** Initiate configuration, preparing for determining a period size suitable for both capture and playback components.
  *
