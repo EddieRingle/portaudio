@@ -447,6 +447,42 @@ typedef struct
     int hasCapture;
 } HwDevInfo;
 
+
+HwDevInfo predefinedNames[] = {
+    { "center_lfe", NULL, 0, 1, 0 },
+/* { "default", NULL, 0, 1, 0 }, */
+/* { "dmix", NULL, 0, 1, 0 }, */
+/* { "dpl", NULL, 0, 1, 0 }, */
+/* { "dsnoop", NULL, 0, 1, 0 }, */
+    { "front", NULL, 0, 1, 0 },
+    { "iec958", NULL, 0, 1, 0 },
+/* { "modem", NULL, 0, 1, 0 }, */
+    { "rear", NULL, 0, 1, 0 },
+    { "side", NULL, 0, 1, 0 },
+/*     { "spdif", NULL, 0, 0, 0 }, */
+    { "surround40", NULL, 0, 1, 0 },
+    { "surround41", NULL, 0, 1, 0 },
+    { "surround50", NULL, 0, 1, 0 },
+    { "surround51", NULL, 0, 1, 0 },
+    { "surround71", NULL, 0, 1, 0 },
+    { NULL, NULL, 0, 1, 0 }
+};
+
+static const HwDevInfo *FindDeviceName( const char *name )
+{
+    int i;
+
+    for( i = 0; predefinedNames[i].alsaName; i++ )
+    {
+	if( strcmp( name, predefinedNames[i].alsaName ) == 0 )
+	{
+	    return &predefinedNames[i];
+	}
+    }
+
+    return NULL;
+}
+
 static PaError PaAlsa_StrDup( PaAlsaHostApiRepresentation *alsaApi,
         char **dst,
         const char *src)
@@ -713,6 +749,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
             int err = 0;
 
             char *alsaDeviceName, *deviceName;
+	    const HwDevInfo *predefined = NULL;
             snd_config_t *n = snd_config_iterator_entry( i ), * tp = NULL;;
 
             if( (err = snd_config_search( n, "type", &tp )) < 0 )
@@ -749,11 +786,24 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
                         paInsufficientMemory );
             }
 
+	    predefined = FindDeviceName( alsaDeviceName );
+
             hwDevInfos[numDeviceNames - 1].alsaName = alsaDeviceName;
             hwDevInfos[numDeviceNames - 1].name = deviceName;
             hwDevInfos[numDeviceNames - 1].isPlug = 1;
-            hwDevInfos[numDeviceNames - 1].hasPlayback = 1;
-            hwDevInfos[numDeviceNames - 1].hasCapture = 1;
+
+	    if( predefined )
+	    {
+		hwDevInfos[numDeviceNames - 1].hasPlayback =
+		    predefined->hasPlayback;
+		hwDevInfos[numDeviceNames - 1].hasCapture =
+		    predefined->hasCapture;
+	    }
+	    else
+	    {
+		hwDevInfos[numDeviceNames - 1].hasPlayback = 1;
+		hwDevInfos[numDeviceNames - 1].hasCapture = 1;
+	    }
         }
     }
     else
