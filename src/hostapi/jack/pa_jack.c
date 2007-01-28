@@ -85,7 +85,7 @@ static char *jackErr_ = NULL;
         { \
             if( (paErr_) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
             { \
-                assert( jackErr_ ); \
+                if (! jackErr_ ) jackErr_ = "unknown error";\
                 PaUtil_SetLastHostErrorInfo( paJACK, -1, jackErr_ ); \
             } \
             PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
@@ -100,7 +100,7 @@ static char *jackErr_ = NULL;
         { \
             if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
             { \
-                assert( jackErr_ ); \
+                if (!jackErr_) jackErr_ = "unknown error";\
                 PaUtil_SetLastHostErrorInfo( paJACK, -1, jackErr_ ); \
             } \
             PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
@@ -647,9 +647,8 @@ static void JackErrorCallback( const char *msg )
     if( pthread_self() == mainThread_ )
     {
         assert( msg );
-        free( jackErr_ );
-        jackErr_ = malloc( strlen( msg ) );
-        sprintf( jackErr_, msg );
+        jackErr_ = realloc( jackErr_, strlen( msg ) + 1 );
+        strcpy( jackErr_, msg );
     }
 }
 
