@@ -136,6 +136,7 @@ typedef struct PaAlsaStream
     int primeBuffers;
     int callbackMode;              /* bool: are we running in callback mode? */
     int pcmsSynced;	            /* Have we successfully synced pcms */
+    int rtSched;
 
     /* the callback thread uses these to poll the sound device(s), waiting
      * for data to be ready/available */
@@ -2076,7 +2077,7 @@ static PaError StartStream( PaStream *s )
 
     if( stream->callbackMode )
     {
-        PA_ENSURE( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1. ) );
+        PA_ENSURE( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1., stream->rtSched ) );
     }
     else
     {
@@ -3456,21 +3457,24 @@ void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info )
     info->deviceString = NULL;
 }
 
+/** Enable/disable real-time priority in the audio thread.
+ *
+ * If this is turned on audio callback threads will be created with the FIFO scheduling policy,
+ * which is suitable for realtime operation.
+ **/
 void PaAlsa_EnableRealtimeScheduling( PaStream *s, int enable )
 {
-#if 0
     PaAlsaStream *stream = (PaAlsaStream *) s;
-    stream->threading.rtSched = enable;
-#endif
+    stream->rtSched = enable;
 }
 
+#if 0
 void PaAlsa_EnableWatchdog( PaStream *s, int enable )
 {
-#if 0
     PaAlsaStream *stream = (PaAlsaStream *) s;
-    stream->threading.useWatchdog = enable;
-#endif
+    stream->thread.useWatchdog = enable;
 }
+#endif
 
 PaError PaAlsa_GetStreamInputCard(PaStream* s, int* card) {
     PaAlsaStream *stream = (PaAlsaStream *) s;
