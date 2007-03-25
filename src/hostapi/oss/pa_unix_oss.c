@@ -1614,7 +1614,11 @@ static void *PaOSS_AudioThreadProc( void *userData )
             if ( stream->capture )
             {
                 PA_ENSURE( PaOssStreamComponent_Read( stream->capture, &frames ) );
-                assert( frames == framesAvail );
+                if( frames < framesAvail )
+                {
+                    PA_DEBUG(( "Read %lu less frames than requested\n", framesAvail - frames ));
+                    framesAvail = frames;
+                }
             }
 
 #if ( SOUND_VERSION >= 0x030904 )
@@ -1650,9 +1654,11 @@ static void *PaOSS_AudioThreadProc( void *userData )
                 frames = framesAvail;
 
                 PA_ENSURE( PaOssStreamComponent_Write( stream->playback, &frames ) );
-                assert( frames == framesAvail );
-
-                /* TODO: handle bytesWritten != bytesRequested (slippage?) */
+                if( frames < framesAvail )
+                {
+                    /* TODO: handle bytesWritten != bytesRequested (slippage?) */
+                    PA_DEBUG(( "Wrote %lu less frames than requested\n", framesAvail - frames ));
+                }
             }
 
             framesAvail -= framesProcessed;
