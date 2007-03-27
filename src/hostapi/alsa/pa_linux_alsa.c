@@ -3448,7 +3448,7 @@ error:
 
 /* Extensions */
 
-/* Initialize host api specific structure */
+/** Initialize host API specific structure, call this before setting relevant attributes. */
 void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info )
 {
     info->size = sizeof (PaAlsaStreamInfo);
@@ -3476,6 +3476,7 @@ void PaAlsa_EnableWatchdog( PaStream *s, int enable )
 }
 #endif
 
+/** Get the ALSA-lib card index of this stream's input device. */
 PaError PaAlsa_GetStreamInputCard(PaStream* s, int* card) {
     PaAlsaStream *stream = (PaAlsaStream *) s;
     snd_pcm_info_t* pcmInfo;
@@ -3492,6 +3493,7 @@ error:
     return result;
 }
 
+/** Get the ALSA-lib card index of this stream's output device. */
 PaError PaAlsa_GetStreamOutputCard(PaStream* s, int* card) {
     PaAlsaStream *stream = (PaAlsaStream *) s;
     snd_pcm_info_t* pcmInfo;
