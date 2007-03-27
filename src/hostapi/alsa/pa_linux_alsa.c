@@ -3457,10 +3457,10 @@ void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info )
     info->deviceString = NULL;
 }
 
-/** Enable/disable real-time priority in the audio thread.
+/** Instruct whether to enable real-time priority when starting the audio thread.
  *
- * If this is turned on audio callback threads will be created with the FIFO scheduling policy,
- * which is suitable for realtime operation.
+ * If this is turned on by the stream is started, the audio callback thread will be created
+ * with the FIFO scheduling policy, which is suitable for realtime operation.
  **/
 void PaAlsa_EnableRealtimeScheduling( PaStream *s, int enable )
 {
