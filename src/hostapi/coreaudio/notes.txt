@@ -67,6 +67,9 @@ change the device for optimal playback ("Pro" mode), which may interrupt
 other programs playing back audio, or simple use a sample-rate coversion,
 which allows for friendlier sharing of the device ("Play Nice" mode).
 
+Additionally, the user may define a "channel mapping" by calling
+paSetupMacCoreChannelMap() on their stream info structure before opening
+the stream with it. See below for creating a channel map.
 
 Known issues:
 
@@ -110,6 +113,41 @@ http://lists.apple.com/archives/coreaudio-api/2004/Jan/msg00141.html
 
 - x86/Universal Binary: to build a universal binary, be sure to use
 the darwin makefile and not the usual configure && make combo.
+
+
+
+Creating a channel map:
+
+How to create the map array -  Text taken From AUHAL.rtfd :
+[3] Channel Maps
+Clients can tell the AUHAL units which channels of the device they are interested in.  For example, the client may be processing stereo data, but outputting to a six-channel device.  This is done by using the kAudioOutputUnitProperty_ChannelMap property.  To use this property:
+
+For Output:
+Create an array of SInt32 that is the size of the number of channels of the device (Get the Format of the AUHAL's output Element == 0)
+Initialize each of the array's values to -1 (-1 indicates that that channel is NOT to be presented in the conversion.)
+
+Next, for each channel of your app's output, set:
+channelMapArray[deviceOutputChannel] = desiredAppOutputChannel.
+
+For example: we have a 6 channel output device and our application has a stereo source it wants to provide to the device.  Suppose we want that stereo source to go to the 3rd and 4th channels of the device. The channel map would look like this: { -1, -1, 0, 1, -1, -1 }
+
+Where the formats are:
+Input Element == 0: 2 channels (- client format - settable)
+Output Element == 0: 6 channels (- device format - NOT settable)
+
+So channel 2 (zero-based) of the device will take the first channel of output and channel 3 will take the second channel of output. (This translates to the 3rd and 4th plugs of the 6 output plugs of the device of course!)
+
+For Input:
+Create an array of SInt32 that is the size of the number of channels of the format you require for input.  Get (or Set in this case as needed) the AUHAL's output Element == 1.
+
+Next, for each channel of input you require, set:
+channelMapArray[desiredAppInputChannel] = deviceOutputChannel;
+
+For example: we have a 6 channel input device from which we wish to receive stereo input from the 3rd and 4th channels. The channel map looks like this: { 2, 3 }
+
+Where the formats are:
+Input Element == 0: 2 channels (- device format - NOT settable)
+Output Element == 0: 6 channels (- client format - settable)
 
 
 
