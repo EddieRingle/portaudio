@@ -118,7 +118,8 @@ const char *paGetMacCoreChannelName( int device, int channelIndex, bool input )
    PaMacAUHAL *macCoreHostApi = (PaMacAUHAL*)hostApi;
    AudioDeviceID hostApiDevice = macCoreHostApi->devIds[device];
 
-   UInt32 size = 256;
+   UInt32 size = 0;
+
    error = AudioDeviceGetPropertyInfo( hostApiDevice,
                                        channelIndex + 1,
                                        input,
@@ -140,7 +141,7 @@ const char *paGetMacCoreChannelName( int device, int channelIndex, bool input )
                                    input,
                                    kAudioDevicePropertyChannelName,
                                    &size,
-                                   &channelName );
+                                   channelName );
 
    if( error ) {
       ERR( error );
