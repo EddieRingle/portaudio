@@ -105,6 +105,18 @@ void paSetupMacCoreChannelMap( PaMacCoreStreamInfo *data, const long * const cha
 }
 static char *channelName = NULL;
 static int channelNameSize = 0;
+static bool ensureChannelNameSize( int size )
+{
+   if( size >= channelNameSize ) {
+      free( channelName );
+      channelName = (char *) malloc( ( channelNameSize = size ) + 1 );
+      if( !channelName ) {
+         channelNameSize = 0;
+         return false;
+      }
+   }
+   return true;
+}
 /*
  * Function declared in pa_mac_core.h. retrives channel names.
  */
@@ -127,14 +139,51 @@ const char *paGetMacCoreChannelName( int device, int channelIndex, bool input )
                                        &size,
                                        NULL );
    if( error ) {
-      ERR( error );
+      //try the CFString
+      CFStringRef name;
+      bool isDeviceName = false;
+      size = sizeof( name );
+      error = AudioDeviceGetProperty( hostApiDevice,
+                                      channelIndex + 1,
+                                      input,
+                                      kAudioDevicePropertyChannelNameCFString,
+                                      &size,
+                                      &name );
+      if( error ) { //as a last-ditch effort, get the device name. Later we'll append the channel number.
+         size = sizeof( name );
+         error = AudioDeviceGetProperty( hostApiDevice,
+                                      channelIndex + 1,
+                                      input,
+                                      kAudioDevicePropertyDeviceNameCFString,
+                                      &size,
+                                      &name );
+         if( error )
+            return NULL;
+         isDeviceName = true;
+      }
+      if( isDeviceName ) {
+         name = CFStringCreateWithFormat( NULL, NULL, CFSTR( "%@: %d"), name, channelIndex + 1 );
+      }
+
+      CFIndex length = CFStringGetLength(name);
+      while( ensureChannelNameSize( length * sizeof(UniChar) + 1 ) ) {
+         if( CFStringGetCString( name, channelName, channelNameSize, kCFStringEncodingUTF8 ) ) {
+            if( isDeviceName )
+               CFRelease( name );
+            return channelName;
+         }
+         if( length == 0 )
+            ++length;
+         length *= 2;
+      }
+      if( isDeviceName )
+         CFRelease( name );
       return NULL;
    }
 
-   if( size >= channelNameSize ) {
-      free( channelName );
-      channelName = (char *) malloc( ( channelNameSize = size ) + 1 );
-   }
+   //continue with C string:
+   if( !ensureChannelNameSize( size ) )
+      return NULL;
 
    error = AudioDeviceGetProperty( hostApiDevice,
                                    channelIndex + 1,
