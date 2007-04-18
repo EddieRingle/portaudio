@@ -124,11 +124,11 @@ int main(void)
     if( err != paNoError ) goto error;
 
     /** setup host specific info */
-    paSetupMacCoreStreamInfo( &macInfo, paMacCorePlayNice );
-    paSetupMacCoreChannelMap( &macInfo, channelMap, 4 );
+    PaMacCore_SetupStreamInfo( &macInfo, paMacCorePlayNice );
+    PaMacCore_SetupChannelMap( &macInfo, channelMap, 4 );
 
     for( int i=0; i<4; ++i )
-       printf( "channel %d name: %s\n", i, paGetMacCoreChannelName( Pa_GetDefaultOutputDevice(), i, false ) );
+       printf( "channel %d name: %s\n", i, PaMacCore_GetChannelName( Pa_GetDefaultOutputDevice(), i, false ) );
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
     outputParameters.channelCount = 2;       /* stereo output */

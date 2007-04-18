@@ -84,7 +84,7 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
  * Function declared in pa_mac_core.h. Sets up a PaMacCoreStreamInfoStruct
  * with the requested flags and initializes channel map.
  */
-void paSetupMacCoreStreamInfo(  PaMacCoreStreamInfo *data, const unsigned long flags )
+void PaMacCore_SetupStreamInfo(  PaMacCoreStreamInfo *data, const unsigned long flags )
 {
    bzero( data, sizeof( PaMacCoreStreamInfo ) );
    data->size = sizeof( PaMacCoreStreamInfo );
@@ -98,7 +98,7 @@ void paSetupMacCoreStreamInfo(  PaMacCoreStreamInfo *data, const unsigned long f
 /*
  * Function declared in pa_mac_core.h. Adds channel mapping to a PaMacCoreStreamInfoStruct
  */
-void paSetupMacCoreChannelMap( PaMacCoreStreamInfo *data, const long * const channelMap, const unsigned long channelMapSize )
+void PaMacCore_SetupChannelMap( PaMacCoreStreamInfo *data, const long * const channelMap, const unsigned long channelMapSize )
 {
    data->channelMap = channelMap;
    data->channelMapSize = channelMapSize;
@@ -120,7 +120,7 @@ static bool ensureChannelNameSize( int size )
 /*
  * Function declared in pa_mac_core.h. retrives channel names.
  */
-const char *paGetMacCoreChannelName( int device, int channelIndex, bool input )
+const char *PaMacCore_GetChannelName( int device, int channelIndex, bool input )
 {
    struct PaUtilHostApiRepresentation *hostApi;
    PaError err;

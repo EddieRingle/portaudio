@@ -74,14 +74,14 @@ typedef struct
  * @param data The datastructure to initialize
  * @param flags The flags to initialize the datastructure with.
 */
-void paSetupMacCoreStreamInfo( PaMacCoreStreamInfo *data, unsigned long flags );
+void PaMacCore_SetupStreamInfo( PaMacCoreStreamInfo *data, unsigned long flags );
 
 /* call this after pa_SetupMacCoreStreamInfo to use channel mapping as described in notes.txt.
  * @param data The stream info structure to assign a channel mapping to
  * @param channelMap The channel map array, as described in notes.txt. This array pointer will be used directly (ie the underlying data will not be copied), so the caller should not free the array until after the stream has been opened.
  * @param channelMapSize The size of the channel map array.
  */
-void paSetupMacCoreChannelMap( PaMacCoreStreamInfo *data, const long * const channelMap, unsigned long channelMapSize );
+void PaMacCore_SetupChannelMap( PaMacCoreStreamInfo *data, const long * const channelMap, unsigned long channelMapSize );
 
 /*
  * Retrieve the AudioDeviceID of the input device assigned to an open stream
@@ -115,7 +115,7 @@ AudioDeviceID PaMacCore_GetStreamOutputDevice( PaStream* s );
  *         another call to this function.
  *
  */
-const char *paGetMacCoreChannelName( int device, int channelIndex, bool input );
+const char *PaMacCore_GetChannelName( int device, int channelIndex, bool input );
 
 /*
  * Flags
