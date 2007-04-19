@@ -40,7 +40,7 @@ OTHER_OBJS = @OTHER_OBJS@
 PALIB = libportaudio.la
 PAINC = include/portaudio.h
 
-PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined -export-symbols-regex "Pa_.*" -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
+PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined -export-symbols-regex "(Pa|PaMacCore)_.*" -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
 #MAKEFILE = Makefile
 
 COMMON_OBJS = \
@@ -81,6 +81,7 @@ TESTS = \
 	bin/patest_saw \
 	bin/patest_sine8 \
 	bin/patest_sine \
+	bin/patest_sine_channelmaps \
 	bin/patest_sine_formats \
 	bin/patest_sine_time \
 	bin/patest_start_stop \

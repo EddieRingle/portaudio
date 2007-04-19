@@ -47,7 +47,9 @@
 #include <math.h>
 #include "portaudio.h"
 
+#ifdef __APPLE__
 #include "pa_mac_core.h"
+#endif
 
 #define NUM_SECONDS   (5)
 #define SAMPLE_RATE   (44100)
@@ -124,17 +126,25 @@ int main(void)
     if( err != paNoError ) goto error;
 
     /** setup host specific info */
+#ifdef __APPLE__
     PaMacCore_SetupStreamInfo( &macInfo, paMacCorePlayNice );
     PaMacCore_SetupChannelMap( &macInfo, channelMap, 4 );
 
-    for( int i=0; i<4; ++i )
+    for( i=0; i<4; ++i )
        printf( "channel %d name: %s\n", i, PaMacCore_GetChannelName( Pa_GetDefaultOutputDevice(), i, false ) );
+#else
+    printf( "Channel mapping not supported on this platform. Reverting to normal sine test.\n" );
+#endif
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
     outputParameters.channelCount = 2;       /* stereo output */
     outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+#ifdef __APPLE__
     outputParameters.hostApiSpecificStreamInfo = &macInfo;
+#else
+    outputParameters.hostApiSpecificStreamInfo = NULL;
+#endif
 
     err = Pa_OpenStream(
               &stream,
