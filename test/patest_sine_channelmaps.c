@@ -107,7 +107,9 @@ int main(void)
     PaStream *stream;
     PaError err;
     paTestData data;
+#ifdef __APPLE__
     PaMacCoreStreamInfo macInfo;
+#endif
     const long channelMap[4] = { -1, -1, 0, 1 };
     int i;
 
