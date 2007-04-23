@@ -70,6 +70,7 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
+#include "pa_endianness.h"
 
 #include "pa_linux_alsa.h"
 
@@ -910,8 +911,13 @@ static PaSampleFormat GetAvailableFormats( snd_pcm_t *pcm )
     if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S32 ) >= 0)
         available |= paInt32;
 
-    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24 ) >= 0)
+#ifdef PA_LITTLE_ENDIAN
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24_3LE ) >= 0)
         available |= paInt24;
+#elif defined PA_BIG_ENDIAN
+    if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S24_3BE ) >= 0)
+        available |= paInt24;
+#endif
 
     if( snd_pcm_hw_params_test_format( pcm, hwParams, SND_PCM_FORMAT_S16 ) >= 0)
         available |= paInt16;
@@ -936,7 +942,11 @@ static snd_pcm_format_t Pa2AlsaFormat( PaSampleFormat paFormat )
             return SND_PCM_FORMAT_S16;
 
         case paInt24:
-            return SND_PCM_FORMAT_S24;
+#ifdef PA_LITTLE_ENDIAN
+            return SND_PCM_FORMAT_S24_3LE;
+#elif defined PA_BIG_ENDIAN
+            return SND_PCM_FORMAT_S24_3BE;
+#endif
 
         case paInt32:
             return SND_PCM_FORMAT_S32;
