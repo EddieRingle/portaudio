@@ -135,7 +135,7 @@ Non-critical stuff for the future:
 
 #if (defined(UNDER_CE))
 #pragma comment(lib, "Coredll.lib")
-elif (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
+#elif (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
 #pragma comment(lib, "winmm.lib")
 #endif
 
