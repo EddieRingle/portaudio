@@ -138,6 +138,10 @@ double PaUtil_GetTime( void )
     }
     else
     {
+#ifndef UNDER_CE    	
         return timeGetTime() * .001;
+#else
+        return GetTickCount() * .001;
+#endif                
     }
 }

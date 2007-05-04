@@ -112,7 +112,9 @@ Non-critical stuff for the future:
 #include <math.h>
 #include <windows.h>
 #include <mmsystem.h>
+#ifndef UNDER_CE
 #include <process.h>
+#endif
 #include <assert.h>
 /* PLB20010422 - "memory.h" doesn't work on CodeWarrior for PC. Thanks Mike Berry for the mod. */
 #ifndef __MWERKS__
@@ -131,7 +133,9 @@ Non-critical stuff for the future:
 
 #include "pa_win_wmme.h"
 
-#if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
+#if (defined(UNDER_CE))
+#pragma comment(lib, "Coredll.lib")
+elif (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
 #pragma comment(lib, "winmm.lib")
 #endif
 
