@@ -1666,27 +1666,19 @@ error:
     {
         for( i = 0; i < stream->num_incoming_connections; i++ )
         {
-            UNLESS( !jack_port_lock( stream->jack_client, stream->local_input_ports[i] ),
-                    paUnanticipatedHostError );
             if( jack_port_connected( stream->local_input_ports[i] ) )
             {
                 UNLESS( !jack_port_disconnect( stream->jack_client, stream->local_input_ports[i] ),
                         paUnanticipatedHostError );
             }
-            UNLESS( !jack_port_unlock( stream->jack_client, stream->local_input_ports[i] ),
-                    paUnanticipatedHostError );
         }
         for( i = 0; i < stream->num_outgoing_connections; i++ )
         {
-            UNLESS( !jack_port_lock( stream->jack_client, stream->local_output_ports[i] ),
-                    paUnanticipatedHostError );
             if( jack_port_connected( stream->local_output_ports[i] ) )
             {
                 UNLESS( !jack_port_disconnect( stream->jack_client, stream->local_output_ports[i] ),
                         paUnanticipatedHostError );
             }
-            UNLESS( !jack_port_unlock( stream->jack_client, stream->local_output_ports[i] ),
-                    paUnanticipatedHostError );
         }
     }
 
