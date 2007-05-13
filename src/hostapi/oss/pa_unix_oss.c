@@ -1119,7 +1119,8 @@ static PaError PaOssStream_Configure( PaOssStream *stream, double sampleRate, un
     if( stream->capture )
     {
         PaOssStreamComponent *component = stream->capture;
-        PaOssStreamComponent_Configure( component, sampleRate, framesPerBuffer, StreamMode_In, NULL );
+        PA_ENSURE( PaOssStreamComponent_Configure( component, sampleRate, framesPerBuffer, StreamMode_In,
+                    NULL ) );
 
         assert( component->hostChannelCount > 0 );
         assert( component->hostFrames > 0 );
