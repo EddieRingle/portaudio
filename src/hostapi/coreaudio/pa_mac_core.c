@@ -98,7 +98,7 @@ void PaMacCore_SetupStreamInfo(  PaMacCoreStreamInfo *data, const unsigned long 
 /*
  * Function declared in pa_mac_core.h. Adds channel mapping to a PaMacCoreStreamInfoStruct
  */
-void PaMacCore_SetupChannelMap( PaMacCoreStreamInfo *data, const long * const channelMap, const unsigned long channelMapSize )
+void PaMacCore_SetupChannelMap( PaMacCoreStreamInfo *data, const SInt32 * const channelMap, const unsigned long channelMapSize )
 {
    data->channelMap = channelMap;
    data->channelMapSize = channelMapSize;
