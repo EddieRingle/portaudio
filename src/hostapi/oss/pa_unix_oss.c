@@ -1012,7 +1012,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
         hostFormat = PaUtil_SelectClosestAvailableFormat( availableFormats, component->userFormat );
 
         /* OSS demands at least 2 buffers, and 16 bytes per buffer */
-        numBufs = PA_MAX( bufSz / fragSz, 2 );
+        numBufs = (int)PA_MAX( bufSz / fragSz, 2 );
         bytesPerBuf = PA_MAX( fragSz * Pa_GetSampleSize( hostFormat ) * chans, 16 );
 
         /* The fragment parameters are encoded like this:
