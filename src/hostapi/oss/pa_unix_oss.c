@@ -986,7 +986,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
     int frgmt;
     int numBufs;
     int bytesPerBuf;
-    double bufSz;
+    unsigned long bufSz;
     unsigned long fragSz;
     audio_buf_info bufInfo;
 
@@ -999,13 +999,13 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
          */
         if( framesPerBuffer == paFramesPerBufferUnspecified )
         { 
-            bufSz = component->latency * sampleRate;
+            bufSz = (unsigned long)(component->latency * sampleRate);
             fragSz = bufSz / 4;
         }
         else
         {
             fragSz = framesPerBuffer;
-            bufSz = component->latency * sampleRate + fragSz; /* Latency + 1 buffer */
+            bufSz = (unsigned long)(component->latency * sampleRate) + fragSz; /* Latency + 1 buffer */
         }
 
         PA_ENSURE( GetAvailableFormats( component, &availableFormats ) );
