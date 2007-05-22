@@ -71,9 +71,9 @@
  *
  ****************/
 
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__APPLE__)
 #   include <libkern/OSAtomic.h>
-    /* Here are the memory barrier functions. Mac OS X and FreeBSD only provide
+    /* Here are the memory barrier functions. Mac OS X only provides
        full memory barriers, so the three types of barriers are the same. */
 #   define PaUtil_FullMemoryBarrier()  OSMemoryBarrier()
 #   define PaUtil_ReadMemoryBarrier()  OSMemoryBarrier()
