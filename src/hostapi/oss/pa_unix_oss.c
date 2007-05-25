@@ -44,7 +44,7 @@
 
 /**
  @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 */
 
 #include <stdio.h>
