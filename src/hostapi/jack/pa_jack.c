@@ -44,7 +44,7 @@
 
 /**
  @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 */
 
 #include <string.h>
@@ -1052,7 +1052,7 @@ error:
     return result;
 }
 
-/* Add stream to processing queue */
+/* Add stream to JACK callback processing queue */
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
                            const PaStreamParameters *inputParameters,
@@ -1225,7 +1225,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         int err = 0;
         
-        /* ... remote output ports (that we input from) */
+        /* Get output ports of our capture device */
         snprintf( regex_pattern, regexSz, "%s:.*", hostApi->deviceInfos[ inputParameters->device ]->name );
         UNLESS( jack_ports = jack_get_ports( jackHostApi->jack_client, regex_pattern,
                                      NULL, JackPortIsOutput ), paUnanticipatedHostError );
@@ -1249,7 +1249,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         int err = 0;
 
-        /* ... remote input ports (that we output to) */
+        /* Get input ports of our playback device */
         snprintf( regex_pattern, regexSz, "%s:.*", hostApi->deviceInfos[ outputParameters->device ]->name );
         UNLESS( jack_ports = jack_get_ports( jackHostApi->jack_client, regex_pattern,
                                      NULL, JackPortIsInput ), paUnanticipatedHostError );
@@ -1298,7 +1298,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamRepresentation.streamInfo.sampleRate = jackSr;
     stream->t0 = jack_frame_time( jackHostApi->jack_client );   /* A: Time should run from Pa_OpenStream */
 
-    ENSURE_PA( AddStream( stream ) );  /* Add to queue over opened streams */
+    /* Add to queue of opened streams */
+    ENSURE_PA( AddStream( stream ) );
     
     *s = (PaStream*)stream;
 
@@ -1407,7 +1408,7 @@ end:
     return result;
 }
 
-/* Alter the processing queue if necessary */
+/* Update the JACK callback's stream processing queue. */
 static PaError UpdateQueue( PaJackHostApiRepresentation *hostApi )
 {
     PaError result = paNoError;
@@ -1433,7 +1434,10 @@ static PaError UpdateQueue( PaJackHostApiRepresentation *hostApi )
             node->next = hostApi->toAdd;
         }
         else
+        {
+            /* The only queue entry. */
             hostApi->processQueue = (PaJackStream *)hostApi->toAdd;
+        }
 
         /* If necessary, update stream state */
         if( hostApi->toAdd->streamRepresentation.streamInfo.sampleRate != jackSr )
@@ -1482,6 +1486,7 @@ error:
     return result;
 }
 
+/* Audio processing callback invoked periodically from JACK. */
 static int JackCallback( jack_nframes_t frames, void *userData )
 {
     PaError result = paNoError;
@@ -1583,24 +1588,27 @@ static PaError StartStream( PaStream *s )
     /* Ready the processor */
     PaUtil_ResetBufferProcessor( &stream->bufferProcessor );
 
-    /* connect the ports */
+    /* Connect the ports. Note that the ports may already have been connected by someone else in
+     * the meantime, in which case JACK returns EEXIST. */
 
-    /* NOTE: I would rather use jack_port_connect which uses jack_port_t's
-     * instead of port names, but it is not implemented yet. */
     if( stream->num_incoming_connections > 0 )
     {
         for( i = 0; i < stream->num_incoming_connections; i++ )
-            UNLESS( jack_connect( stream->jack_client,
-                    jack_port_name( stream->remote_output_ports[i] ),
-                    jack_port_name( stream->local_input_ports[i] ) ) == 0, paUnanticipatedHostError );
+        {
+            int r = jack_connect( stream->jack_client, jack_port_name( stream->remote_output_ports[i] ),
+                    jack_port_name( stream->local_input_ports[i] ) );
+           UNLESS( 0 == r || EEXIST == r, paUnanticipatedHostError );
+        }
     }
 
     if( stream->num_outgoing_connections > 0 )
     {
         for( i = 0; i < stream->num_outgoing_connections; i++ )
-            UNLESS( jack_connect( stream->jack_client,
-                    jack_port_name( stream->local_output_ports[i] ),
-                    jack_port_name( stream->remote_input_ports[i] ) ) == 0, paUnanticipatedHostError );
+        {
+            int r = jack_connect( stream->jack_client, jack_port_name( stream->local_output_ports[i] ),
+                    jack_port_name( stream->remote_input_ports[i] ) );
+           UNLESS( 0 == r || EEXIST == r, paUnanticipatedHostError );
+        }
     }
 
     stream->xrun = FALSE;
