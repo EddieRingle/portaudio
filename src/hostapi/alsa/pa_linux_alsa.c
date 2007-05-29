@@ -1301,7 +1301,18 @@ static PaError PaAlsaStreamComponent_FinishConfigure( PaAlsaStreamComponent *sel
     ENSURE_( snd_pcm_hw_params_set_buffer_size_near( self->pcm, hwParams, &bufSz ), paUnanticipatedHostError );
 
     /* Set the parameters! */
-    ENSURE_( snd_pcm_hw_params( self->pcm, hwParams ), paUnanticipatedHostError );
+    {
+        int r = snd_pcm_hw_params( self->pcm, hwParams );
+#ifdef PA_ENABLE_DEBUG_OUTPUT
+        if( r < 0 )
+        {
+            snd_output_t *output = NULL;
+            snd_output_stdio_attach( &output, stderr, 0 );
+            snd_pcm_hw_params_dump( hwParams, output );
+        }
+#endif
+        ENSURE_(r, paUnanticipatedHostError );
+    }
     ENSURE_( snd_pcm_hw_params_get_buffer_size( hwParams, &self->bufferSize ), paUnanticipatedHostError );
     /* Latency in seconds, one period is not counted as latency */
     *latency = (self->bufferSize - self->framesPerBuffer) / sampleRate;
