@@ -521,14 +521,19 @@ static int IgnorePlugin( const char *pluginId )
     return 0;
 }
 
-/* Wrapper around snd_pcm_open which repeatedly retries opening a device for up to a second
- * if it is busy. This is because dmix may temporarily hold on to a device after it (dmix)
- * has been opened and closed. */
-static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode )
+/** Open PCM device.
+ *
+ * Wrapper around snd_pcm_open which may repeatedly retry opening a device if it is busy, for
+ * a certain time. This is because dmix may temporarily hold on to a device after it (dmix)
+ * has been opened and closed.
+ * @param mode: Open mode (e.g., SND_PCM_BLOCKING).
+ * @param waitOnBusy: Retry opening busy device for up to one second?
+ **/
+static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream, int mode, int waitOnBusy )
 {
-    int tries = 0;
+    int tries = 0, maxTries = waitOnBusy ? 100 : 0;
     int ret = snd_pcm_open( pcmp, name, stream, mode );
-    for( tries = 0; tries < 100 && -EBUSY == ret; ++tries )
+    for( tries = 0; tries < maxTries && -EBUSY == ret; ++tries )
     {
         Pa_Sleep( 10 );
         ret = snd_pcm_open( pcmp, name, stream, mode );
@@ -540,8 +545,8 @@ static int OpenPcm( snd_pcm_t **pcmp, const char *name, snd_pcm_stream_t stream,
     }
     if( -EBUSY == ret )
     {
-        PA_DEBUG(( "%s: Failed to open busy device\n",
-                    __FUNCTION__ ));
+        PA_DEBUG(( "%s: Failed to open busy device '%s'\n",
+                    __FUNCTION__, name ));
     }
 
     return ret;
@@ -564,7 +569,7 @@ static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, HwDevInfo* d
 
     /* Query capture */
     if( deviceName->hasCapture &&
-            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_CAPTURE, blocking )
+            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_CAPTURE, blocking, 0 )
             >= 0 )
     {
         if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_In, blocking, devInfo,
@@ -578,7 +583,7 @@ static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, HwDevInfo* d
 
     /* Query playback */
     if( deviceName->hasPlayback &&
-            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_PLAYBACK, blocking )
+            OpenPcm( &pcm, deviceName->alsaName, SND_PCM_STREAM_PLAYBACK, blocking, 0 )
             >= 0 )
     {
         if( GropeDevice( pcm, deviceName->isPlug, StreamDirection_Out, blocking, devInfo,
@@ -640,6 +645,10 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     int res;
     int blocking = SND_PCM_NONBLOCK;
     char alsaCardName[50];
+#ifdef PA_ENABLE_DEBUG_OUTPUT
+    PaTime startTime = PaUtil_GetTime();
+#endif
+
     if( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) && atoi( getenv( "PA_ALSA_INITIALIZE_BLOCK" ) ) )
         blocking = 0;
 
@@ -821,6 +830,11 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
 
     /* Loop over list of cards, filling in info. If a device is deemed unavailable (can't get name),
      * it's ignored.
+     *
+     * Note that we do this in two stages. This is a workaround owing to the fact that the 'dmix'
+     * plugin may cause the underlying hardware device to be busy for a short while even after it
+     * (dmix) is closed. The 'default' plugin may also point to the dmix plugin, so the same goes
+     * for this.
      */
 
     for( i = 0, devIdx = 0; i < numDeviceNames; ++i )
@@ -835,6 +849,7 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
         PA_ENSURE( FillInDevInfo( alsaApi, hwInfo, blocking, devInfo, &devIdx ) );
     }
     assert( devIdx < numDeviceNames );
+    /* Now inspect 'dmix' and 'default' plugins */
     for( i = 0; i < numDeviceNames; ++i )
     {
         PaAlsaDeviceInfo* devInfo = &deviceInfoArray[i];
@@ -850,6 +865,10 @@ static PaError BuildDeviceList( PaAlsaHostApiRepresentation *alsaApi )
     free( hwDevInfos );
 
     baseApi->info.deviceCount = devIdx;   /* Number of successfully queried devices */
+
+#ifdef PA_ENABLE_DEBUG_OUTPUT
+    PA_DEBUG(( "%s: Building device list took %f seconds\n", __FUNCTION__, PaUtil_GetTime() - startTime ));
+#endif
 
 end:
     return result;
@@ -996,7 +1015,7 @@ static PaError AlsaOpen( const PaUtilHostApiRepresentation *hostApi, const PaStr
 
     PA_DEBUG(( "%s: Opening device %s\n", __FUNCTION__, deviceName ));
     if( (ret = OpenPcm( pcm, deviceName, streamDir == StreamDirection_In ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
-                    SND_PCM_NONBLOCK )) < 0 )
+                    SND_PCM_NONBLOCK, 1 )) < 0 )
     {
         /* Not to be closed */
         *pcm = NULL;
