@@ -97,7 +97,7 @@ extern "C"
 
         /* set PA_LITTLE_ENDIAN or PA_BIG_ENDIAN by testing well known platform specific defines */
 
-        #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(LITTLE_ENDIAN) || defined(__i386) || defined(_M_IX86)
+        #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(LITTLE_ENDIAN) || defined(__i386) || defined(_M_IX86) || defined(__x86_64__)
             #define PA_LITTLE_ENDIAN /* win32, assume intel byte order */
         #else
             #define PA_BIG_ENDIAN
