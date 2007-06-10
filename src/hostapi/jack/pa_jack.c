@@ -772,7 +772,8 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     jack_on_shutdown( jackHostApi->jack_client, JackOnShutdown, jackHostApi );
     jack_set_error_function( JackErrorCallback );
     jackHostApi->jack_buffer_size = jack_get_buffer_size ( jackHostApi->jack_client );
-    UNLESS( !jack_set_sample_rate_callback( jackHostApi->jack_client, JackSrCb, jackHostApi ), paUnanticipatedHostError );
+    /* Don't check for error, may not be supported (deprecated in at least jackdmp) */
+    jack_set_sample_rate_callback( jackHostApi->jack_client, JackSrCb, jackHostApi );
     UNLESS( !jack_set_xrun_callback( jackHostApi->jack_client, JackXRunCb, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_set_process_callback( jackHostApi->jack_client, JackCallback, jackHostApi ), paUnanticipatedHostError );
     UNLESS( !jack_activate( jackHostApi->jack_client ), paUnanticipatedHostError );
