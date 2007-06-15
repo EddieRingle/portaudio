@@ -71,6 +71,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 #include "pa_endianness.h"
+#include "pa_debugprint.h"
 
 #include "pa_linux_alsa.h"
 

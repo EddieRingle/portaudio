@@ -73,6 +73,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 #include "portaudio.h"
+#include "pa_debugprint.h"
 
 #include <windows.h>
 #include <winioctl.h>

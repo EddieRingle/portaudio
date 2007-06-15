@@ -132,7 +132,7 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-
+#include "pa_debugprint.h"
 
 /* This version of pa_asio.cpp is currently only targetted at Win32,
    It would require a few tweaks to work with pre-OS X Macintosh.

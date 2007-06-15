@@ -76,6 +76,7 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
+#include "pa_debugprint.h"
 
 #include "pa_win_ds_dynlink.h"
 

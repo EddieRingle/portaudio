@@ -130,6 +130,7 @@ Non-critical stuff for the future:
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
+#include "pa_debugprint.h"
 
 #include "pa_win_wmme.h"
 

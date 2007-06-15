@@ -113,23 +113,6 @@ void PaUtil_SetLastHostErrorInfo( PaHostApiTypeId hostApiType, long errorCode,
 
 
         
-/** PA_DEBUG() provides a simple debug message printing facility. The macro
- passes it's argument to a printf-like function called PaUtil_DebugPrint()
- which prints to stderr and always flushes the stream after printing.
- Because preprocessor macros cannot directly accept variable length argument
- lists, calls to the macro must include an additional set of parenthesis, eg:
- PA_DEBUG(("errorno: %d", 1001 ));
-*/
-
-void PaUtil_DebugPrint( const char *format, ... );
-
-#ifdef PA_ENABLE_DEBUG_OUTPUT
-#define PA_DEBUG(x) PaUtil_DebugPrint x ;
-#else
-#define PA_DEBUG(x)
-#endif
-
-
 /* the following functions are implemented in a platform platform specific
  .c file
 */

@@ -67,7 +67,7 @@
 #include "pa_stream.h"
 #include "pa_cpuload.h"
 #include "pa_process.h"
-
+#include "pa_debugprint.h"
 
 
 /* prototypes for functions declared in this file */
