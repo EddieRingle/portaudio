@@ -1021,6 +1021,7 @@ static ASIOSampleRate defaultSampleRateSearchOrder_[]
 /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
 typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
 IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
+//FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
 
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
@@ -1677,6 +1678,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaAsioDriverInfo *driverInfo;
     int *inputChannelSelectors = 0;
     int *outputChannelSelectors = 0;
+    bool isExternal = false;
 
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
@@ -1792,6 +1794,30 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
 
+    /* davidv: listing ASIO Clock sources, there is an ongoing investigation by
+       me about whether or not call ASIOSetSampleRate if an external Clock is
+       used. A few drivers expected different things here */
+    {
+        ASIOClockSource clocks[32];
+        long numSources=32;
+        asioError = ASIOGetClockSources(clocks, &numSources);
+        if( asioError != ASE_OK ){
+            PA_DEBUG(("ERROR: ASIOGetClockSources: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        }else{
+            PA_DEBUG(("INFO ASIOGetClockSources listing %d clocks\n", numSources ));
+            for (int i=0;i<numSources;++i){
+                PA_DEBUG(("ASIOClockSource%d %s current:%d\n", i,clocks[i].name, clocks[i].isCurrentSource ));
+               
+                /*
+                  If you have problems with some drivers when externally clocked, 
+                  uncomment the next two lines
+                 */
+                //if (clocks[i].isCurrentSource)
+                //    isExternal = true;
+            }
+        }
+    }
+
     // check that the device supports the requested sample rate 
 
     asioError = ASIOCanSampleRate( sampleRate );
@@ -1821,7 +1847,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if (oldRate != sampleRate){
 
         PA_DEBUG(("before ASIOSetSampleRate(%f)\n",sampleRate));
-        asioError = ASIOSetSampleRate( sampleRate );
+
+        asioError = ASIOSetSampleRate( isExternal?0:sampleRate );
         /* Set sample rate */
         if( asioError != ASE_OK )
         {
