@@ -2120,11 +2120,12 @@ static PaError StartStream( PaStream *s )
 #undef ERR_WRAP
 }
 
+// it's not clear from appl's docs that this really waits
+// until all data is flushed.
 static ComponentResult BlockWhileAudioUnitIsRunning( AudioUnit audioUnit, AudioUnitElement element )
 {
     Boolean isRunning = 1;
     while( isRunning ) {
-printf( "Waiting\n" );
        UInt32 s = sizeof( isRunning );
        ComponentResult err = AudioUnitGetProperty( audioUnit, kAudioOutputUnitProperty_IsRunning, kAudioUnitScope_Global, element,  &isRunning, &s );
        if( err )
