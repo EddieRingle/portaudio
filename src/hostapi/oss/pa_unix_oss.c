@@ -384,7 +384,7 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
         {
             maxNumChannels = (stereo) ? 2 : 1;
         }
-        PA_DEBUG(( "%s: use SNDCTL_DSP_STEREO, maxNumChannels = %d\n", __FUNCTION__, maxNumChannels ))
+        PA_DEBUG(( "%s: use SNDCTL_DSP_STEREO, maxNumChannels = %d\n", __FUNCTION__, maxNumChannels ));
     }
 
     /* During channel negotiation, the last ioctl() may have failed. This can
