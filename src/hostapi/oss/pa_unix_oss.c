@@ -32,13 +32,13 @@
  */
 
 /*
- * The text above constitutes the entire PortAudio license; however, 
+ * The text above constitutes the entire PortAudio license; however,
  * the PortAudio community also makes the following non-binding requests:
  *
  * Any person wishing to distribute modifications to the Software is
  * requested to send the modifications to the original developer so that
- * they can be incorporated into the canonical version. It is also 
- * requested that these non-binding requests be included along with the 
+ * they can be incorporated into the canonical version. It is also
+ * requested that these non-binding requests be included along with the
  * license above.
  */
 
@@ -84,6 +84,7 @@
 #include "pa_cpuload.h"
 #include "pa_process.h"
 #include "pa_unix_util.h"
+#include "pa_debugprint.h"
 
 static int sysErr_;
 static pthread_t mainThread_;
@@ -113,7 +114,7 @@ static pthread_t mainThread_;
  */
 static int Get_AFMT_S16_NE( void )
 {
-    long testData = 1; 
+    long testData = 1;
     char *ptr = (char *) &testData;
     int isLittle = ( *ptr == 1 ); /* Does address point to least significant byte? */
     return isLittle ? AFMT_S16_LE : AFMT_S16_BE;
@@ -278,7 +279,7 @@ error:
             PaUtil_FreeAllAllocations( ossHostApi->allocations );
             PaUtil_DestroyAllocationGroup( ossHostApi->allocations );
         }
-                
+
         PaUtil_FreeMemory( ossHostApi );
     }
     return result;
@@ -289,7 +290,7 @@ PaError PaUtil_InitializeDeviceInfo( PaDeviceInfo *deviceInfo, const char *name,
         PaTime defaultHighOutputLatency, double defaultSampleRate, PaUtilAllocationGroup *allocations  )
 {
     PaError result = paNoError;
-    
+
     deviceInfo->structVersion = 2;
     if( allocations )
     {
@@ -440,7 +441,7 @@ static PaError QueryDevice( char *deviceName, PaOSSHostApiRepresentation *ossApi
 
     /* douglas:
        we have to do this querying in a slightly different order. apparently
-       some sound cards will give you different info based on their settins. 
+       some sound cards will give you different info based on their settins.
        e.g. a card might give you stereo at 22kHz but only mono at 44kHz.
        the correct order for OSS is: format, channels, sample rate
     */
@@ -596,7 +597,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     int tempDevHandle = -1;
     int flags;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
-    
+
     if( inputParameters )
     {
         inputChannelCount = inputParameters->channelCount;
@@ -625,7 +626,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     {
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
-        
+
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
@@ -661,7 +662,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
        return paInvalidChannelCount;
 
     /* open the device so we can do more tests */
-    
+
     if( inputChannelCount > 0 )
     {
         result = PaUtil_DeviceIndexToHostApiDeviceIndex(&device, inputParameters->device, hostApi);
@@ -677,7 +678,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
     deviceInfo = hostApi->deviceInfos[device];
     deviceName = (char *)deviceInfo->name;
-    
+
     flags = O_NONBLOCK;
     if (inputChannelCount > 0 && outputChannelCount > 0)
        flags |= O_RDWR;
@@ -695,7 +696,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
  error:
     if( tempDevHandle >= 0 )
-        close( tempDevHandle );         
+        close( tempDevHandle );
 
     return result;
 }
@@ -882,7 +883,7 @@ static PaError PaOssStream_Initialize( PaOssStream *stream, const PaStreamParame
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
                                                &ossApi->blockingStreamInterface, callback, userData );
-    }    
+    }
 
     ENSURE_( sem_init( &stream->semaphore, 0, 0 ), paInternalError );
 
@@ -948,7 +949,7 @@ static PaError GetAvailableFormats( PaOssStreamComponent *component, PaSampleFor
         frmts |= paInt16;
     else
         result = paSampleFormatNotSupported;
-    
+
     *availableFormats = frmts;
 
 error:
@@ -998,7 +999,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
          * The hardware need not respect the requested fragment size, so we may have to adapt.
          */
         if( framesPerBuffer == paFramesPerBufferUnspecified )
-        { 
+        {
             bufSz = (unsigned long)(component->latency * sampleRate);
             fragSz = bufSz / 4;
         }
@@ -1042,7 +1043,7 @@ static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, 
         /* reject if there's no sample rate within 1% of the one requested */
         if( (fabs( sampleRate - sr ) / sampleRate) > 0.01 )
         {
-            PA_DEBUG(("%s: Wanted %f, closest sample rate was %d\n", __FUNCTION__, sampleRate, sr ));                 
+            PA_DEBUG(("%s: Wanted %f, closest sample rate was %d\n", __FUNCTION__, sampleRate, sr ));
             PA_ENSURE( paInvalidSampleRate );
         }
 
@@ -1223,7 +1224,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 return paInvalidChannelCount;
         }
     }
-    
+
     /* allocate and do basic initialization of the stream structure */
     PA_UNLESS( stream = (PaOssStream*)PaUtil_AllocateMemory( sizeof(PaOssStream) ), paInsufficientMemory );
     PA_ENSURE( PaOssStream_Initialize( stream, inputParameters, outputParameters, streamCallback, userData, streamFlags, ossHostApi ) );
@@ -1231,7 +1232,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PA_ENSURE( PaOssStream_Configure( stream, sampleRate, framesPerBuffer, &inLatency, &outLatency ) );
 
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
-        
+
     if( inputParameters )
     {
         inputHostFormat = stream->capture->hostFormat;
@@ -1353,7 +1354,7 @@ static PaError PaOssStream_WaitForFrames( PaOssStream *stream, unsigned long *fr
                 pollCapture = 0;
             }
             */
-            else if( stream->playback ) /* Timed out, go on with playback? */ 
+            else if( stream->playback ) /* Timed out, go on with playback? */
             {
                 /*PA_DEBUG(( "%s: Trying to poll again for capture frames, pollTimeout: %d\n",
                             __FUNCTION__, stream->pollTimeout ));*/
@@ -1464,7 +1465,7 @@ static PaError PaOssStream_Prepare( PaOssStream *stream )
 
     /* Ok, we have triggered the stream */
     stream->triggered = 1;
-    
+
 error:
     return result;
 }
@@ -1503,7 +1504,7 @@ static void OnExit( void *data )
     PaUtil_ResetCpuLoadMeasurer( &stream->cpuLoadMeasurer );
 
     PaOssStream_Stop( stream, stream->callbackAbort );
-    
+
     PA_DEBUG(( "OnExit: Stoppage\n" ));
 
     /* Eventually notify user all buffers have played */
@@ -1551,13 +1552,13 @@ static void *PaOSS_AudioThreadProc( void *userData )
     int initiateProcessing = triggered;    /* Already triggered? */
     PaStreamCallbackFlags cbFlags = 0;  /* We might want to keep state across iterations */
     PaStreamCallbackTimeInfo timeInfo = {0,0,0}; /* TODO: IMPLEMENT ME */
-    
+
     /*
 #if ( SOUND_VERSION > 0x030904 )
         audio_errinfo errinfo;
 #endif
 */
-    
+
     assert( stream );
 
     pthread_cleanup_push( &OnExit, stream );	/* Execute OnExit when exiting */
@@ -1938,7 +1939,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     if( ioctl( stream->playback->fd, SNDCTL_DSP_GETODELAY, &delay ) < 0 )
         return paUnanticipatedHostError;
-    
+
     return (PaOssStreamComponent_BufferSize( stream->playback ) - delay) / PaOssStreamComponent_FrameSize( stream->playback );
 }
 
