@@ -58,17 +58,33 @@ typedef struct PaAlsaStreamInfo
 }
 PaAlsaStreamInfo;
 
+/** Initialize host API specific structure, call this before setting relevant attributes. */
 void PaAlsa_InitializeStreamInfo( PaAlsaStreamInfo *info );
 
+/** Instruct whether to enable real-time priority when starting the audio thread.
+ *
+ * If this is turned on by the stream is started, the audio callback thread will be created
+ * with the FIFO scheduling policy, which is suitable for realtime operation.
+ **/
 void PaAlsa_EnableRealtimeScheduling( PaStream *s, int enable );
 
 #if 0
 void PaAlsa_EnableWatchdog( PaStream *s, int enable );
 #endif
 
-int PaAlsa_GetStreamInputCard( PaStream *s, int *card );
+/** Get the ALSA-lib card index of this stream's input device. */
+PaError PaAlsa_GetStreamInputCard( PaStream *s, int *card );
 
-int PaAlsa_GetStreamOutputCard( PaStream *s, int *card );
+/** Get the ALSA-lib card index of this stream's output device. */
+PaError PaAlsa_GetStreamOutputCard( PaStream *s, int *card );
+
+/** Set the number of periods (buffer fragments) to configure devices with.
+ *
+ * By default the number of periods is 4, this is the lowest number of periods that works well on
+ * the author's soundcard.
+ * @param numPeriods The number of periods.
+ */
+PaError PaAlsa_SetNumPeriods( int numPeriods );
 
 #ifdef __cplusplus
 }
