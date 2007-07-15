@@ -1596,7 +1596,8 @@ static void *PaOSS_AudioThreadProc( void *userData )
          */
         if( !initiateProcessing )
         {
-            PA_ENSURE( PaOssStream_WaitForFrames( stream, &framesAvail ) );  /* Wait on available frames */
+            /* Wait on available frames */
+            PA_ENSURE( PaOssStream_WaitForFrames( stream, &framesAvail ) );
             assert( framesAvail % stream->framesPerHostBuffer == 0 );
         }
         else

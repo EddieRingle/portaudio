@@ -75,6 +75,7 @@ static int aErr_;
 static PaError paErr_;     /* For use with ENSURE_PA */
 static pthread_t mainThread_;
 static char *jackErr_ = NULL;
+static const char* clientName_ = "PortAudio";
 
 #define STRINGIZE_HELPER(expr) #expr
 #define STRINGIZE(expr) STRINGIZE_HELPER(expr)
@@ -704,8 +705,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     PaError result = paNoError;
     PaJackHostApiRepresentation *jackHostApi;
     int activated = 0;
-    char *clientName;
-    int written;
+    jack_status_t jackStatus = 0;
     *hostApi = NULL;    /* Initialize to NULL */
 
     UNLESS( jackHostApi = (PaJackHostApiRepresentation*)
@@ -719,17 +719,14 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     /* Try to become a client of the JACK server.  If we cannot do
      * this, then this API cannot be used. */
 
-    clientName = PaUtil_GroupAllocateMemory( jackHostApi->deviceInfoMemory, jack_client_name_size() );
-    written = snprintf( clientName, jack_client_name_size(), "PortAudio-%d", getpid() );
-    assert( written < jack_client_name_size() );
-    jackHostApi->jack_client = jack_client_new( clientName );
-    if( jackHostApi->jack_client == NULL )
+    jackHostApi->jack_client = jack_client_open( clientName_, 0, &jackStatus );
+    if( !jackHostApi->jack_client )
     {
-       /* the V19 development docs say that if an implementation
-        * detects that it cannot be used, it should return a NULL
-        * interface and paNoError */
-       result = paNoError;
-       goto error;
+        /* the V19 development docs say that if an implementation
+         * detects that it cannot be used, it should return a NULL
+         * interface and paNoError */
+        result = paNoError;
+        goto error;
     }
 
     jackHostApi->hostApiIndex = hostApiIndex;
@@ -1734,4 +1731,26 @@ static double GetStreamCpuLoad( PaStream* s )
 {
     PaJackStream *stream = (PaJackStream*)s;
     return PaUtil_GetCpuLoad( &stream->cpuLoadMeasurer );
+}
+
+PaError PaJack_SetClientName( const char* name )
+{
+    if( strlen( name ) > jack_client_name_size() )
+    {
+        /* OK, I don't know any better error code */
+        return paInvalidFlag;
+    }
+    clientName_ = name;
+    return paNoError;
+}
+
+PaError PaJack_GetClientName(const char** clientName)
+{
+    PaError result = paNoError;
+    PaJackHostApiRepresentation* jackHostApi = NULL;
+    ENSURE_PA( PaUtil_GetHostApiRepresentation( (PaUtilHostApiRepresentation**)&jackHostApi, paJACK ) );
+    *clientName = jack_get_client_name( jackHostApi->jack_client );
+
+error:
+    return result;
 }
