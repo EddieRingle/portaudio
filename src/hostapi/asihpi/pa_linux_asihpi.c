@@ -2026,7 +2026,7 @@ static PaError StartStream( PaStream *s )
     {
         /* Create and start callback engine thread */
         /* Also waits 1 second for stream to be started by engine thread (otherwise aborts) */
-        PA_ENSURE_( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1. ) );
+        PA_ENSURE_( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1., 0 ) );
     }
     else
     {

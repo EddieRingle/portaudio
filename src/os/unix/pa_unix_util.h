@@ -187,6 +187,7 @@ PaError PaUnixThreading_Initialize();
  * @param threadFunc: The function to be executed in the child thread.
  * @param waitForChild: If not 0, wait for child thread to call PaUnixThread_NotifyParent. Less than 0 means
  * wait for ever, greater than 0 wait for the specified time.
+ * @param rtSched: Enable realtime scheduling?
  * @return: If timed out waiting on child, paTimedOut.
  */
 PaError PaUnixThread_New( PaUnixThread* self, void* (*threadFunc)( void* ), void* threadArg, PaTime waitForChild,
