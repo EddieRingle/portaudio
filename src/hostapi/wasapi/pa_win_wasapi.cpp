@@ -387,11 +387,6 @@ PaError PaWinWasapi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApi
     IMMDeviceCollection* spEndpoints=0;
     paWasapi->enumerator = 0;
 
-    if (!setupAVRT()){
-        PRINT(("Windows WASAPI : No AVRT! (not VISTA?)"));
-        goto error;
-    }
-
     hResult = CoCreateInstance(
              __uuidof(MMDeviceEnumerator), NULL,CLSCTX_INPROC_SERVER,
              __uuidof(IMMDeviceEnumerator),
@@ -1496,7 +1491,7 @@ static PaError CloseStream( PaStream* s )
     return result;
 }
 
-VOID ProcThread(void *client);
+DWORD WINAPI ProcThread(void *client);
 
 static PaError StartStream( PaStream *s )
 {
@@ -1525,7 +1520,7 @@ static PaError StartStream( PaStream *s )
     stream->hThread = CreateThread(
         NULL,              // no security attribute
         0,                 // default stack size
-        (LPTHREAD_START_ROUTINE) ProcThread,
+        ProcThread,
         (LPVOID) stream,    // thread parameter
         0,                 // not suspended
         &stream->dwThreadId);      // returns thread ID
@@ -1802,7 +1797,7 @@ MMCSS_activate(){
 }
 
 
-VOID
+DWORD WINAPI
 ProcThread(void* param){
 	HRESULT hResult;
 	MMCSS_activate();
@@ -1876,6 +1871,8 @@ ProcThread(void* param){
     }
 	stream->out.client->Stop();
     stream->closeRequest = false;
+    
+	return 0; 
 }
 
 
