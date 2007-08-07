@@ -5,7 +5,7 @@
  * ALSA implementation by Joshua Haberman and Arve Knudsen
  *
  * Copyright (c) 2002 Joshua Haberman <joshua@haberman.com>
- * Copyright (c) 2005-2006 Arve Knudsen <aknuds-1@broadpark.no>
+ * Copyright (c) 2005-2007 Arve Knudsen <aknuds-1@broadpark.no>
  *
  * Based on the Open Source API proposed by Ross Bencina
  * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
@@ -621,8 +621,12 @@ static PaError FillInDevInfo( PaAlsaHostApiRepresentation *alsaApi, HwDevInfo* d
     if( baseDeviceInfo->maxInputChannels > 0 || baseDeviceInfo->maxOutputChannels > 0 )
     {
         /* Make device default if there isn't already one or it is the ALSA "default" device */
-        if( baseApi->info.defaultInputDevice == paNoDevice && baseDeviceInfo->maxInputChannels > 0 )
+        if( (baseApi->info.defaultInputDevice == paNoDevice || !strcmp(deviceName->alsaName,
+                        "default" )) && baseDeviceInfo->maxInputChannels > 0 )
+        {
             baseApi->info.defaultInputDevice = *devIdx;
+            PA_DEBUG(("Default input device: %s\n", deviceName->name));
+        }
         if( (baseApi->info.defaultOutputDevice == paNoDevice || !strcmp(deviceName->alsaName,
                         "default" )) && baseDeviceInfo->maxOutputChannels > 0 )
         {
