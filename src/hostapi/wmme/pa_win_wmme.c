@@ -133,6 +133,7 @@ Non-critical stuff for the future:
 #include "pa_debugprint.h"
 
 #include "pa_win_wmme.h"
+#include "pa_win_waveformat.h"
 
 #if (defined(UNDER_CE))
 #pragma comment(lib, "Coredll.lib")
@@ -504,7 +505,7 @@ static PaError QueryFormatSupported( PaDeviceInfo *deviceInfo,
         int winMmeDeviceId, int channels, double sampleRate )
 {
     PaWinMmeDeviceInfo *winMmeDeviceInfo = (PaWinMmeDeviceInfo*)deviceInfo;
-    WAVEFORMATEX waveFormatEx;
+    PaWinWaveFormat waveFormat;
     
     if( sampleRate == 11025.0
         && ( (channels == 1 && (winMmeDeviceInfo->dwFormats & WAVE_FORMAT_1M16))
@@ -527,15 +528,19 @@ static PaError QueryFormatSupported( PaDeviceInfo *deviceInfo,
         return paNoError;
     }
 
-    waveFormatEx.wFormatTag = WAVE_FORMAT_PCM;
-    waveFormatEx.nChannels = (WORD)channels;
-    waveFormatEx.nSamplesPerSec = (DWORD)sampleRate;
-    waveFormatEx.nAvgBytesPerSec = waveFormatEx.nSamplesPerSec * channels * sizeof(short);
-    waveFormatEx.nBlockAlign = (WORD)(channels * sizeof(short));
-    waveFormatEx.wBitsPerSample = 16;
-    waveFormatEx.cbSize = 0;
+    /* first, attempt to query the device using WAVEFORMATEXTENSIBLE, 
+       if this fails we fall back to WAVEFORMATEX */
 
-    return waveFormatExQueryFunction( winMmeDeviceId, &waveFormatEx );
+    /* @todo at the moment we only query with 16 bit sample format and directout speaker config*/
+    PaWin_InitializeWaveFormatExtensible( &waveFormat, channels, 
+            paInt16, sampleRate, sizeof(short), PAWIN_SPEAKER_DIRECTOUT );
+
+    if( waveFormatExQueryFunction( winMmeDeviceId, (WAVEFORMATEX*)&waveFormat ) == paNoError )
+        return paNoError;
+
+    PaWin_InitializeWaveFormatEx( &waveFormat, channels, paInt16, sampleRate, sizeof(short) );
+
+    return waveFormatExQueryFunction( winMmeDeviceId, (WAVEFORMATEX*)&waveFormat );
 }
 
 
@@ -1579,7 +1584,7 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
         PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers,
         unsigned long bytesPerHostSample,
         double sampleRate, PaWinMmeDeviceAndChannelCount *devices,
-        unsigned int deviceCount, int isInput );
+        unsigned int deviceCount, PaWinWaveFormatChannelMask channelMask, int isInput );
 static PaError TerminateWaveHandles( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers, int isInput, int currentlyProcessingAnError );
 static PaError InitializeWaveHeaders( PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers,
         unsigned long hostBufferCount,
@@ -1603,13 +1608,11 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
         PaWinMmeSingleDirectionHandlesAndBuffers *handlesAndBuffers,
         unsigned long bytesPerHostSample,
         double sampleRate, PaWinMmeDeviceAndChannelCount *devices,
-        unsigned int deviceCount, int isInput )
+        unsigned int deviceCount, PaWinWaveFormatChannelMask channelMask, int isInput )
 {
     PaError result;
     MMRESULT mmresult;
-    unsigned long bytesPerFrame;
-    WAVEFORMATEX wfx;
-    signed int i;
+    signed int i, j;
 
     /* for error cleanup we expect that InitializeSingleDirectionHandlesAndBuffers()
         has already been called to zero some fields */       
@@ -1637,64 +1640,95 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
             ((HWAVEOUT*)handlesAndBuffers->waveHandles)[i] = 0;
     }
 
-    wfx.wFormatTag = WAVE_FORMAT_PCM;
-    wfx.nSamplesPerSec = (DWORD) sampleRate;
-    wfx.cbSize = 0;
-    
     for( i = 0; i < (signed int)deviceCount; ++i )
     {
-        UINT winMmeDeviceId;
+        PaWinWaveFormat waveFormat;
+        UINT winMmeDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, devices[i].device );
+    
+        /* @todo: consider providing a flag or #define to not try waveformat extensible 
+           this could just initialize j to 1 the first time round. */
 
-        winMmeDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, devices[i].device );
-        wfx.nChannels = (WORD)devices[i].channelCount;
-
-        bytesPerFrame = wfx.nChannels * bytesPerHostSample;
-
-        wfx.nAvgBytesPerSec = (DWORD)(bytesPerFrame * sampleRate);
-        wfx.nBlockAlign = (WORD)bytesPerFrame;
-        wfx.wBitsPerSample = (WORD)((bytesPerFrame/wfx.nChannels) * 8);
-
-        /* REVIEW: consider not firing an event for input when a full duplex
-            stream is being used. this would probably depend on the
-            neverDropInput flag. */
-
-        if( isInput )
-            mmresult = waveInOpen( &((HWAVEIN*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, &wfx,
-                               (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
-        else
-            mmresult = waveOutOpen( &((HWAVEOUT*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, &wfx,
-                                (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
-
-        if( mmresult != MMSYSERR_NOERROR )
+        for( j = 0; j < 2; ++j )
         {
-            switch( mmresult )
-            {
-                case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
-                    result = paDeviceUnavailable;
-                    break;
-                case MMSYSERR_NODRIVER:	    /* No device driver is present. */
-                    result = paDeviceUnavailable;
-                    break;
-                case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
-                    result = paInsufficientMemory;
-                    break;
+            if( j == 0 )
+            { 
+                /* first, attempt to open the device using WAVEFORMATEXTENSIBLE, 
+                    if this fails we fall back to WAVEFORMATEX */
 
-                case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
-                    /* falls through */
-                case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
-                    /* falls through */
-                default:
-                    result = paUnanticipatedHostError;
-                    if( isInput )
-                    {
-                        PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
-                    }
-                    else
-                    {
-                        PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
-                    }
+                /* @todo at the moment we only use 16 bit sample format */
+                PaWin_InitializeWaveFormatExtensible( &waveFormat, devices[i].channelCount, 
+                        paInt16, sampleRate, sizeof(short), channelMask );
+
             }
-            goto error;
+            else
+            {
+                /* retry with WAVEFORMATEX */
+
+                PaWin_InitializeWaveFormatEx( &waveFormat, devices[i].channelCount, 
+                        paInt16, sampleRate, sizeof(short) );
+            }
+
+            /* REVIEW: consider not firing an event for input when a full duplex
+                stream is being used. this would probably depend on the
+                neverDropInput flag. */
+
+            if( isInput )
+            {
+                mmresult = waveInOpen( &((HWAVEIN*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, 
+                                    (WAVEFORMATEX*)&waveFormat,
+                               (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
+            }
+            else
+            {
+                mmresult = waveOutOpen( &((HWAVEOUT*)handlesAndBuffers->waveHandles)[i], winMmeDeviceId, 
+                                    (WAVEFORMATEX*)&waveFormat,
+                                (DWORD_PTR)handlesAndBuffers->bufferEvent, (DWORD_PTR)0, CALLBACK_EVENT );
+            }
+
+            if( mmresult == MMSYSERR_NOERROR )
+            {
+                break; /* success */
+            }
+            else if( j == 0 )
+            {
+                continue; /* try again with WAVEFORMATEX */
+            }
+            else
+            {
+                switch( mmresult )
+                {
+                    case MMSYSERR_ALLOCATED:    /* Specified resource is already allocated. */
+                        result = paDeviceUnavailable;
+                        break;
+                    case MMSYSERR_NODRIVER:	    /* No device driver is present. */
+                        result = paDeviceUnavailable;
+                        break;
+                    case MMSYSERR_NOMEM:	    /* Unable to allocate or lock memory. */
+                        result = paInsufficientMemory;
+                        break;
+
+                    case MMSYSERR_BADDEVICEID:	/* Specified device identifier is out of range. */
+                        /* falls through */
+
+                    case WAVERR_BADFORMAT:      /* Attempted to open with an unsupported waveform-audio format. */
+                                                    /* This can also occur if we try to open the device with an unsupported
+                                                     * number of channels. This is attempted when device*ChannelCountIsKnown is
+                                                     * set to 0. 
+                                                     */
+                        /* falls through */
+                    default:
+                        result = paUnanticipatedHostError;
+                        if( isInput )
+                        {
+                            PA_MME_SET_LAST_WAVEIN_ERROR( mmresult );
+                        }
+                        else
+                        {
+                            PA_MME_SET_LAST_WAVEOUT_ERROR( mmresult );
+                        }
+                }
+                goto error;
+            }
         }
     }
 
@@ -2083,6 +2117,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     double suggestedInputLatency, suggestedOutputLatency;
     PaWinMmeStreamInfo *inputStreamInfo, *outputStreamInfo;
+    PaWinWaveFormatChannelMask inputChannelMask, outputChannelMask;
     unsigned long framesPerHostInputBuffer;
     unsigned long hostInputBufferCount;
     unsigned long framesPerHostOutputBuffer;
@@ -2121,6 +2156,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         hostInputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputSampleFormat );
+
+        if( inputDeviceCount != 1 ){
+            /* always use direct speakers when using multi-device multichannel mode */
+            inputChannelMask = PAWIN_SPEAKER_DIRECTOUT;           
+        }
+        else
+        {
+            if( inputStreamInfo && inputStreamInfo->flags & paWinMmeUseChannelMask )
+                inputChannelMask = inputStreamInfo->channelMask;
+            else
+                inputChannelMask = PaWin_DefaultChannelMask( inputDevices[0].channelCount );
+        }
 	}
     else
     {
@@ -2158,6 +2205,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         hostOutputSampleFormat =
             PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputSampleFormat );
+
+        if( outputDeviceCount != 1 ){
+            /* always use direct speakers when using multi-device multichannel mode */
+            outputChannelMask = PAWIN_SPEAKER_DIRECTOUT;           
+        }
+        else
+        {
+            if( outputStreamInfo && outputStreamInfo->flags & paWinMmeUseChannelMask )
+                outputChannelMask = outputStreamInfo->channelMask;
+            else
+                outputChannelMask = PaWin_DefaultChannelMask( outputDevices[0].channelCount );
+        }
     }
     else
     {
@@ -2279,7 +2338,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         result = InitializeWaveHandles( winMmeHostApi, &stream->input,
                 stream->bufferProcessor.bytesPerHostInputSample, sampleRate,
-                inputDevices, inputDeviceCount, 1 /* isInput */ );
+                inputDevices, inputDeviceCount, inputChannelMask, 1 /* isInput */ );
         if( result != paNoError ) goto error;
     }
     
@@ -2287,7 +2346,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         result = InitializeWaveHandles( winMmeHostApi, &stream->output,
                 stream->bufferProcessor.bytesPerHostOutputSample, sampleRate,
-                outputDevices, outputDeviceCount, 0 /* isInput */ );
+                outputDevices, outputDeviceCount, outputChannelMask, 0 /* isInput */ );
         if( result != paNoError ) goto error;
     }
 

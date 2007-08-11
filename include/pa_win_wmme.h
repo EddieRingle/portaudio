@@ -44,6 +44,7 @@
 
 
 #include "portaudio.h"
+#include "pa_win_waveformat.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -53,7 +54,7 @@ extern "C"
 
 #define paWinMmeUseLowLevelLatencyParameters            (0x01)
 #define paWinMmeUseMultipleDevices                      (0x02)  /* use mme specific multiple device feature */
-
+#define paWinMmeUseChannelMask                          (0x04)
 
 /* By default, the mme implementation drops the processing thread's priority
     to THREAD_PRIORITY_NORMAL and sleeps the thread if the CPU load exceeds 100%
@@ -105,6 +106,15 @@ typedef struct PaWinMmeStreamInfo{
     */
     PaWinMmeDeviceAndChannelCount *devices;
     unsigned long deviceCount;
+
+    /*
+        support for WAVEFORMATEXTENSIBLE channel masks. If flags contains
+        paWinMmeUseChannelMask this allows you to specify which speakers 
+        to address in a multichannel stream. Constants for channelMask
+        are specified in pa_win_waveformat.h
+
+    */
+    PaWinWaveFormatChannelMask channelMask;
 
 }PaWinMmeStreamInfo;
 
