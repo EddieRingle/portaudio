@@ -374,6 +374,8 @@ typedef struct
 {
     PaDeviceInfo inheritedDeviceInfo;
     DWORD dwFormats; /**<< standard formats bitmask from the WAVEINCAPS and WAVEOUTCAPS structures */
+    char deviceInputChannelCountIsKnown; /**<< if the system returns 0xFFFF then we don't really know the number of supported channels (1=>known, 0=>unknown)*/
+    char deviceOutputChannelCountIsKnown; /**<< if the system returns 0xFFFF then we don't really know the number of supported channels (1=>known, 0=>unknown)*/
 }
 PaWinMmeDeviceInfo;
 
@@ -616,15 +618,23 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
     }
     deviceInfo->name = deviceName;
 
-    deviceInfo->maxInputChannels = wic.wChannels;
-    /* Sometimes a device can return a rediculously large number of channels.
-     * This happened with an SBLive card on a Windows ME box.
-     * If that happens, then force it to 2 channels.  PLB20010413
+    if( wic.wChannels == 0xFFFF || wic.wChannels < 1 || wic.wChannels > 255 ){
+        /* For Windows versions using WDM (possibly Windows 98 ME and later)
+         * the kernel mixer sits between the application and the driver. As a result,
+         * wave*GetDevCaps often kernel mixer channel counts, which are unlimited.
+         * When this happens we assume the device is stereo and set a flag
+         * so that other channel counts can be tried with OpenStream -- i.e. when
+         * device*ChannelCountIsKnown is false, OpenStream will try whatever
+         * channel count you supply.
+         * see also InitializeOutputDeviceInfo() below.
      */
-    if( (deviceInfo->maxInputChannels < 1) || (deviceInfo->maxInputChannels > 256) )
-    {
-        PA_DEBUG(("Pa_GetDeviceInfo: Num input channels reported as %d! Changed to 2.\n", deviceInfo->maxInputChannels ));
+
+        PA_DEBUG(("Pa_GetDeviceInfo: Num input channels reported as %d! Changed to 2.\n", wic.wChannels ));
         deviceInfo->maxInputChannels = 2;
+        winMmeDeviceInfo->deviceInputChannelCountIsKnown = 0;
+    }else{
+        deviceInfo->maxInputChannels = wic.wChannels;
+        winMmeDeviceInfo->deviceInputChannelCountIsKnown = 1;
     }
 
     winMmeDeviceInfo->dwFormats = wic.dwFormats;
@@ -692,15 +702,23 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     }
     deviceInfo->name = deviceName;
 
-    deviceInfo->maxOutputChannels = woc.wChannels;
-    /* Sometimes a device can return a rediculously large number of channels.
-     * This happened with an SBLive card on a Windows ME box.
-     * It also happens on Win XP!
+    if( woc.wChannels == 0xFFFF || woc.wChannels < 1 || woc.wChannels > 255 ){
+        /* For Windows versions using WDM (possibly Windows 98 ME and later)
+         * the kernel mixer sits between the application and the driver. As a result,
+         * wave*GetDevCaps often kernel mixer channel counts, which are unlimited.
+         * When this happens we assume the device is stereo and set a flag
+         * so that other channel counts can be tried with OpenStream -- i.e. when
+         * device*ChannelCountIsKnown is false, OpenStream will try whatever
+         * channel count you supply.
+         * see also InitializeInputDeviceInfo() above.
      */
-    if( (deviceInfo->maxOutputChannels < 1) || (deviceInfo->maxOutputChannels > 256) )
-    {
-        PA_DEBUG(("Pa_GetDeviceInfo: Num output channels reported as %d! Changed to 2.\n", deviceInfo->maxOutputChannels ));
+
+        PA_DEBUG(("Pa_GetDeviceInfo: Num output channels reported as %d! Changed to 2.\n", woc.wChannels ));
         deviceInfo->maxOutputChannels = 2;
+        winMmeDeviceInfo->deviceOutputChannelCountIsKnown = 0;
+    }else{
+        deviceInfo->maxOutputChannels = woc.wChannels;
+        winMmeDeviceInfo->deviceOutputChannelCountIsKnown = 1;
     }
 
     winMmeDeviceInfo->dwFormats = woc.dwFormats;
@@ -845,7 +863,9 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->hostApi = hostApiIndex;
 
                 deviceInfo->maxInputChannels = 0;
+                wmmeDeviceInfo->deviceInputChannelCountIsKnown = 1;
                 deviceInfo->maxOutputChannels = 0;
+                wmmeDeviceInfo->deviceOutputChannelCountIsKnown = 1;
 
                 deviceInfo->defaultLowInputLatency = defaultLowLatency;
                 deviceInfo->defaultLowOutputLatency = defaultLowLatency;
@@ -886,7 +906,9 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->hostApi = hostApiIndex;
 
                 deviceInfo->maxInputChannels = 0;
+                wmmeDeviceInfo->deviceInputChannelCountIsKnown = 1;
                 deviceInfo->maxOutputChannels = 0;
+                wmmeDeviceInfo->deviceOutputChannelCountIsKnown = 1;
 
                 deviceInfo->defaultLowInputLatency = defaultLowLatency;
                 deviceInfo->defaultLowOutputLatency = defaultLowLatency;
@@ -967,6 +989,34 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 }
 
 
+static PaError IsInputChannelCountSupported( PaWinMmeDeviceInfo* deviceInfo, int channelCount )
+{
+    PaError result = paNoError;
+
+    if( channelCount > 0
+            && deviceInfo->deviceInputChannelCountIsKnown
+            && channelCount > deviceInfo->inheritedDeviceInfo.maxInputChannels ){
+
+        result = paInvalidChannelCount; 
+    }
+
+    return result;
+}
+
+static PaError IsOutputChannelCountSupported( PaWinMmeDeviceInfo* deviceInfo, int channelCount )
+{
+    PaError result = paNoError;
+
+    if( channelCount > 0
+            && deviceInfo->deviceOutputChannelCountIsKnown
+            && channelCount > deviceInfo->inheritedDeviceInfo.maxOutputChannels ){
+
+        result = paInvalidChannelCount; 
+    }
+
+    return result;
+}
+
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
                                   const PaStreamParameters *outputParameters,
@@ -1011,9 +1061,13 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                 inputDeviceInfo = hostApi->deviceInfos[ inputStreamInfo->devices[i].device ];
 
                 /* check that input device can support inputChannelCount */
-                if( inputStreamInfo->devices[i].channelCount <= 0
-                        || inputStreamInfo->devices[i].channelCount > inputDeviceInfo->maxInputChannels )
+                if( inputStreamInfo->devices[i].channelCount < 1 )
                     return paInvalidChannelCount;
+
+                paerror = IsInputChannelCountSupported( (PaWinMmeDeviceInfo*)inputDeviceInfo, 
+                        inputStreamInfo->devices[i].channelCount );
+                if( paerror != paNoError )
+                    return paerror;
 
                 /* test for valid sample rate, see comment above */
                 winMmeInputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputStreamInfo->devices[i].device );
@@ -1033,8 +1087,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             inputDeviceInfo = hostApi->deviceInfos[ inputParameters->device ];
 
             /* check that input device can support inputChannelCount */
-            if( inputChannelCount > inputDeviceInfo->maxInputChannels )
-                return paInvalidChannelCount;
+            paerror = IsInputChannelCountSupported( (PaWinMmeDeviceInfo*)inputDeviceInfo, inputChannelCount );
+            if( paerror != paNoError )
+                return paerror;
 
             /* test for valid sample rate, see comment above */
             winMmeInputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, inputParameters->device );
@@ -1066,9 +1121,13 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                 outputDeviceInfo = hostApi->deviceInfos[ outputStreamInfo->devices[i].device ];
 
                 /* check that output device can support outputChannelCount */
-                if( outputStreamInfo->devices[i].channelCount <= 0
-                        || outputStreamInfo->devices[i].channelCount > outputDeviceInfo->maxOutputChannels )
+                if( outputStreamInfo->devices[i].channelCount < 1 )
                     return paInvalidChannelCount;
+
+                paerror = IsOutputChannelCountSupported( (PaWinMmeDeviceInfo*)outputDeviceInfo, 
+                        outputStreamInfo->devices[i].channelCount );
+                if( paerror != paNoError )
+                    return paerror;
 
                 /* test for valid sample rate, see comment above */
                 winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputStreamInfo->devices[i].device );
@@ -1088,8 +1147,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             outputDeviceInfo = hostApi->deviceInfos[ outputParameters->device ];
 
             /* check that output device can support outputChannelCount */
-            if( outputChannelCount > outputDeviceInfo->maxOutputChannels )
-                return paInvalidChannelCount;
+            paerror = IsOutputChannelCountSupported( (PaWinMmeDeviceInfo*)outputDeviceInfo, outputChannelCount );
+            if( paerror != paNoError )
+                return paerror;
 
             /* test for valid sample rate, see comment above */
             winMmeOutputDeviceId = LocalDeviceIndexToWinMmeDeviceId( winMmeHostApi, outputParameters->device );
@@ -1952,12 +2012,20 @@ static PaError ValidateInputChannelCounts(
         unsigned long deviceCount )
 {
     unsigned int i;
+    PaWinMmeDeviceInfo *inputDeviceInfo;
+    PaError paerror;
 
 	for( i=0; i < deviceCount; ++i )
 	{
-		if( devices[i].channelCount < 1 || devices[i].channelCount
-					> hostApi->deviceInfos[ devices[i].device ]->maxInputChannels )
+        if( devices[i].channelCount < 1 )
         	return paInvalidChannelCount;
+
+        inputDeviceInfo = 
+                (PaWinMmeDeviceInfo*)hostApi->deviceInfos[ devices[i].device ];
+
+        paerror = IsInputChannelCountSupported( inputDeviceInfo, devices[i].channelCount );
+        if( paerror != paNoError )
+            return paerror;
 	}
 
     return paNoError;
@@ -1969,12 +2037,20 @@ static PaError ValidateOutputChannelCounts(
         unsigned long deviceCount )
 {
     unsigned int i;
+    PaWinMmeDeviceInfo *outputDeviceInfo;
+    PaError paerror;
 
 	for( i=0; i < deviceCount; ++i )
 	{
-		if( devices[i].channelCount < 1 || devices[i].channelCount
-					> hostApi->deviceInfos[ devices[i].device ]->maxOutputChannels )
+        if( devices[i].channelCount < 1 )
         	return paInvalidChannelCount;
+
+        outputDeviceInfo = 
+                (PaWinMmeDeviceInfo*)hostApi->deviceInfos[ devices[i].device ];
+
+        paerror = IsOutputChannelCountSupported( outputDeviceInfo, devices[i].channelCount );
+        if( paerror != paNoError )
+            return paerror;
 	}
 
     return paNoError;
