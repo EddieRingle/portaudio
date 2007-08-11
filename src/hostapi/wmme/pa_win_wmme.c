@@ -2642,7 +2642,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         for( i=0; i<stream->input.deviceCount; ++i )
                         {
                              /* we have stored the number of channels in the buffer in dwUser */
-                            int channelCount = stream->input.waveHeaders[i][ hostInputBufferIndex ].dwUser;
+                            int channelCount = (int)stream->input.waveHeaders[i][ hostInputBufferIndex ].dwUser;
                             
                             PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, channel,
                                     stream->input.waveHeaders[i][ hostInputBufferIndex ].lpData +
@@ -2663,7 +2663,7 @@ static DWORD WINAPI ProcessingThreadProc( void *pArg )
                         for( i=0; i<stream->output.deviceCount; ++i )
                         {
                             /* we have stored the number of channels in the buffer in dwUser */
-                            int channelCount = stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
+                            int channelCount = (int)stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
 
                             PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
                                     stream->output.waveHeaders[i][ hostOutputBufferIndex ].lpData +
@@ -2912,7 +2912,7 @@ static PaError StartStream( PaStream *s )
                     for( j=0; j<stream->output.deviceCount; ++j )
                     {
                         /* we have stored the number of channels in the buffer in dwUser */
-                        int channelCount = stream->output.waveHeaders[j][i].dwUser;
+                        int channelCount = (int)stream->output.waveHeaders[j][i].dwUser;
 
                         PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
                                 stream->output.waveHeaders[j][i].lpData +
@@ -3120,7 +3120,7 @@ static PaError StopStream( PaStream *s )
                 for( i=0; i<stream->output.deviceCount; ++i )
                 {
                     /* we have stored the number of channels in the buffer in dwUser */
-                    int channelCount = stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
+                    int channelCount = (int)stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
 
                     PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
                             stream->output.waveHeaders[i][ hostOutputBufferIndex ].lpData +
@@ -3372,7 +3372,7 @@ static PaError ReadStream( PaStream* s,
                 for( i=0; i<stream->input.deviceCount; ++i )
                 {
                     /* we have stored the number of channels in the buffer in dwUser */
-                    int channelCount = stream->input.waveHeaders[i][ hostInputBufferIndex ].dwUser;
+                    int channelCount = (int)stream->input.waveHeaders[i][ hostInputBufferIndex ].dwUser;
 
                     PaUtil_SetInterleavedInputChannels( &stream->bufferProcessor, channel,
                             stream->input.waveHeaders[i][ hostInputBufferIndex ].lpData +
@@ -3477,7 +3477,7 @@ static PaError WriteStream( PaStream* s,
                 for( i=0; i<stream->output.deviceCount; ++i )
                 {
                     /* we have stored the number of channels in the buffer in dwUser */
-                    int channelCount = stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
+                    int channelCount = (int)stream->output.waveHeaders[i][ hostOutputBufferIndex ].dwUser;
 
                     PaUtil_SetInterleavedOutputChannels( &stream->bufferProcessor, channel,
                             stream->output.waveHeaders[i][ hostOutputBufferIndex ].lpData +
