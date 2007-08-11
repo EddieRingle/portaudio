@@ -748,6 +748,8 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     PaWinMmeDeviceInfo *deviceInfoArray;
     int deviceInfoInitializationSucceeded;
     PaTime defaultLowLatency, defaultHighLatency;
+    DWORD waveInPreferredDevice, waveOutPreferredDevice;
+    DWORD preferredDeviceStatusFlags;
 
     winMmeHostApi = (PaWinMmeHostApiRepresentation*)PaUtil_AllocateMemory( sizeof(PaWinMmeHostApiRepresentation) );
     if( !winMmeHostApi )
@@ -779,6 +781,19 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     winMmeHostApi->inputDeviceCount = 0;
     winMmeHostApi->outputDeviceCount = 0;
 
+#if !defined(DRVM_MAPPER_PREFERRED_GET)
+/* DRVM_MAPPER_PREFERRED_GET is defined in mmddk.h but we avoid a dependency on the DDK by defining it here */
+#define DRVM_MAPPER_PREFERRED_GET    (0x2000+21)
+#endif
+
+    /* the following calls assume that if wave*Message fails the preferred device parameter won't be modified */
+    preferredDeviceStatusFlags = 0;
+    waveInPreferredDevice = -1;
+    waveInMessage( (HWAVEIN)WAVE_MAPPER, DRVM_MAPPER_PREFERRED_GET, (DWORD)&waveInPreferredDevice, (DWORD)&preferredDeviceStatusFlags );
+
+    preferredDeviceStatusFlags = 0;
+    waveOutPreferredDevice = -1;
+    waveOutMessage( (HWAVEOUT)WAVE_MAPPER, DRVM_MAPPER_PREFERRED_GET, (DWORD)&waveOutPreferredDevice, (DWORD)&preferredDeviceStatusFlags );
 
     maximumPossibleDeviceCount = 0;
 
@@ -843,8 +858,14 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     goto error;
 
                 if( deviceInfoInitializationSucceeded ){
-                    if( (*hostApi)->info.defaultInputDevice == paNoDevice )
+                    if( (*hostApi)->info.defaultInputDevice == paNoDevice ){
+                        /* if there is currently no default device, use the first one available */
                         (*hostApi)->info.defaultInputDevice = (*hostApi)->info.deviceCount;
+                    
+                    }else if( winMmeDeviceId == waveInPreferredDevice ){
+                        /* set the default device to the system preferred device */
+                        (*hostApi)->info.defaultInputDevice = (*hostApi)->info.deviceCount;
+                    }
 
                     winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = winMmeDeviceId;
                     (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
@@ -878,8 +899,14 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     goto error;
 
                 if( deviceInfoInitializationSucceeded ){
-                    if( (*hostApi)->info.defaultOutputDevice == paNoDevice )
+                    if( (*hostApi)->info.defaultOutputDevice == paNoDevice ){
+                        /* if there is currently no default device, use the first one available */
                         (*hostApi)->info.defaultOutputDevice = (*hostApi)->info.deviceCount;
+
+                    }else if( winMmeDeviceId == waveOutPreferredDevice ){
+                        /* set the default device to the system preferred device */
+                        (*hostApi)->info.defaultOutputDevice = (*hostApi)->info.deviceCount;
+                    }
 
                     winMmeHostApi->winMmeDeviceIds[ (*hostApi)->info.deviceCount ] = winMmeDeviceId;
                     (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
@@ -891,7 +918,6 @@ PaError PaWinMme_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         }
     }
     
-
     InitializeDefaultDeviceIdsFromEnv( winMmeHostApi );
 
     (*hostApi)->Terminate = Terminate;
