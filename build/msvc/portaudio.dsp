@@ -228,6 +228,10 @@ SOURCE=..\..\src\os\win\pa_win_util.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\..\src\os\win\pa_win_waveformat.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\..\src\os\win\pa_x86_plain_converters.c
 # End Source File
 # End Group
