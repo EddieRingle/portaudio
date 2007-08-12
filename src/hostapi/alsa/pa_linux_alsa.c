@@ -1730,12 +1730,15 @@ static PaError PaAlsaStream_DetermineFramesPerBuffer( PaAlsaStream* self, double
 
             while( optimalPeriodSize >= periodSize )
             {
-                if( snd_pcm_hw_params_test_period_size( self->capture.pcm, hwParamsCapture, optimalPeriodSize, 0 ) < 0 )
-                    continue;
-                if( snd_pcm_hw_params_test_period_size( self->playback.pcm, hwParamsPlayback, optimalPeriodSize, 0 ) >= 0 )
+                if( snd_pcm_hw_params_test_period_size( self->capture.pcm, hwParamsCapture, optimalPeriodSize, 0 )
+                        >= 0 && snd_pcm_hw_params_test_period_size( self->playback.pcm, hwParamsPlayback,
+                            optimalPeriodSize, 0 ) >= 0 )
+                {
                     break;
+                }
                 optimalPeriodSize /= 2;
             }
+        
             if( optimalPeriodSize > periodSize )
                 periodSize = optimalPeriodSize;
 
