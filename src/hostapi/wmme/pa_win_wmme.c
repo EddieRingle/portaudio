@@ -88,6 +88,10 @@ Non-critical stuff for the future:
     
     @todo define UNICODE and _UNICODE in the project settings and see what breaks
 
+    @todo refactor conversion of MMSYSTEM errors into PA arrors into a single function.
+
+    @todo cleanup WAVEFORMATEXTENSIBLE retry in InitializeWaveHandles to not use a for loop
+
 */
 
 /*
