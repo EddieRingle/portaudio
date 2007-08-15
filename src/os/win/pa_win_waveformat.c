@@ -43,13 +43,16 @@
 #include <mmsystem.h>
 
 
-static GUID pawin_ksDataFormatSubtypePcm = 
-	{ (USHORT)(WAVE_FORMAT_PCM), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 };
-
+#if !defined(WAVE_FORMAT_EXTENSIBLE)
+#define  WAVE_FORMAT_EXTENSIBLE         0xFFFE
+#endif
 
 #if !defined(WAVE_FORMAT_IEEE_FLOAT)
-#define  WAVE_FORMAT_IEEE_FLOAT 0x0003
+#define  WAVE_FORMAT_IEEE_FLOAT         0x0003
 #endif
+
+static GUID pawin_ksDataFormatSubtypePcm = 
+	{ (USHORT)(WAVE_FORMAT_PCM), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 };
 
 static GUID pawin_ksDataFormatSubtypeIeeeFloat = 
 	{ (USHORT)(WAVE_FORMAT_IEEE_FLOAT), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 };
@@ -79,10 +82,6 @@ void PaWin_InitializeWaveFormatExtensible( PaWinWaveFormat *waveFormat,
 {
 	WAVEFORMATEX *waveFormatEx = (WAVEFORMATEX*)waveFormat;
 	unsigned long bytesPerFrame = numChannels * bytesPerHostSample;
-
-#if !defined(WAVE_FORMAT_EXTENSIBLE)
-#define  WAVE_FORMAT_EXTENSIBLE                 0xFFFE
-#endif
 
 	waveFormatEx->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
 	waveFormatEx->nChannels = (WORD)numChannels;
