@@ -1140,13 +1140,13 @@ static int PaWinDs_GetMinLatencyFrames( double sampleRate )
 }
 
 
-static HRESULT InitInputBuffer( PaWinDsStream *stream, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitInputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     DSCBUFFERDESC  captureDesc;
     PaWinWaveFormat waveFormat;
     HRESULT        result;
     
-    stream->bytesPerInputFrame = nChannels * sizeof(short);
+    stream->bytesPerInputFrame = nChannels * Pa_GetSampleSize(sampleFormat);
 
     stream->inputSize = bytesPerBuffer;
     // ----------------------------------------------------------------------
@@ -1161,13 +1161,12 @@ static HRESULT InitInputBuffer( PaWinDsStream *stream, unsigned long nFrameRate,
 
     // first try WAVEFORMATEXTENSIBLE. if this fails, fall back to WAVEFORMATEX
     PaWin_InitializeWaveFormatExtensible( &waveFormat, nChannels, 
-                paInt16, nFrameRate, sizeof(short), PaWin_DefaultChannelMask( nChannels ) );
+                sampleFormat, nFrameRate, PaWin_DefaultChannelMask( nChannels ) );
 
     if( IDirectSoundCapture_CreateCaptureBuffer( stream->pDirectSoundCapture,
                   &captureDesc, &stream->pDirectSoundInputBuffer, NULL) != DS_OK )
     {
-        PaWin_InitializeWaveFormatEx( &waveFormat, nChannels, 
-                paInt16, nFrameRate, sizeof(short) );
+        PaWin_InitializeWaveFormatEx( &waveFormat, nChannels, sampleFormat, nFrameRate );
 
         if ((result = IDirectSoundCapture_CreateCaptureBuffer( stream->pDirectSoundCapture,
                     &captureDesc, &stream->pDirectSoundInputBuffer, NULL)) != DS_OK) return result;
@@ -1178,7 +1177,7 @@ static HRESULT InitInputBuffer( PaWinDsStream *stream, unsigned long nFrameRate,
 }
 
 
-static HRESULT InitOutputBuffer( PaWinDsStream *stream, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitOutputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
 {
     /** @todo FIXME: if InitOutputBuffer returns an error I'm not sure it frees all resources cleanly */
 
@@ -1193,12 +1192,13 @@ static HRESULT InitOutputBuffer( PaWinDsStream *stream, unsigned long nFrameRate
     DSBUFFERDESC   secondaryDesc;
     unsigned char* pDSBuffData;
     LARGE_INTEGER  counterFrequency;
+    int bytesPerSample = Pa_GetSampleSize(sampleFormat);
 
     stream->outputBufferSizeBytes = bytesPerBuffer;
     stream->outputIsRunning = FALSE;
     stream->outputUnderflowCount = 0;
     stream->dsw_framesWritten = 0;
-    stream->bytesPerOutputFrame = nChannels * sizeof(short);
+    stream->bytesPerOutputFrame = nChannels * bytesPerSample;
 
     // We were using getForegroundWindow() but sometimes the ForegroundWindow may not be the
     // applications's window. Also if that window is closed before the Buffer is closed
@@ -1237,12 +1237,11 @@ static HRESULT InitOutputBuffer( PaWinDsStream *stream, unsigned long nFrameRate
 
     // first try WAVEFORMATEXTENSIBLE. if this fails, fall back to WAVEFORMATEX
     PaWin_InitializeWaveFormatExtensible( &waveFormat, nChannels, 
-                paInt16, nFrameRate, sizeof(short), PaWin_DefaultChannelMask( nChannels ) );
+                sampleFormat, nFrameRate, PaWin_DefaultChannelMask( nChannels ) );
 
     if( IDirectSoundBuffer_SetFormat( pPrimaryBuffer, (WAVEFORMATEX*)&waveFormat) != DS_OK )
     {
-        PaWin_InitializeWaveFormatEx( &waveFormat, nChannels, 
-                paInt16, nFrameRate, sizeof(short) );
+        PaWin_InitializeWaveFormatEx( &waveFormat, nChannels, sampleFormat, nFrameRate );
 
         if((result = IDirectSoundBuffer_SetFormat( pPrimaryBuffer, (WAVEFORMATEX*)&waveFormat)) != DS_OK) return result;
     }
@@ -1266,7 +1265,7 @@ static HRESULT InitOutputBuffer( PaWinDsStream *stream, unsigned long nFrameRate
     if ((result = IDirectSoundBuffer_Unlock( stream->pDirectSoundOutputBuffer, pDSBuffData, dwDataLen, NULL, 0)) != DS_OK) return result;
     if( QueryPerformanceFrequency( &counterFrequency ) )
     {
-        int framesInBuffer = bytesPerBuffer / (nChannels * sizeof(short));
+        int framesInBuffer = bytesPerBuffer / (nChannels * bytesPerSample);
         stream->perfCounterTicksPerBuffer.QuadPart = (counterFrequency.QuadPart * framesInBuffer) / nFrameRate;
     }
     else
@@ -1431,8 +1430,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( inputParameters )
     {
         /* IMPLEMENT ME - establish which  host formats are available */
+        PaSampleFormat nativeInputFormats = paInt16;
+        //PaSampleFormat nativeFormats = paUInt8 | paInt16 | paInt24 | paInt32 | paFloat32;
+
         hostInputSampleFormat =
-            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, inputParameters->sampleFormat );
+            PaUtil_SelectClosestAvailableFormat( nativeInputFormats, inputParameters->sampleFormat );
     }
 	else
 	{
@@ -1442,8 +1444,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( outputParameters )
     {
         /* IMPLEMENT ME - establish which  host formats are available */
+        PaSampleFormat nativeOutputFormats = paInt16;
+        //PaSampleFormat nativeOutputFormats = paUInt8 | paInt16 | paInt24 | paInt32 | paFloat32;
+
         hostOutputSampleFormat =
-            PaUtil_SelectClosestAvailableFormat( paInt16 /* native formats */, outputParameters->sampleFormat );
+            PaUtil_SelectClosestAvailableFormat( nativeOutputFormats, outputParameters->sampleFormat );
     }
     else
 	{
@@ -1521,7 +1526,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", outputParameters->device));
             */
             
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->channelCount * sizeof(short);
+            int bytesPerSample = Pa_GetSampleSize(hostOutputSampleFormat);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * outputParameters->channelCount * bytesPerSample;
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -1545,6 +1551,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
             hr = InitOutputBuffer( stream,
+                                       hostOutputSampleFormat,
                                        (unsigned long) (sampleRate + 0.5),
                                        (WORD)outputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("InitOutputBuffer() returns %x\n", hr));
@@ -1568,7 +1575,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             DBUG(("PaHost_OpenStream: deviceID = 0x%x\n", inputParameters->device));
             */
             
-            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->channelCount * sizeof(short);
+            int bytesPerSample = Pa_GetSampleSize(hostInputSampleFormat);
+            bytesPerDirectSoundBuffer = stream->framesPerDSBuffer * inputParameters->channelCount * bytesPerSample;
             if( bytesPerDirectSoundBuffer < DSBSIZE_MIN )
             {
                 result = paBufferTooSmall;
@@ -1591,6 +1599,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
             hr = InitInputBuffer( stream,
+                                      hostInputSampleFormat,
                                       (unsigned long) (sampleRate + 0.5),
                                       (WORD)inputParameters->channelCount, bytesPerDirectSoundBuffer );
             DBUG(("InitInputBuffer() returns %x\n", hr));

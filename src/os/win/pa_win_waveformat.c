@@ -60,35 +60,40 @@ static GUID pawin_ksDataFormatSubtypeIeeeFloat =
 
 
 void PaWin_InitializeWaveFormatEx( PaWinWaveFormat *waveFormat, 
-		int numChannels, PaSampleFormat sampleFormat, double sampleRate,
-		int bytesPerHostSample )
+		int numChannels, PaSampleFormat sampleFormat, double sampleRate )
 {
 	WAVEFORMATEX *waveFormatEx = (WAVEFORMATEX*)waveFormat;
-	unsigned long bytesPerFrame = numChannels * bytesPerHostSample;
+    int bytesPerSample = Pa_GetSampleSize(sampleFormat);
+	unsigned long bytesPerFrame = numChannels * bytesPerSample;
 
-	waveFormatEx->wFormatTag = WAVE_FORMAT_PCM;
+    if( sampleFormat == paFloat32 )
+        waveFormatEx->wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    else
+        waveFormatEx->wFormatTag = WAVE_FORMAT_PCM;
+	
 	waveFormatEx->nChannels = (WORD)numChannels;
 	waveFormatEx->nSamplesPerSec = (DWORD)sampleRate;
 	waveFormatEx->nAvgBytesPerSec = waveFormatEx->nSamplesPerSec * bytesPerFrame;
 	waveFormatEx->nBlockAlign = (WORD)bytesPerFrame;
-	waveFormatEx->wBitsPerSample = bytesPerHostSample * 8;
+	waveFormatEx->wBitsPerSample = bytesPerSample * 8;
 	waveFormatEx->cbSize = 0;
 }
 
 
 void PaWin_InitializeWaveFormatExtensible( PaWinWaveFormat *waveFormat, 
 		int numChannels, PaSampleFormat sampleFormat, double sampleRate,
-		int bytesPerHostSample, PaWinWaveFormatChannelMask channelMask )
+		PaWinWaveFormatChannelMask channelMask )
 {
 	WAVEFORMATEX *waveFormatEx = (WAVEFORMATEX*)waveFormat;
-	unsigned long bytesPerFrame = numChannels * bytesPerHostSample;
+    int bytesPerSample = Pa_GetSampleSize(sampleFormat);
+	unsigned long bytesPerFrame = numChannels * bytesPerSample;
 
 	waveFormatEx->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
 	waveFormatEx->nChannels = (WORD)numChannels;
 	waveFormatEx->nSamplesPerSec = (DWORD)sampleRate;
 	waveFormatEx->nAvgBytesPerSec = waveFormatEx->nSamplesPerSec * bytesPerFrame;
 	waveFormatEx->nBlockAlign = (WORD)bytesPerFrame;
-	waveFormatEx->wBitsPerSample = bytesPerHostSample * 8;
+	waveFormatEx->wBitsPerSample = bytesPerSample * 8;
 	waveFormatEx->cbSize = 22;
 
 	*((WORD*)&waveFormat->fields[PAWIN_INDEXOF_WVALIDBITSPERSAMPLE]) =
@@ -96,13 +101,29 @@ void PaWin_InitializeWaveFormatExtensible( PaWinWaveFormat *waveFormat,
 
 	*((DWORD*)&waveFormat->fields[PAWIN_INDEXOF_DWCHANNELMASK]) = channelMask;
 			
-	*((GUID*)&waveFormat->fields[PAWIN_INDEXOF_SUBFORMAT]) =
-			pawin_ksDataFormatSubtypePcm;
+    if( sampleFormat == paFloat32 )
+        *((GUID*)&waveFormat->fields[PAWIN_INDEXOF_SUBFORMAT]) =
+            pawin_ksDataFormatSubtypeIeeeFloat;
+    else
+        *((GUID*)&waveFormat->fields[PAWIN_INDEXOF_SUBFORMAT]) =
+            pawin_ksDataFormatSubtypePcm;
 }
 
 
 PaWinWaveFormatChannelMask PaWin_DefaultChannelMask( int numChannels )
 {
+    /** @todo alec rogers has proposed the following as a possibly better method of generating the channel mask: */
+    /*
+    if(nChannels==1) {
+        pwfFormat->dwChannelMask = SPEAKER_FRONT_CENTER;
+    }
+    else {
+        pwfFormat->dwChannelMask = 0;
+        for(i=0; i<nChannels; i++)
+            pwfFormat->dwChannelMask = (pwfFormat->dwChannelMask << 1) | 0x1;
+    }
+    */
+
 	switch( numChannels ){
 		case 1:
 			return PAWIN_SPEAKER_MONO;

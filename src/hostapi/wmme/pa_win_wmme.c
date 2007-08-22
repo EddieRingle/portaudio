@@ -537,12 +537,12 @@ static PaError QueryFormatSupported( PaDeviceInfo *deviceInfo,
 
     /* @todo at the moment we only query with 16 bit sample format and directout speaker config*/
     PaWin_InitializeWaveFormatExtensible( &waveFormat, channels, 
-            paInt16, sampleRate, sizeof(short), PAWIN_SPEAKER_DIRECTOUT );
+            paInt16, sampleRate, PAWIN_SPEAKER_DIRECTOUT );
 
     if( waveFormatExQueryFunction( winMmeDeviceId, (WAVEFORMATEX*)&waveFormat ) == paNoError )
         return paNoError;
 
-    PaWin_InitializeWaveFormatEx( &waveFormat, channels, paInt16, sampleRate, sizeof(short) );
+    PaWin_InitializeWaveFormatEx( &waveFormat, channels, paInt16, sampleRate );
 
     return waveFormatExQueryFunction( winMmeDeviceId, (WAVEFORMATEX*)&waveFormat );
 }
@@ -1661,15 +1661,14 @@ static PaError InitializeWaveHandles( PaWinMmeHostApiRepresentation *winMmeHostA
 
                 /* @todo at the moment we only use 16 bit sample format */
                 PaWin_InitializeWaveFormatExtensible( &waveFormat, devices[i].channelCount, 
-                        paInt16, sampleRate, sizeof(short), channelMask );
+                        paInt16, sampleRate, channelMask );
 
             }
             else
             {
                 /* retry with WAVEFORMATEX */
 
-                PaWin_InitializeWaveFormatEx( &waveFormat, devices[i].channelCount, 
-                        paInt16, sampleRate, sizeof(short) );
+                PaWin_InitializeWaveFormatEx( &waveFormat, devices[i].channelCount, paInt16, sampleRate );
             }
 
             /* REVIEW: consider not firing an event for input when a full duplex
