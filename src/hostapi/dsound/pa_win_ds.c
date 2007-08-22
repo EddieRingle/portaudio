@@ -169,9 +169,10 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
 
 typedef struct PaWinDsDeviceInfo
 {
-    GUID                             guid;
-    GUID                            *lpGUID;
-    double                           sampleRates[3];
+    PaDeviceInfo        inheritedDeviceInfo;
+    GUID                guid;
+    GUID                *lpGUID;
+    double              sampleRates[3];
 } PaWinDsDeviceInfo;
 
 typedef struct
@@ -183,7 +184,6 @@ typedef struct
     PaUtilAllocationGroup   *allocations;
 
     /* implementation specific data goes here */
-    PaWinDsDeviceInfo       *winDsDeviceInfos;
 
 } PaWinDsHostApiRepresentation;
 
@@ -431,8 +431,8 @@ static PaError AddOutputDeviceInfoFromDirectSound(
         PaWinDsHostApiRepresentation *winDsHostApi, char *name, LPGUID lpGUID )
 {
     PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
-    PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[hostApi->info.deviceCount];
-    PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[hostApi->info.deviceCount];
+    PaWinDsDeviceInfo            *winDsDeviceInfo = (PaWinDsDeviceInfo*) hostApi->deviceInfos[hostApi->info.deviceCount];
+    PaDeviceInfo                 *deviceInfo = &winDsDeviceInfo->inheritedDeviceInfo;
     HRESULT                       hr;
     LPDIRECTSOUND                 lpDirectSound;
     DSCAPS                        caps;
@@ -618,8 +618,8 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
         PaWinDsHostApiRepresentation *winDsHostApi, char *name, LPGUID lpGUID )
 {
     PaUtilHostApiRepresentation  *hostApi = &winDsHostApi->inheritedHostApiRep;
-    PaDeviceInfo                 *deviceInfo = hostApi->deviceInfos[hostApi->info.deviceCount];
-    PaWinDsDeviceInfo            *winDsDeviceInfo = &winDsHostApi->winDsDeviceInfos[hostApi->info.deviceCount];
+    PaWinDsDeviceInfo            *winDsDeviceInfo = (PaWinDsDeviceInfo*) hostApi->deviceInfos[hostApi->info.deviceCount];
+    PaDeviceInfo                 *deviceInfo = &winDsDeviceInfo->inheritedDeviceInfo;
     HRESULT                       hr;
     LPDIRECTSOUNDCAPTURE          lpDirectSoundCapture;
     DSCCAPS                       caps;
@@ -772,7 +772,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     int i, deviceCount;
     PaWinDsHostApiRepresentation *winDsHostApi;
     DSDeviceNameAndGUIDVector inputNamesAndGUIDs, outputNamesAndGUIDs;
-    PaDeviceInfo *deviceInfoArray;
+    PaWinDsDeviceInfo *deviceInfoArray;
 
     HRESULT hr = CoInitialize(NULL);        /** @todo: should uninitialize too */
     if( FAILED(hr) ){
@@ -850,18 +850,9 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         }
 
         /* allocate all PaDeviceInfo structs in a contiguous block */
-        deviceInfoArray = (PaDeviceInfo*)PaUtil_GroupAllocateMemory(
-                winDsHostApi->allocations, sizeof(PaDeviceInfo) * deviceCount );
-        if( !deviceInfoArray )
-        {
-            result = paInsufficientMemory;
-            goto error;
-        }
-
-        /* allocate all DSound specific info structs in a contiguous block */
-        winDsHostApi->winDsDeviceInfos = (PaWinDsDeviceInfo*)PaUtil_GroupAllocateMemory(
+        deviceInfoArray = (PaWinDsDeviceInfo*)PaUtil_GroupAllocateMemory(
                 winDsHostApi->allocations, sizeof(PaWinDsDeviceInfo) * deviceCount );
-        if( !winDsHostApi->winDsDeviceInfos )
+        if( !deviceInfoArray )
         {
             result = paInsufficientMemory;
             goto error;
@@ -869,7 +860,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
         for( i=0; i < deviceCount; ++i )
         {
-            PaDeviceInfo *deviceInfo = &deviceInfoArray[i];
+            PaDeviceInfo *deviceInfo = &deviceInfoArray[i].inheritedDeviceInfo;
             deviceInfo->structVersion = 2;
             deviceInfo->hostApi = hostApiIndex;
             deviceInfo->name = 0;
@@ -1487,9 +1478,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
 
+            hr = paWinDsDSoundEntryPoints.DirectSoundCreate( 
+                ((PaWinDsDeviceInfo*)hostApi->deviceInfos[outputParameters->device])->lpGUID,
+                &stream->pDirectSound, NULL );
 
-            hr = paWinDsDSoundEntryPoints.DirectSoundCreate( winDsHostApi->winDsDeviceInfos[outputParameters->device].lpGUID,
-                        &stream->pDirectSound, NULL );
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCreate() failed!\n"));
@@ -1533,8 +1525,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 goto error;
             }
 
-            hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( winDsHostApi->winDsDeviceInfos[inputParameters->device].lpGUID,
-                        &stream->pDirectSoundCapture,   NULL );
+            hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( 
+                    ((PaWinDsDeviceInfo*)hostApi->deviceInfos[inputParameters->device])->lpGUID,
+                    &stream->pDirectSoundCapture, NULL );
             if( hr != DS_OK )
             {
                 ERR_RPT(("PortAudio: DirectSoundCaptureCreate() failed!\n"));
