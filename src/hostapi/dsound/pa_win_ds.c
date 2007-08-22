@@ -451,7 +451,6 @@ static PaError AddOutputDeviceInfoFromDirectSound(
         winDsDeviceInfo->lpGUID = &winDsDeviceInfo->guid;
     }
 
-    
     if( lpGUID )
     {
         if (IsEqualGUID (&IID_IRolandVSCEmulated1,lpGUID) ||
@@ -548,8 +547,8 @@ static PaError AddOutputDeviceInfoFromDirectSound(
                     for( i = 0; i < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++i )
                     {
                         if( defaultSampleRateSearchOrder_[i] >= caps.dwMinSecondarySampleRate
-                                && defaultSampleRateSearchOrder_[i] <= caps.dwMaxSecondarySampleRate ){
-
+                                && defaultSampleRateSearchOrder_[i] <= caps.dwMaxSecondarySampleRate )
+                        {
                             deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[i];
                             break;
                         }
@@ -636,7 +635,6 @@ static PaError AddInputDeviceInfoFromDirectSoundCapture(
         winDsDeviceInfo->lpGUID = &winDsDeviceInfo->guid;
         memcpy( &winDsDeviceInfo->guid, lpGUID, sizeof(GUID) );
     }
-
 
     hr = paWinDsDSoundEntryPoints.DirectSoundCaptureCreate( lpGUID, &lpDirectSoundCapture, NULL );
 
@@ -775,9 +773,8 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     PaWinDsDeviceInfo *deviceInfoArray;
 
     HRESULT hr = CoInitialize(NULL);        /** @todo: should uninitialize too */
-    if( FAILED(hr) ){
+    if( FAILED(hr) )
         return paUnanticipatedHostError;
-    }            
 
     /* initialise guid vectors so they can be safely deleted on error */
     inputNamesAndGUIDs.items = NULL;
@@ -1879,7 +1876,8 @@ static void CALLBACK Pa_TimerCallback(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWO
             }
         }
 
-        if( !stream->isActive ){
+        if( !stream->isActive )
+        {
             if( stream->streamRepresentation.streamFinishedCallback != 0 )
                 stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
         }
