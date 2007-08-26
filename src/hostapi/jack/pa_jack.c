@@ -1748,7 +1748,8 @@ PaError PaJack_GetClientName(const char** clientName)
 {
     PaError result = paNoError;
     PaJackHostApiRepresentation* jackHostApi = NULL;
-    ENSURE_PA( PaUtil_GetHostApiRepresentation( (PaUtilHostApiRepresentation**)&jackHostApi, paJACK ) );
+    PaJackHostApiRepresentation** ref = &jackHostApi;
+    ENSURE_PA( PaUtil_GetHostApiRepresentation( (PaUtilHostApiRepresentation**)ref, paJACK ) );
     *clientName = jack_get_client_name( jackHostApi->jack_client );
 
 error:
