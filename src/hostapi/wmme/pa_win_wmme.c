@@ -139,6 +139,16 @@ Non-critical stuff for the future:
 #include "pa_win_wmme.h"
 #include "pa_win_waveformat.h"
 
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+#include "pa_win_wdmks_utils.h"
+#ifndef DRV_QUERYDEVICEINTERFACE
+#define DRV_QUERYDEVICEINTERFACE     (DRV_RESERVED + 12)
+#endif
+#ifndef DRV_QUERYDEVICEINTERFACESIZE
+#define DRV_QUERYDEVICEINTERFACESIZE (DRV_RESERVED + 13)
+#endif
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
+
 #if (defined(UNDER_CE))
 #pragma comment(lib, "Coredll.lib")
 #elif (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
@@ -574,6 +584,39 @@ static void DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int w
 }
 
 
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+static int QueryWaveInKSFilterMaxChannels( int waveInDeviceId, int *maxChannels )
+{
+    char *devicePath;
+    DWORD devicePathSize;
+    int result = 0;
+
+    if( waveInMessage((HWAVEOUT)waveInDeviceId, DRV_QUERYDEVICEINTERFACESIZE,
+            (DWORD_PTR)&devicePathSize, 0 ) != MMSYSERR_NOERROR )
+        return 0;
+
+    devicePath = PaUtil_AllocateMemory( devicePathSize );
+    if( !devicePath )
+        return 0;
+
+    if( waveInMessage((HWAVEOUT)waveInDeviceId, DRV_QUERYDEVICEINTERFACE,
+            (DWORD_PTR)devicePath, devicePathSize ) == MMSYSERR_NOERROR )
+    {
+        int count = PaWin_WDMKS_QueryFilterMaximumChannelCount( devicePath, /* isInput= */ 1  );
+        if( count > 0 )
+        {
+            *maxChannels = count;
+            result = 1;
+        }
+    }
+
+    PaUtil_FreeMemory( devicePath );
+
+    return result;
+}
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
+
+
 static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
         PaWinMmeDeviceInfo *winMmeDeviceInfo, UINT winMmeInputDeviceId, int *success )
 {
@@ -646,6 +689,11 @@ static PaError InitializeInputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeH
         winMmeDeviceInfo->deviceInputChannelCountIsKnown = 1;
     }
 
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+    winMmeDeviceInfo->deviceInputChannelCountIsKnown = 
+            QueryWaveInKSFilterMaxChannels( winMmeInputDeviceId, &deviceInfo->maxInputChannels );
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
+
     winMmeDeviceInfo->dwFormats = wic.dwFormats;
 
     DetectDefaultSampleRate( winMmeDeviceInfo, winMmeInputDeviceId,
@@ -658,6 +706,39 @@ error:
 }
 
 
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+static int QueryWaveOutKSFilterMaxChannels( int waveOutDeviceId, int *maxChannels )
+{
+    char *devicePath;
+    DWORD devicePathSize;
+    int result = 0;
+
+    if( waveOutMessage((HWAVEOUT)waveOutDeviceId, DRV_QUERYDEVICEINTERFACESIZE,
+            (DWORD_PTR)&devicePathSize, 0 ) != MMSYSERR_NOERROR )
+        return 0;
+
+    devicePath = PaUtil_AllocateMemory( devicePathSize );
+    if( !devicePath )
+        return 0;
+
+    if( waveOutMessage((HWAVEOUT)waveOutDeviceId, DRV_QUERYDEVICEINTERFACE,
+            (DWORD_PTR)devicePath, devicePathSize ) == MMSYSERR_NOERROR )
+    {
+        int count = PaWin_WDMKS_QueryFilterMaximumChannelCount( devicePath, /* isInput= */ 0  );
+        if( count > 0 )
+        {
+            *maxChannels = count;
+            result = 1;
+        }
+    }
+
+    PaUtil_FreeMemory( devicePath );
+
+    return result;
+}
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
+
+
 static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMmeHostApi,
         PaWinMmeDeviceInfo *winMmeDeviceInfo, UINT winMmeOutputDeviceId, int *success )
 {
@@ -666,7 +747,7 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     MMRESULT mmresult;
     WAVEOUTCAPS woc;
     PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
-    
+
     *success = 0;
 
     mmresult = waveOutGetDevCaps( winMmeOutputDeviceId, &woc, sizeof( WAVEOUTCAPS ) );
@@ -729,6 +810,11 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
         deviceInfo->maxOutputChannels = woc.wChannels;
         winMmeDeviceInfo->deviceOutputChannelCountIsKnown = 1;
     }
+
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+    winMmeDeviceInfo->deviceOutputChannelCountIsKnown = 
+            QueryWaveOutKSFilterMaxChannels( winMmeOutputDeviceId, &deviceInfo->maxOutputChannels );
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
 
     winMmeDeviceInfo->dwFormats = woc.dwFormats;
 
