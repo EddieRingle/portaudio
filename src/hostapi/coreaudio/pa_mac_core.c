@@ -1868,7 +1868,7 @@ static OSStatus AudioIOProc( void *inRefCon,
                PaUtil_AdvanceRingBufferReadIndex(&stream->inputRingBuffer, size1 );
             } else if( ( size1 + size2 ) / ( flsz * inChan ) < frames ) {
                /*we underflowed. take what data we can, zero the rest.*/
-               float data[frames*inChan];
+               unsigned char data[frames*inChan*flsz];
                if( size1 )
                   memcpy( data, data1, size1 );
                if( size2 )
