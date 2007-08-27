@@ -36,11 +36,11 @@
  * license above.
  */
 
-#include "portaudio.h"
-#include "pa_win_waveformat.h"
-
 #include <windows.h>
 #include <mmsystem.h>
+
+#include "portaudio.h"
+#include "pa_win_waveformat.h"
 
 
 #if !defined(WAVE_FORMAT_EXTENSIBLE)
