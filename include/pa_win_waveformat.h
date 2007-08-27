@@ -160,13 +160,12 @@ typedef struct{
 */
 
 void PaWin_InitializeWaveFormatEx( PaWinWaveFormat *waveFormat, 
-		int numChannels, PaSampleFormat sampleFormat, double sampleRate,
-		int bytesPerHostSample );
+		int numChannels, PaSampleFormat sampleFormat, double sampleRate );
 
 
 void PaWin_InitializeWaveFormatExtensible( PaWinWaveFormat *waveFormat, 
 		int numChannels, PaSampleFormat sampleFormat, double sampleRate,
-		int bytesPerHostSample, PaWinWaveFormatChannelMask channelMask );
+	    PaWinWaveFormatChannelMask channelMask );
 
 
 /* Map a channel count to a speaker channel mask */
