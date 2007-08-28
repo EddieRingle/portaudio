@@ -55,9 +55,6 @@
 
     @todo implement IsFormatSupported
 
-    @todo check that CoInitialize() CoUninitialize() are always correctly
-        paired, even in error cases.
-
     @todo call PaUtil_SetLastHostErrorInfo with a specific error string (currently just "DSound error").
 
     @todo make sure all buffers have been played before stopping the stream
@@ -188,6 +185,8 @@ typedef struct
     PaUtilAllocationGroup   *allocations;
 
     /* implementation specific data goes here */
+
+    char                    comWasInitialized;
 
 } PaWinDsHostApiRepresentation;
 
@@ -797,10 +796,22 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
     PaWinDsHostApiRepresentation *winDsHostApi;
     DSDeviceNameAndGUIDVector inputNamesAndGUIDs, outputNamesAndGUIDs;
     PaWinDsDeviceInfo *deviceInfoArray;
+    char comWasInitialized = 0;
 
-    HRESULT hr = CoInitialize(NULL);        /** @todo: should uninitialize too */
-    if( FAILED(hr) )
+    /*
+        If COM is already initialized CoInitialize will either return
+        FALSE, or RPC_E_CHANGED_MODE if it was initialised in a different
+        threading mode. In either case we shouldn't consider it an error
+        but we need to be careful to not call CoUninitialize() if 
+        RPC_E_CHANGED_MODE was returned.
+    */
+
+    HRESULT hr = CoInitialize(NULL);
+    if( FAILED(hr) && hr != RPC_E_CHANGED_MODE )
         return paUnanticipatedHostError;
+
+    if( hr != RPC_E_CHANGED_MODE )
+        comWasInitialized = 1;
 
     /* initialise guid vectors so they can be safely deleted on error */
     inputNamesAndGUIDs.items = NULL;
@@ -814,6 +825,8 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         result = paInsufficientMemory;
         goto error;
     }
+
+    winDsHostApi->comWasInitialized = comWasInitialized;
 
     winDsHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !winDsHostApi->allocations )
@@ -950,6 +963,9 @@ error:
     TerminateDSDeviceNameAndGUIDVector( &inputNamesAndGUIDs );
     TerminateDSDeviceNameAndGUIDVector( &outputNamesAndGUIDs );
 
+    if( comWasInitialized )
+        CoUninitialize();
+
     return result;
 }
 
@@ -958,6 +974,7 @@ error:
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
     PaWinDsHostApiRepresentation *winDsHostApi = (PaWinDsHostApiRepresentation*)hostApi;
+    char comWasInitialized = winDsHostApi->comWasInitialized;
 
     /*
         IMPLEMENT ME:
@@ -974,7 +991,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     PaWinDs_TerminateDSoundEntryPoints();
 
-    CoUninitialize();
+    if( comWasInitialized )
+        CoUninitialize();
 }
 
 
