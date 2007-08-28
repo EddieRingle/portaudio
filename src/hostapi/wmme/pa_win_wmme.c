@@ -591,7 +591,7 @@ static int QueryWaveInKSFilterMaxChannels( int waveInDeviceId, int *maxChannels 
     DWORD devicePathSize;
     int result = 0;
 
-    if( waveInMessage((HWAVEOUT)waveInDeviceId, DRV_QUERYDEVICEINTERFACESIZE,
+    if( waveInMessage((HWAVEIN)waveInDeviceId, DRV_QUERYDEVICEINTERFACESIZE,
             (DWORD_PTR)&devicePathSize, 0 ) != MMSYSERR_NOERROR )
         return 0;
 
@@ -599,7 +599,7 @@ static int QueryWaveInKSFilterMaxChannels( int waveInDeviceId, int *maxChannels 
     if( !devicePath )
         return 0;
 
-    if( waveInMessage((HWAVEOUT)waveInDeviceId, DRV_QUERYDEVICEINTERFACE,
+    if( waveInMessage((HWAVEIN)waveInDeviceId, DRV_QUERYDEVICEINTERFACE,
             (DWORD_PTR)devicePath, devicePathSize ) == MMSYSERR_NOERROR )
     {
         int count = PaWin_WDMKS_QueryFilterMaximumChannelCount( devicePath, /* isInput= */ 1  );
