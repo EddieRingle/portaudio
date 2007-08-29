@@ -59,7 +59,6 @@
   We are only using DX3 in here, no need to polute the namespace - davidv
 */
 #define DIRECTSOUND_VERSION 0x0300
-
 #include <DSound.h>
 
 #ifdef __cplusplus
@@ -72,6 +71,8 @@ typedef struct
 {
     HINSTANCE hInstance_;
     
+    HRESULT (WINAPI *DllGetClassObject)(REFCLSID , REFIID , LPVOID *);
+
     HRESULT (WINAPI *DirectSoundCreate)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN);
     HRESULT (WINAPI *DirectSoundEnumerateW)(LPDSENUMCALLBACKW, LPVOID);
     HRESULT (WINAPI *DirectSoundEnumerateA)(LPDSENUMCALLBACKA, LPVOID);

@@ -188,6 +188,9 @@ int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
     int pinCount, pinId;
     int result = 0;
     KSPIN_DATAFLOW requiredDataflowDirection = (isInput ? KSPIN_DATAFLOW_OUT : KSPIN_DATAFLOW_IN );
+    
+    if( !devicePath )
+        return 0;
 
     deviceHandle = CreateFileW( (LPCWSTR)devicePath, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
     if( deviceHandle == INVALID_HANDLE_VALUE )
@@ -221,6 +224,7 @@ int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
                 {
                     KSDATARANGE_AUDIO *dataRangeAudio = (KSDATARANGE_AUDIO*)dataRange;
                     
+                    /*
                     printf( ">>> %d %d %d %d %S\n", isInput, dataflow, communication, dataRangeAudio->MaximumChannels, devicePath );
                    
                     if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX, sizeof(GUID) ) == 0 )
@@ -231,6 +235,7 @@ int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
                         printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_WILDCARD\n" );
                     else
                         printf( "\tspecifier: ?\n" );
+                    */
 
                     /*
                         We assume that very high values for MaximumChannels are not useful and indicate
