@@ -35,11 +35,17 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
      http://www.microsoft.com/msdownload/platformsdk/sdkupdate/psdk-full.htm
 	 (This will allow your code base to be x64 friendly, with correct defines 
 	 for LONG_PTR and such)
+	 NOTE A) Yes you have to use IE activex scripts to install that - wont work in Firefox, you 
+	 may have to temporarily change tyour default browser(aint life unfair)
+	 NOTE B) Dont forget to hit "Register PSDK Directories with Visual Studio". 
+	 you can make sure its right in VC6 if you open tools/options/directories/include files and you see SDK 2003 as the FIRST entry
+	 (it must be the same for libs)
   
   DirectX 9.0 SDK Update - (Summer 2003)
     Latest known URL:
     http://www.microsoft.com/downloads/details.aspx?familyid=9216652f-51e0-402e-b7b5-feb68d00f298&displaylang=en
-
+    Again register the links in VC6, and check inside vc6 if headers are in second place right after SDk 2003
+	
   *If you have 7.0(VC.NET/2001) or 7.1(VC.2003) *
   then I suggest you open portaudio.dsp (and convert if needed)
  
