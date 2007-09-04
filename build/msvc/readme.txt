@@ -26,7 +26,7 @@ This DLL contains all 3 current win32 PA APIS (MM/DS/ASIO)
 	 
   Processor Pack(only works with above SP5)
      Latest known URL:
-     http://msdn2.microsoft.com/en-us/vstudio/aa718363.aspx 
+     http://msdn2.microsoft.com/en-us/vstudio/Aa718349.aspx
 	 This isnt absolutely required for portaudio, but if you plan on using SSE intrinsics and similar things.
 	 Up to you to decide upon Service pack 5 or 6 depending on your need for intrinsics.
 
