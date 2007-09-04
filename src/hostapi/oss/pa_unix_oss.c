@@ -508,9 +508,9 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
     /* Find devices by calling QueryDevice on each
      * potential device names.  When we find a valid one,
      * add it to a linked list.
-     * A: Can there only be 10 devices? */
+     * A: Set an arbitrary of 100 devices, should probably be a smarter way. */
 
-    for( i = 0; i < 10; i++ )
+    for( i = 0; i < 100; i++ )
     {
        char deviceName[32];
        PaDeviceInfo *deviceInfo;
@@ -976,8 +976,8 @@ static int CalcHigherLogTwo( int n )
     return log2;
 }
 
-static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, double sampleRate, unsigned long framesPerBuffer,
-        StreamMode streamMode, PaOssStreamComponent *master )
+static PaError PaOssStreamComponent_Configure( PaOssStreamComponent *component, double sampleRate, unsigned long
+        framesPerBuffer, StreamMode streamMode, PaOssStreamComponent *master )
 {
     PaError result = paNoError;
     int temp, nativeFormat;
