@@ -717,9 +717,13 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     ASSERT_CALL( pthread_cond_init( &jackHostApi->cond, NULL ), 0 );
 
     /* Try to become a client of the JACK server.  If we cannot do
-     * this, then this API cannot be used. */
+     * this, then this API cannot be used.
+     *
+     * Without the JackNoStartServer option, the jackd server is started
+     * automatically which we do not want.
+     */
 
-    jackHostApi->jack_client = jack_client_open( clientName_, 0, &jackStatus );
+    jackHostApi->jack_client = jack_client_open( clientName_, JackNoStartServer, &jackStatus );
     if( !jackHostApi->jack_client )
     {
         /* the V19 development docs say that if an implementation
@@ -737,7 +741,6 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
     (*hostApi)->info.name = "JACK Audio Connection Kit";
 
     /* Build a device list by querying the JACK server */
-
     ENSURE_PA( BuildDeviceList( jackHostApi ) );
 
     /* Register functions */
