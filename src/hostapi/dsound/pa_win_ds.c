@@ -75,7 +75,9 @@
 */
 #define DIRECTSOUND_VERSION 0x0300
 #include <DSound.h>
+#ifdef PAWIN_USE_WDMKS_DEVICE_INFO
 #include <dsconf.h>
+#endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
 
 #include "pa_util.h"
 #include "pa_allocation.h"
