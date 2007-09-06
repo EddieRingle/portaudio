@@ -2590,6 +2590,7 @@ static PaError AdvanceToNextInputBuffer( PaWinMmeStream *stream )
 
     for( i=0; i < stream->input.deviceCount; ++i )
     {
+        stream->input.waveHeaders[i][ stream->input.currentBufferIndex ].dwFlags &= ~WHDR_DONE;
         mmresult = waveInAddBuffer( ((HWAVEIN*)stream->input.waveHandles)[i],
                                     &stream->input.waveHeaders[i][ stream->input.currentBufferIndex ],
                                     sizeof(WAVEHDR) );
@@ -3116,6 +3117,7 @@ static PaError StartStream( PaStream *s )
         {
             for( j=0; j<stream->input.deviceCount; ++j )
             {
+                stream->input.waveHeaders[j][i].dwFlags &= ~WHDR_DONE;
                 mmresult = waveInAddBuffer( ((HWAVEIN*)stream->input.waveHandles)[j], &stream->input.waveHeaders[j][i], sizeof(WAVEHDR) );
                 if( mmresult != MMSYSERR_NOERROR )
                 {
