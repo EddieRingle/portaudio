@@ -2159,7 +2159,9 @@ error:
 static PaError AlsaStop( PaAlsaStream *stream, int abort )
 {
     PaError result = paNoError;
-    /* XXX: Seems that draining the dmix device may trigger a race condition in ALSA */
+    /* XXX: snd_pcm_drain tends to lock up, avoid it until we find out more */
+    abort = 1;
+    /*
     if( stream->capture.pcm && !strcmp( Pa_GetDeviceInfo( stream->capture.device )->name,
                 "dmix" ) )
     {
@@ -2170,6 +2172,7 @@ static PaError AlsaStop( PaAlsaStream *stream, int abort )
     {
         abort = 1;
     }
+    */
 
     if( abort )
     {

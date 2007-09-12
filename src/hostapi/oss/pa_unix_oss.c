@@ -1189,6 +1189,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     const PaDeviceInfo *inputDeviceInfo = 0, *outputDeviceInfo = 0;
     int bpInitialized = 0;
     double inLatency = 0., outLatency = 0.;
+    int i = 0;
 
     /* validate platform specific flags */
     if( (streamFlags & paPlatformSpecificFlags) != 0 )
@@ -1224,6 +1225,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 return paInvalidChannelCount;
         }
     }
+
+    /* Round framesPerBuffer to the next power-of-two to make OSS happy. */
+    framesPerBuffer &= INT_MAX;
+    for (i = 1; framesPerBuffer > i; i <<= 1) ;
+    framesPerBuffer = i;
 
     /* allocate and do basic initialization of the stream structure */
     PA_UNLESS( stream = (PaOssStream*)PaUtil_AllocateMemory( sizeof(PaOssStream) ), paInsufficientMemory );
