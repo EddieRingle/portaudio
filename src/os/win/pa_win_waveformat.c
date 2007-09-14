@@ -112,37 +112,48 @@ void PaWin_InitializeWaveFormatExtensible( PaWinWaveFormat *waveFormat,
 
 PaWinWaveFormatChannelMask PaWin_DefaultChannelMask( int numChannels )
 {
-    /** @todo alec rogers has proposed the following as a possibly better method of generating the channel mask: */
-    /*
-    if(nChannels==1) {
-        pwfFormat->dwChannelMask = SPEAKER_FRONT_CENTER;
-    }
-    else {
-        pwfFormat->dwChannelMask = 0;
-        for(i=0; i<nChannels; i++)
-            pwfFormat->dwChannelMask = (pwfFormat->dwChannelMask << 1) | 0x1;
-    }
-    */
-
 	switch( numChannels ){
 		case 1:
 			return PAWIN_SPEAKER_MONO;
 		case 2:
 			return PAWIN_SPEAKER_STEREO; 
-		//case 3:
-		//	break;
+		case 3:
+            return PAWIN_SPEAKER_FRONT_LEFT | PAWIN_SPEAKER_FRONT_CENTER | PAWIN_SPEAKER_FRONT_RIGHT;
 		case 4:
 			return PAWIN_SPEAKER_QUAD;
-		//case 5:
-		//	break;
+		case 5:
+            return PAWIN_SPEAKER_QUAD | PAWIN_SPEAKER_FRONT_CENTER;
 		case 6:
-			return PAWIN_SPEAKER_5POINT1_SURROUND; 
-			break;
-		//case 7:
-		//	break;
+            /* The meaning of the PAWIN_SPEAKER_5POINT1 flag has changed over time:
+                http://msdn2.microsoft.com/en-us/library/aa474707.aspx
+               We use PAWIN_SPEAKER_5POINT1 (not PAWIN_SPEAKER_5POINT1_SURROUND)
+               because on some cards (eg Audigy) PAWIN_SPEAKER_5POINT1_SURROUND 
+               results in a virtual mixdown placing the rear output in the 
+               front _and_ rear speakers.
+            */
+			return PAWIN_SPEAKER_5POINT1; 
+        /* case 7: */
 		case 8:
-			return PAWIN_SPEAKER_7POINT1_SURROUND;
+			return PAWIN_SPEAKER_7POINT1;
 	}
 
+    /* Apparently some Audigy drivers will output silence 
+       if the direct-out constant (0) is used. So this is not ideal.    
+    */
 	return  PAWIN_SPEAKER_DIRECTOUT;
+
+    /* Note that Alec Rogers proposed the following as an alternate method to 
+        generate the default channel mask, however it doesn't seem to be an improvement
+        over the above, since some drivers will matrix outputs mapping to non-present
+        speakers accross multiple physical speakers.
+
+        if(nChannels==1) {
+            pwfFormat->dwChannelMask = SPEAKER_FRONT_CENTER;
+        }
+        else {
+            pwfFormat->dwChannelMask = 0;
+            for(i=0; i<nChannels; i++)
+                pwfFormat->dwChannelMask = (pwfFormat->dwChannelMask << 1) | 0x1;
+        }
+    */
 }

@@ -104,6 +104,7 @@ typedef unsigned long PaWinWaveFormatChannelMask;
 												PAWIN_SPEAKER_BACK_LEFT | PAWIN_SPEAKER_BACK_RIGHT | \
 												PAWIN_SPEAKER_SIDE_LEFT | PAWIN_SPEAKER_SIDE_RIGHT)
 /*
+ According to the Microsoft documentation:
  The following are obsolete 5.1 and 7.1 settings (they lack side speakers).  Note this means
  that the default 5.1 and 7.1 settings (KSAUDIO_SPEAKER_5POINT1 and KSAUDIO_SPEAKER_7POINT1 are
  similarly obsolete but are unchanged for compatibility reasons).

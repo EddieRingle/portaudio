@@ -87,6 +87,7 @@
 #include "pa_process.h"
 #include "pa_debugprint.h"
 
+#include "pa_win_ds.h"
 #include "pa_win_ds_dynlink.h"
 #include "pa_win_waveformat.h"
 #include "pa_win_wdmks_utils.h"
@@ -1205,16 +1206,34 @@ static int PaWinDS_GetMinSystemLatency( void )
     return minLatencyMsec;
 }
 
+static PaError ValidateWinDirectSoundSpecificStreamInfo(
+        const PaStreamParameters *streamParameters,
+        const PaWinDirectSoundStreamInfo *streamInfo )
+{
+	if( streamInfo )
+	{
+	    if( streamInfo->size != sizeof( PaWinDirectSoundStreamInfo )
+	            || streamInfo->version != 1 )
+	    {
+	        return paIncompatibleHostApiSpecificStreamInfo;
+	    }
+	}
+
+	return paNoError;
+}
+
 /***********************************************************************************/
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                   const PaStreamParameters *inputParameters,
                                   const PaStreamParameters *outputParameters,
                                   double sampleRate )
 {
+    PaError result;
     PaWinDsDeviceInfo *inputWinDsDeviceInfo, *outputWinDsDeviceInfo;
     PaDeviceInfo *inputDeviceInfo, *outputDeviceInfo;
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
+    PaWinDirectSoundStreamInfo *inputStreamInfo, *outputStreamInfo;
 
     if( inputParameters )
     {
@@ -1236,8 +1255,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidChannelCount;
 
         /* validate inputStreamInfo */
-        if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        inputStreamInfo = (PaWinDirectSoundStreamInfo*)inputParameters->hostApiSpecificStreamInfo;
+		result = ValidateWinDirectSoundSpecificStreamInfo( inputParameters, inputStreamInfo );
+		if( result != paNoError ) return result;
     }
     else
     {
@@ -1264,8 +1284,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidChannelCount;
 
         /* validate outputStreamInfo */
-        if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        outputStreamInfo = (PaWinDirectSoundStreamInfo*)outputParameters->hostApiSpecificStreamInfo;
+		result = ValidateWinDirectSoundSpecificStreamInfo( outputParameters, outputStreamInfo );
+		if( result != paNoError ) return result;
     }
     else
     {
@@ -1336,7 +1357,7 @@ static int PaWinDs_GetMinLatencyFrames( double sampleRate )
 }
 
 
-static HRESULT InitInputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitInputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer, PaWinWaveFormatChannelMask channelMask )
 {
     DSCBUFFERDESC  captureDesc;
     PaWinWaveFormat waveFormat;
@@ -1357,7 +1378,7 @@ static HRESULT InitInputBuffer( PaWinDsStream *stream, PaSampleFormat sampleForm
 
     // first try WAVEFORMATEXTENSIBLE. if this fails, fall back to WAVEFORMATEX
     PaWin_InitializeWaveFormatExtensible( &waveFormat, nChannels, 
-                sampleFormat, nFrameRate, PaWin_DefaultChannelMask( nChannels ) );
+                sampleFormat, nFrameRate, channelMask );
 
     if( IDirectSoundCapture_CreateCaptureBuffer( stream->pDirectSoundCapture,
                   &captureDesc, &stream->pDirectSoundInputBuffer, NULL) != DS_OK )
@@ -1373,7 +1394,7 @@ static HRESULT InitInputBuffer( PaWinDsStream *stream, PaSampleFormat sampleForm
 }
 
 
-static HRESULT InitOutputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer )
+static HRESULT InitOutputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFormat, unsigned long nFrameRate, WORD nChannels, int bytesPerBuffer, PaWinWaveFormatChannelMask channelMask )
 {
     /** @todo FIXME: if InitOutputBuffer returns an error I'm not sure it frees all resources cleanly */
 
@@ -1433,7 +1454,7 @@ static HRESULT InitOutputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFor
 
     // first try WAVEFORMATEXTENSIBLE. if this fails, fall back to WAVEFORMATEX
     PaWin_InitializeWaveFormatExtensible( &waveFormat, nChannels, 
-                sampleFormat, nFrameRate, PaWin_DefaultChannelMask( nChannels ) );
+                sampleFormat, nFrameRate, channelMask );
 
     if( IDirectSoundBuffer_SetFormat( pPrimaryBuffer, (WAVEFORMATEX*)&waveFormat) != DS_OK )
     {
@@ -1481,7 +1502,6 @@ static HRESULT InitOutputBuffer( PaWinDsStream *stream, PaSampleFormat sampleFor
     return DS_OK;
 }
 
-
 /***********************************************************************************/
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
@@ -1504,6 +1524,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     unsigned long suggestedInputLatencyFrames, suggestedOutputLatencyFrames;
+    PaWinDirectSoundStreamInfo *inputStreamInfo, *outputStreamInfo;
+    PaWinWaveFormatChannelMask inputChannelMask, outputChannelMask;
 
     if( inputParameters )
     {
@@ -1528,8 +1550,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             return paInvalidChannelCount;
             
         /* validate hostApiSpecificStreamInfo */
-        if( inputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+        inputStreamInfo = (PaWinDirectSoundStreamInfo*)inputParameters->hostApiSpecificStreamInfo;
+		result = ValidateWinDirectSoundSpecificStreamInfo( inputParameters, inputStreamInfo );
+		if( result != paNoError ) return result;
+
+        if( inputStreamInfo && inputStreamInfo->flags & paWinDirectSoundUseChannelMask )
+            inputChannelMask = inputStreamInfo->channelMask;
+        else
+            inputChannelMask = PaWin_DefaultChannelMask( inputChannelCount );
     }
     else
     {
@@ -1553,14 +1581,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
             return paInvalidDevice;
 
-        /* check that output device can support inputChannelCount */
+        /* check that output device can support outputChannelCount */
         if( outputWinDsDeviceInfo->deviceOutputChannelCountIsKnown
                 && outputChannelCount > outputDeviceInfo->maxOutputChannels )
             return paInvalidChannelCount;
 
         /* validate hostApiSpecificStreamInfo */
-        if( outputParameters->hostApiSpecificStreamInfo )
-            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */            
+        outputStreamInfo = (PaWinDirectSoundStreamInfo*)outputParameters->hostApiSpecificStreamInfo;
+		result = ValidateWinDirectSoundSpecificStreamInfo( outputParameters, outputStreamInfo );
+		if( result != paNoError ) return result;   
+
+        if( outputStreamInfo && outputStreamInfo->flags & paWinDirectSoundUseChannelMask )
+            outputChannelMask = outputStreamInfo->channelMask;
+        else
+            outputChannelMask = PaWin_DefaultChannelMask( outputChannelCount );
     }
     else
     {
@@ -1749,7 +1783,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             hr = InitOutputBuffer( stream,
                                        hostOutputSampleFormat,
                                        (unsigned long) (sampleRate + 0.5),
-                                       (WORD)outputParameters->channelCount, bytesPerDirectSoundBuffer );
+                                       (WORD)outputParameters->channelCount, bytesPerDirectSoundBuffer,
+                                       outputChannelMask );
             DBUG(("InitOutputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {
@@ -1797,7 +1832,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             hr = InitInputBuffer( stream,
                                       hostInputSampleFormat,
                                       (unsigned long) (sampleRate + 0.5),
-                                      (WORD)inputParameters->channelCount, bytesPerDirectSoundBuffer );
+                                      (WORD)inputParameters->channelCount, bytesPerDirectSoundBuffer,
+                                      inputChannelMask );
             DBUG(("InitInputBuffer() returns %x\n", hr));
             if( hr != DS_OK )
             {

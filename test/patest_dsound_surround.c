@@ -1,7 +1,7 @@
 /*
  * $Id: $
  * Portable Audio I/O Library
- * Windows MME surround sound output test
+ * Windows DirectSound surround sound output test
  *
  * Copyright (c) 2007 Ross Bencina
  *
@@ -43,7 +43,7 @@
 #include <mmsystem.h>   /* required when using pa_win_wmme.h */
 
 #include "portaudio.h"
-#include "pa_win_wmme.h"
+#include "pa_win_ds.h"
 
 #define NUM_SECONDS         (12)
 #define SAMPLE_RATE         (44100)
@@ -117,7 +117,7 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
 int main(int argc, char* argv[])
 {
     PaStreamParameters outputParameters;
-    PaWinMmeStreamInfo wmmeStreamInfo;
+    PaWinDirectSoundStreamInfo directSoundStreamInfo;
     PaStream *stream;
     PaError err;
     paTestData data;
@@ -129,7 +129,7 @@ int main(int argc, char* argv[])
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-	deviceIndex = Pa_GetHostApiInfo( Pa_HostApiTypeIdToHostApiIndex( paMME ) )->defaultOutputDevice;
+	deviceIndex = Pa_GetHostApiInfo( Pa_HostApiTypeIdToHostApiIndex( paDirectSound ) )->defaultOutputDevice;
 	if( argc == 2 ){
 		sscanf( argv[1], "%d", &deviceIndex );
 	}
@@ -155,13 +155,12 @@ int main(int argc, char* argv[])
     /* it's not strictly necessary to provide a channelMask for surround sound
        output. But if you want to be sure which channel mask PortAudio will use
        then you should supply one */
-    wmmeStreamInfo.size = sizeof(PaWinMmeStreamInfo);
-    wmmeStreamInfo.hostApiType = paMME; 
-    wmmeStreamInfo.version = 1;
-    wmmeStreamInfo.flags = paWinMmeUseChannelMask;
-    wmmeStreamInfo.channelMask = PAWIN_SPEAKER_5POINT1; /* request 5.1 output format */
-    outputParameters.hostApiSpecificStreamInfo = &wmmeStreamInfo;
-
+    directSoundStreamInfo.size = sizeof(PaWinDirectSoundStreamInfo);
+    directSoundStreamInfo.hostApiType = paDirectSound; 
+    directSoundStreamInfo.version = 1;
+    directSoundStreamInfo.flags = paWinDirectSoundUseChannelMask;
+    directSoundStreamInfo.channelMask = PAWIN_SPEAKER_5POINT1; /* request 5.1 output format */
+    outputParameters.hostApiSpecificStreamInfo = &directSoundStreamInfo;
 
 	if( Pa_IsFormatSupported( 0, &outputParameters, SAMPLE_RATE ) == paFormatIsSupported  ){
 		printf( "Pa_IsFormatSupported reports device will support %d channels.\n", CHANNEL_COUNT );
