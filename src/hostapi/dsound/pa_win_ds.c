@@ -60,6 +60,11 @@
     @todo make sure all buffers have been played before stopping the stream
         when the stream callback returns paComplete
 
+    @todo retrieve default devices using the DRVM_MAPPER_PREFERRED_GET functions used in the wmme api
+        these wave device ids can be aligned with the directsound devices either by retrieving
+        the system interface device name using DRV_QUERYDEVICEINTERFACE or by using the wave device
+        id retrieved in KsPropertySetEnumerateCallback.
+
     old TODOs from phil, need to work out if these have been done:
         O- fix "patest_stop.c"
 */
@@ -74,7 +79,7 @@
   We are only using DX3 in here, no need to polute the namespace - davidv
 */
 #define DIRECTSOUND_VERSION 0x0300
-#include <DSound.h>
+#include <dsound.h>
 #ifdef PAWIN_USE_WDMKS_DEVICE_INFO
 #include <dsconf.h>
 #endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
