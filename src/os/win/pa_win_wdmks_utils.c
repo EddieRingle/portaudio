@@ -185,7 +185,7 @@ static int KSFilterPinPropertyIdentifiersInclude(
 int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
 {
     HANDLE deviceHandle;
-    int pinCount, pinId;
+    int pinCount, pinId, i;
     int result = 0;
     KSPIN_DATAFLOW requiredDataflowDirection = (isInput ? KSPIN_DATAFLOW_OUT : KSPIN_DATAFLOW_IN );
     
@@ -216,33 +216,38 @@ int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
             {
                 KSDATARANGE *dataRange = (KSDATARANGE*)(item+1);
 
-                if( IS_VALID_WAVEFORMATEX_GUID(&dataRange->SubFormat)
-                        || memcmp((void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_PCM, sizeof(GUID) )== 0
-                        || memcmp((void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, sizeof(GUID) ) == 0
-                        || ( ( memcmp((void*)&dataRange->MajorFormat, (void*)&KSDATAFORMAT_TYPE_AUDIO, sizeof(GUID) ) == 0 )
-                            && ( memcmp((void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_WILDCARD, sizeof(GUID) ) == 0 ) ) )
-                {
-                    KSDATARANGE_AUDIO *dataRangeAudio = (KSDATARANGE_AUDIO*)dataRange;
-                    
-                    /*
-                    printf( ">>> %d %d %d %d %S\n", isInput, dataflow, communication, dataRangeAudio->MaximumChannels, devicePath );
-                   
-                    if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX, sizeof(GUID) ) == 0 )
-                        printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_WAVEFORMATEX\n" );
-                    else if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_DSOUND, sizeof(GUID) ) == 0 )
-                        printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_DSOUND\n" );
-                    else if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_WILDCARD, sizeof(GUID) ) == 0 )
-                        printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_WILDCARD\n" );
-                    else
-                        printf( "\tspecifier: ?\n" );
-                    */
+                for( i=0; i < item->Count; ++i ){
 
-                    /*
-                        We assume that very high values for MaximumChannels are not useful and indicate
-                        that the driver isn't prepared to tell us the real number of channels which it supports.
-                    */
-                    if( dataRangeAudio->MaximumChannels  < 0xFFFFUL && (int)dataRangeAudio->MaximumChannels > result )
-                        result = (int)dataRangeAudio->MaximumChannels;
+                    if( IS_VALID_WAVEFORMATEX_GUID(&dataRange->SubFormat)
+                            || memcmp( (void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_PCM, sizeof(GUID) ) == 0
+                            || memcmp( (void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, sizeof(GUID) ) == 0
+                            || ( ( memcmp( (void*)&dataRange->MajorFormat, (void*)&KSDATAFORMAT_TYPE_AUDIO, sizeof(GUID) ) == 0 )
+                                && ( memcmp( (void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_WILDCARD, sizeof(GUID) ) == 0 ) ) )
+                    {
+                        KSDATARANGE_AUDIO *dataRangeAudio = (KSDATARANGE_AUDIO*)dataRange;
+                        
+                        /*
+                        printf( ">>> %d %d %d %d %S\n", isInput, dataflow, communication, dataRangeAudio->MaximumChannels, devicePath );
+                       
+                        if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX, sizeof(GUID) ) == 0 )
+                            printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_WAVEFORMATEX\n" );
+                        else if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_DSOUND, sizeof(GUID) ) == 0 )
+                            printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_DSOUND\n" );
+                        else if( memcmp((void*)&dataRange->Specifier, (void*)&KSDATAFORMAT_SPECIFIER_WILDCARD, sizeof(GUID) ) == 0 )
+                            printf( "\tspecifier: KSDATAFORMAT_SPECIFIER_WILDCARD\n" );
+                        else
+                            printf( "\tspecifier: ?\n" );
+                        */
+
+                        /*
+                            We assume that very high values for MaximumChannels are not useful and indicate
+                            that the driver isn't prepared to tell us the real number of channels which it supports.
+                        */
+                        if( dataRangeAudio->MaximumChannels  < 0xFFFFUL && (int)dataRangeAudio->MaximumChannels > result )
+                            result = (int)dataRangeAudio->MaximumChannels;
+                    }
+                    
+                    dataRange = (KSDATARANGE*)( ((char*)dataRange) + dataRange->FormatSize);
                 }
 
                 PaUtil_FreeMemory( item );
