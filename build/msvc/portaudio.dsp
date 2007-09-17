@@ -43,7 +43,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /FD /c
-# ADD CPP /nologo /MD /W3 /GX /O2 /I "..\..\src\common" /I "..\..\include" /I ".\\" /I "..\..\src\os\win" /D "WIN32" /D "NDEBUG" /D "_USRDLL" /D "PA_ENABLE_DEBUG_OUTPUT" /D "_CRT_SECURE_NO_DEPRECATE" /FD /c
+# ADD CPP /nologo /MD /W3 /GX /O2 /I "..\..\src\common" /I "..\..\include" /I ".\\" /I "..\..\src\os\win" /D "WIN32" /D "NDEBUG" /D "_USRDLL" /D "PA_ENABLE_DEBUG_OUTPUT" /D "_CRT_SECURE_NO_DEPRECATE" /D "PAWIN_USE_WDMKS_DEVICE_INFO" /FD /c
 # SUBTRACT CPP /YX /Yc /Yu
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
@@ -70,7 +70,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /FD /GZ /c
-# ADD CPP /nologo /MDd /W3 /Gm /GX /ZI /Od /I "..\..\src\common" /I "..\..\include" /I ".\\" /I "..\..\src\os\win" /D "WIN32" /D "_DEBUG" /D "_USRDLL" /D "PA_ENABLE_DEBUG_OUTPUT" /D "_CRT_SECURE_NO_DEPRECATE" /FD /GZ /c
+# ADD CPP /nologo /MDd /W3 /Gm /GX /ZI /Od /I "..\..\src\common" /I "..\..\include" /I ".\\" /I "..\..\src\os\win" /D "WIN32" /D "_DEBUG" /D "_USRDLL" /D "PA_ENABLE_DEBUG_OUTPUT" /D "_CRT_SECURE_NO_DEPRECATE" /D "PAWIN_USE_WDMKS_DEVICE_INFO" /FD /GZ /c
 # SUBTRACT CPP /YX /Yc /Yu
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
@@ -237,6 +237,10 @@ SOURCE=..\..\src\os\win\pa_win_util.c
 # Begin Source File
 
 SOURCE=..\..\src\os\win\pa_win_waveformat.c
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\src\os\win\pa_win_wdmks_utils.c
 # End Source File
 # Begin Source File
 
