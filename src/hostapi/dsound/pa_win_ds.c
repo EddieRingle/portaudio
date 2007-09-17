@@ -480,6 +480,9 @@ static GUID pawin_CLSID_DirectSoundPrivate =
 static GUID pawin_DSPROPSETID_DirectSoundDevice = 
 { 0x84624f82, 0x25ec, 0x11d1, 0xa4, 0xd8, 0x00, 0xc0, 0x4f, 0xc2, 0x8a, 0xca };
 
+static GUID pawin_IID_IKsPropertySet = 
+{ 0x00000001, 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 };
+
 
 /*
     FindDevicePnpInterfaces fills in the pnpInterface fields in deviceNamesAndGUIDs
@@ -509,7 +512,7 @@ static void FindDevicePnpInterfaces( DSDeviceNamesAndGUIDs *deviceNamesAndGUIDs 
    
     if( paWinDsDSoundEntryPoints.DllGetClassObject(&pawin_CLSID_DirectSoundPrivate, &IID_IClassFactory, (PVOID *) &pClassFactory) == S_OK ){
         IKsPropertySet *pPropertySet;
-        if( pClassFactory->lpVtbl->CreateInstance( pClassFactory, NULL, &IID_IKsPropertySet, (PVOID *) &pPropertySet) == S_OK ){
+        if( pClassFactory->lpVtbl->CreateInstance( pClassFactory, NULL, &pawin_IID_IKsPropertySet, (PVOID *) &pPropertySet) == S_OK ){
             
             DSPROPERTY_DIRECTSOUNDDEVICE_ENUMERATE_W_DATA data;
             ULONG bytesReturned;
