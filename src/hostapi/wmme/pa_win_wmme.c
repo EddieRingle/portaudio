@@ -587,7 +587,7 @@ static void DetectDefaultSampleRate( PaWinMmeDeviceInfo *winMmeDeviceInfo, int w
 #ifdef PAWIN_USE_WDMKS_DEVICE_INFO
 static int QueryWaveInKSFilterMaxChannels( int waveInDeviceId, int *maxChannels )
 {
-    char *devicePath;
+    void *devicePath;
     DWORD devicePathSize;
     int result = 0;
 
@@ -599,6 +599,7 @@ static int QueryWaveInKSFilterMaxChannels( int waveInDeviceId, int *maxChannels 
     if( !devicePath )
         return 0;
 
+    /* apparently DRV_QUERYDEVICEINTERFACE returns a unicode interface path, although this is undocumented */
     if( waveInMessage((HWAVEIN)waveInDeviceId, DRV_QUERYDEVICEINTERFACE,
             (DWORD_PTR)devicePath, devicePathSize ) == MMSYSERR_NOERROR )
     {
@@ -709,7 +710,7 @@ error:
 #ifdef PAWIN_USE_WDMKS_DEVICE_INFO
 static int QueryWaveOutKSFilterMaxChannels( int waveOutDeviceId, int *maxChannels )
 {
-    char *devicePath;
+    void *devicePath;
     DWORD devicePathSize;
     int result = 0;
 
@@ -721,6 +722,7 @@ static int QueryWaveOutKSFilterMaxChannels( int waveOutDeviceId, int *maxChannel
     if( !devicePath )
         return 0;
 
+    /* apparently DRV_QUERYDEVICEINTERFACE returns a unicode interface path, although this is undocumented */
     if( waveOutMessage((HWAVEOUT)waveOutDeviceId, DRV_QUERYDEVICEINTERFACE,
             (DWORD_PTR)devicePath, devicePathSize ) == MMSYSERR_NOERROR )
     {

@@ -292,7 +292,7 @@ typedef struct DSDeviceNameAndGUID{
     char *name; // allocated from parent's allocations, never deleted by this structure
     GUID guid;
     LPGUID lpGUID;
-    char *pnpInterface;  // wchar interface path
+    void *pnpInterface;  // wchar_t* interface path, allocated using the DS host api's allocation group
 } DSDeviceNameAndGUID;
 
 typedef struct DSDeviceNameAndGUIDVector{
@@ -305,6 +305,7 @@ typedef struct DSDeviceNameAndGUIDVector{
 } DSDeviceNameAndGUIDVector;
 
 typedef struct DSDeviceNamesAndGUIDs{
+    PaWinDsHostApiRepresentation *winDsHostApi;
     DSDeviceNameAndGUIDVector inputNamesAndGUIDs;
     DSDeviceNameAndGUIDVector outputNamesAndGUIDs;
 } DSDeviceNamesAndGUIDs;
@@ -436,14 +437,22 @@ static BOOL CALLBACK CollectGUIDsProc(LPGUID lpGUID,
 }
 
 #ifdef PAWIN_USE_WDMKS_DEVICE_INFO
+
+static void *DuplicateWCharString( PaUtilAllocationGroup *allocations, wchar_t *source )
+{
+    size_t len;
+    wchar_t *result;
+
+    len = wcslen( source );
+    result = (wchar_t*)PaUtil_GroupAllocateMemory( allocations, (long) ((len+1) * sizeof(wchar_t)) );
+    wcscpy( result, source );
+    return result;
+}
+
 static BOOL CALLBACK KsPropertySetEnumerateCallback( PDSPROPERTY_DIRECTSOUNDDEVICE_DESCRIPTION_W_DATA data, LPVOID context )
 {
     int i;
     DSDeviceNamesAndGUIDs *deviceNamesAndGUIDs = (DSDeviceNamesAndGUIDs*)context;
-
-    /* @todo note that at the moment we just copy the interface pointers and assume that DSound never 
-        deallocates them -- but the real DS behavior is undocumented.
-        probably we should make our own local copy of them here */
 
     if( data->DataFlow == DIRECTSOUNDDEVICE_DATAFLOW_RENDER )
     {
@@ -452,7 +461,8 @@ static BOOL CALLBACK KsPropertySetEnumerateCallback( PDSPROPERTY_DIRECTSOUNDDEVI
             if( deviceNamesAndGUIDs->outputNamesAndGUIDs.items[i].lpGUID
                 && memcmp( &data->DeviceId, deviceNamesAndGUIDs->outputNamesAndGUIDs.items[i].lpGUID, sizeof(GUID) ) == 0 )
             {
-                deviceNamesAndGUIDs->outputNamesAndGUIDs.items[i].pnpInterface = (char*)data->Interface;
+                deviceNamesAndGUIDs->outputNamesAndGUIDs.items[i].pnpInterface = 
+                        (char*)DuplicateWCharString( deviceNamesAndGUIDs->winDsHostApi->allocations, data->Interface );
                 break;
             }
         }
@@ -464,7 +474,8 @@ static BOOL CALLBACK KsPropertySetEnumerateCallback( PDSPROPERTY_DIRECTSOUNDDEVI
             if( deviceNamesAndGUIDs->inputNamesAndGUIDs.items[i].lpGUID
                 && memcmp( &data->DeviceId, deviceNamesAndGUIDs->inputNamesAndGUIDs.items[i].lpGUID, sizeof(GUID) ) == 0 )
             {
-                deviceNamesAndGUIDs->inputNamesAndGUIDs.items[i].pnpInterface = (char*)data->Interface;
+                deviceNamesAndGUIDs->inputNamesAndGUIDs.items[i].pnpInterface = 
+                        (char*)DuplicateWCharString( deviceNamesAndGUIDs->winDsHostApi->allocations, data->Interface );
                 break;
             }
         }
@@ -995,6 +1006,7 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
         comWasInitialized = 1;
 
     /* initialise guid vectors so they can be safely deleted on error */
+    deviceNamesAndGUIDs.winDsHostApi = NULL;
     deviceNamesAndGUIDs.inputNamesAndGUIDs.items = NULL;
     deviceNamesAndGUIDs.outputNamesAndGUIDs.items = NULL;
 
@@ -1056,7 +1068,10 @@ PaError PaWinDs_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInde
 
 #ifdef PAWIN_USE_WDMKS_DEVICE_INFO
     if( deviceCount > 0 )
+    {
+        deviceNamesAndGUIDs.winDsHostApi = winDsHostApi;
         FindDevicePnpInterfaces( &deviceNamesAndGUIDs );
+    }
 #endif /* PAWIN_USE_WDMKS_DEVICE_INFO */
 
     if( deviceCount > 0 )

@@ -182,17 +182,17 @@ static int KSFilterPinPropertyIdentifiersInclude(
 /* return the maximum channel count supported by any pin on the device. 
    if isInput is non-zero we query input pins, otherwise output pins.
 */
-int PaWin_WDMKS_QueryFilterMaximumChannelCount( char *devicePath, int isInput )
+int PaWin_WDMKS_QueryFilterMaximumChannelCount( void *wcharDevicePath, int isInput )
 {
     HANDLE deviceHandle;
     int pinCount, pinId, i;
     int result = 0;
     KSPIN_DATAFLOW requiredDataflowDirection = (isInput ? KSPIN_DATAFLOW_OUT : KSPIN_DATAFLOW_IN );
     
-    if( !devicePath )
+    if( !wcharDevicePath )
         return 0;
 
-    deviceHandle = CreateFileW( (LPCWSTR)devicePath, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+    deviceHandle = CreateFileW( (LPCWSTR)wcharDevicePath, FILE_SHARE_READ|FILE_SHARE_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
     if( deviceHandle == INVALID_HANDLE_VALUE )
         return 0;
 
