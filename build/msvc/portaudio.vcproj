@@ -50,8 +50,8 @@
 				Name="VCCLCompilerTool"
 				Optimization="2"
 				InlineFunctionExpansion="1"
-				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\"
-				PreprocessorDefinitions="WIN32;NDEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE"
+				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\,..\..\src\os\win"
+				PreprocessorDefinitions="WIN32;NDEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
 				StringPooling="true"
 				RuntimeLibrary="2"
 				EnableFunctionLevelLinking="true"
@@ -75,6 +75,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x86.dll"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -144,8 +145,8 @@
 				Name="VCCLCompilerTool"
 				Optimization="2"
 				InlineFunctionExpansion="1"
-				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\"
-				PreprocessorDefinitions="WIN32;NDEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE"
+				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\,..\..\src\os\win"
+				PreprocessorDefinitions="WIN32;NDEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
 				StringPooling="true"
 				RuntimeLibrary="2"
 				EnableFunctionLevelLinking="true"
@@ -169,6 +170,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x64.dll"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -237,8 +239,8 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\"
-				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE"
+				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\,..\..\src\os\win"
+				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
@@ -263,6 +265,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x86.dll"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"
@@ -332,8 +335,8 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\"
-				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE"
+				AdditionalIncludeDirectories="..\..\src\common,..\..\include,.\,..\..\src\os\win"
+				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
@@ -358,6 +361,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x64.dll"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"
@@ -1398,6 +1402,10 @@
 					</File>
 					<File
 						RelativePath="..\..\src\os\win\pa_win_waveformat.c"
+						>
+					</File>
+					<File
+						RelativePath="..\..\src\os\win\pa_win_wdmks_utils.c"
 						>
 					</File>
 					<File
