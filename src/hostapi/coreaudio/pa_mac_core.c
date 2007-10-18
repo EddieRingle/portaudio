@@ -65,6 +65,7 @@
 #include "pa_mac_core_internal.h"
 
 #include <string.h> /* strlen(), memcmp() etc. */
+#include <libkern/OSAtomic.h>
 
 #include "pa_mac_core.h"
 #include "pa_mac_core_utilities.h"
@@ -291,11 +292,13 @@ static OSStatus xrunCallback(
 {
    PaMacCoreStream *stream = (PaMacCoreStream *) inClientData;
    if( stream->state != ACTIVE )
-      return; //if the stream isn't active, we don't care if the device is dropping
+      return 0; //if the stream isn't active, we don't care if the device is dropping
    if( isInput )
-      OSAtomicOr32( paInputUnderflow, &(stream->xrunFlags) );
+      OSAtomicOr32( paInputUnderflow, (uint32_t *)&(stream->xrunFlags) );
    else
-      OSAtomicOr32( paOutputOverflow, &(stream->xrunFlags) );
+      OSAtomicOr32( paOutputOverflow, (uint32_t *)&(stream->xrunFlags) );
+
+   return 0;
 }
 
 
