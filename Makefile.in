@@ -182,9 +182,21 @@ bin-stamp:
 
 lib-stamp:
 	-mkdir lib
-	-mkdir -p src/os/win src/os/unix src/os/mac_osx src/common \
-src/hostapi/oss src/hostapi/alsa src/hostapi/jack src/hostapi/asihpi \
-src/hostapi/wmme src/hostapi/wdmks src/hostapi/dsound src/hostapi/wasapi
+	-mkdir -p \
+		src/common \
+		src/hostapi/alsa \
+		src/hostapi/asihpi \
+		src/hostapi/asio \
+		src/hostapi/coreaudio \
+		src/hostapi/dsound \
+		src/hostapi/jack \
+		src/hostapi/oss \
+		src/hostapi/wasapi \
+		src/hostapi/wdmks \
+		src/hostapi/wmme \
+		src/os/mac_osx \
+		src/os/unix \
+		src/os/win
 	touch $@
 
 Makefile: Makefile.in config.status
