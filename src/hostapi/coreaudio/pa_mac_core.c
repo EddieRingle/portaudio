@@ -301,6 +301,27 @@ static OSStatus xrunCallback(
    return 0;
 }
 
+/*
+ * Callback called when starting or stopping a stream.
+ */
+static void startStopCallback(
+   void *               inRefCon,
+   AudioUnit            ci,
+   AudioUnitPropertyID  inID,
+   AudioUnitScope       inScope,
+   AudioUnitElement     inElement )
+{
+   PaMacCoreStream *stream = (PaMacCoreStream *) inRefCon;
+   UInt32 isRunning;
+   UInt32 size = sizeof( isRunning );
+   assert( !AudioUnitGetProperty( ci, kAudioOutputUnitProperty_IsRunning, inScope, inElement, &isRunning, &size ) );
+   if( isRunning )
+      return; //We are only interested in when we are stopping
+   PaStreamFinishedCallback *sfc = stream->streamRepresentation.streamFinishedCallback;
+   if( sfc )
+      sfc( stream->streamRepresentation.userData );
+}
+
 
 /*currently, this is only used in initialization, but it might be modified
   to be used when the list of devices changes.*/
@@ -924,6 +945,12 @@ static PaError OpenAndSetupOneAudioUnit(
                                               kAudioDeviceProcessorOverload,
                                               xrunCallback,
                                               (void *)stream) );
+
+    /* -- listen for stream start and stop -- */
+    ERR_WRAP( AudioUnitAddPropertyListener( *audioUnit,
+                                            kAudioOutputUnitProperty_IsRunning,
+                                            startStopCallback,
+                                            (void *)stream ) );
 
     /* -- set format -- */
     bzero( &desiredFormat, sizeof(desiredFormat) );

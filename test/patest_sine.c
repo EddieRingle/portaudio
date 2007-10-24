@@ -59,6 +59,7 @@ typedef struct
     float sine[TABLE_SIZE];
     int left_phase;
     int right_phase;
+    char message[20];
 }
 paTestData;
 
@@ -91,6 +92,15 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
     }
     
     return paContinue;
+}
+
+/*
+ * This routine is called by portaudio when playback is done.
+ */
+static void StreamFinished( void* userData )
+{
+   paTestData *data = (paTestData *) userData;
+   printf( "Stream Completed: %s\n", data->message );
 }
 
 /*******************************************************************/
@@ -131,6 +141,10 @@ int main(void)
               paClipOff,      /* we won't output out of range samples so don't bother clipping them */
               patestCallback,
               &data );
+    if( err != paNoError ) goto error;
+
+    sprintf( data.message, "No Message" );
+    err = Pa_SetStreamFinishedCallback( stream, &StreamFinished );
     if( err != paNoError ) goto error;
 
     err = Pa_StartStream( stream );

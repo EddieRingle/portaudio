@@ -139,6 +139,7 @@ typedef struct PaMacCoreStream
     /* We need to preallocate an inputBuffer for reading data. */
     AudioBufferList inputAudioBufferList;
     AudioTimeStamp startTime;
+    /* FIXME: instead of volatile, these should be properly memory barriered */
     volatile PaStreamCallbackFlags xrunFlags;
     volatile bool isTimeSet;
     volatile enum {
