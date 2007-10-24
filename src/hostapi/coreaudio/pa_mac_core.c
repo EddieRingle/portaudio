@@ -318,6 +318,8 @@ static void startStopCallback(
    if( isRunning )
       return; //We are only interested in when we are stopping
    PaStreamFinishedCallback *sfc = stream->streamRepresentation.streamFinishedCallback;
+   if( stream->state == STOPPING )
+      stream->state = STOPPED ;
    if( sfc )
       sfc( stream->streamRepresentation.userData );
 }
