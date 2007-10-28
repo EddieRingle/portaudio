@@ -1227,9 +1227,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     /* Round framesPerBuffer to the next power-of-two to make OSS happy. */
-    framesPerBuffer &= INT_MAX;
-    for (i = 1; framesPerBuffer > i; i <<= 1) ;
-    framesPerBuffer = i;
+    if( framesPerBuffer != paFramesPerBufferUnspecified )
+    {
+        framesPerBuffer &= INT_MAX;
+        for (i = 1; framesPerBuffer > i; i <<= 1) ;
+        framesPerBuffer = i;
+    }
 
     /* allocate and do basic initialization of the stream structure */
     PA_UNLESS( stream = (PaOssStream*)PaUtil_AllocateMemory( sizeof(PaOssStream) ), paInsufficientMemory );
