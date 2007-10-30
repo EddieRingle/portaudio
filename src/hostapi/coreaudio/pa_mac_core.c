@@ -317,6 +317,9 @@ static void startStopCallback(
    assert( !AudioUnitGetProperty( ci, kAudioOutputUnitProperty_IsRunning, inScope, inElement, &isRunning, &size ) );
    if( isRunning )
       return; //We are only interested in when we are stopping
+   // -- if we are using 2 I/O units, we only need one notification!
+   if( stream->inputUnit && stream->outputUnit && stream->inputUnit != stream->outputUnit && ci == stream->inputUnit )
+      return;
    PaStreamFinishedCallback *sfc = stream->streamRepresentation.streamFinishedCallback;
    if( stream->state == STOPPING )
       stream->state = STOPPED ;
