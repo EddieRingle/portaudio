@@ -2125,7 +2125,7 @@ static PaError CloseStream( PaStream* s )
        if( stream->inputUnit )
           AudioDeviceRemovePropertyListener( stream->inputDevice,
                                              0,
-                                             true,
+                                             stream->outputUnit ? false : true,
                                              kAudioDeviceProcessorOverload,
                                              xrunCallback );
        if( stream->outputUnit && stream->outputUnit != stream->inputUnit )
