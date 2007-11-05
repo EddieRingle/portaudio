@@ -805,7 +805,7 @@ static PaError OpenAndSetupOneAudioUnit(
     Component comp;
     /*An Apple TN suggests using CAStreamBasicDescription, but that is C++*/
     AudioStreamBasicDescription desiredFormat;
-    OSErr result = noErr;
+    OSStatus result = noErr;
     PaError paResult = paNoError;
     int line = 0;
     UInt32 callbackKey;
@@ -1795,7 +1795,7 @@ static OSStatus AudioIOProc( void *inRefCon,
        * we do not use the input SR converter or the input ring buffer.
        *
        */
-      OSErr err = 0;
+      OSStatus err = 0;
       unsigned long frames;
 
       /* -- start processing -- */
@@ -1990,7 +1990,7 @@ static OSStatus AudioIOProc( void *inRefCon,
        * if this is an input-only stream, we need to process it more,
        * otherwise, we let the output case deal with it.
        */
-      OSErr err = 0;
+      OSStatus err = 0;
       int chan = stream->inputAudioBufferList.mBuffers[0].mNumberChannels ;
       /* FIXME: looping here may not actually be necessary, but it was something I tried in testing. */
       do {
@@ -2172,7 +2172,7 @@ static PaError CloseStream( PaStream* s )
 static PaError StartStream( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
-    OSErr result = noErr;
+    OSStatus result = noErr;
     VVDBUG(("StartStream()\n"));
     VDBUG( ( "Starting stream.\n" ) );
 
@@ -2217,7 +2217,7 @@ static ComponentResult BlockWhileAudioUnitIsRunning( AudioUnit audioUnit, AudioU
 static PaError StopStream( PaStream *s )
 {
     PaMacCoreStream *stream = (PaMacCoreStream*)s;
-    OSErr result = noErr;
+    OSStatus result = noErr;
     PaError paErr;
     VVDBUG(("StopStream()\n"));
 
