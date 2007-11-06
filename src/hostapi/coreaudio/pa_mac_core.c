@@ -2122,16 +2122,16 @@ static PaError CloseStream( PaStream* s )
     VDBUG( ( "Closing stream.\n" ) );
 
     if( stream ) {
-       if( stream->inputUnit )
-          AudioDeviceRemovePropertyListener( stream->inputDevice,
-                                             0,
-                                             stream->outputUnit ? false : true,
-                                             kAudioDeviceProcessorOverload,
-                                             xrunCallback );
-       if( stream->outputUnit && stream->outputUnit != stream->inputUnit )
+       if( stream->outputUnit )
           AudioDeviceRemovePropertyListener( stream->outputDevice,
                                              0,
                                              false,
+                                             kAudioDeviceProcessorOverload,
+                                             xrunCallback );
+       if( stream->inputUnit && stream->outputUnit != stream->inputUnit )
+          AudioDeviceRemovePropertyListener( stream->inputDevice,
+                                             0,
+                                             true,
                                              kAudioDeviceProcessorOverload,
                                              xrunCallback );
        if( stream->outputUnit && stream->outputUnit != stream->inputUnit ) {
