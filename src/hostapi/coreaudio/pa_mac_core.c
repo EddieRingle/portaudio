@@ -1370,7 +1370,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           /*requested a realtively low latency. make sure this is in range of devices */
           /*try to get the device's min natural buffer size and use that (but no smaller than 64).*/
           AudioValueRange audioRange;
-          size_t size = sizeof( audioRange );
+          UInt32 size = sizeof( audioRange );
           if( inputParameters ) {
              WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[inputParameters->device],
                                           0,
@@ -1380,6 +1380,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
              if( result )
                 requested = MAX( requested, audioRange.mMinimum );
           }
+          size = sizeof( audioRange );
           if( outputParameters ) {
              WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[outputParameters->device],
                                           0,
@@ -1393,7 +1394,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           /* requested a realtively high latency. make sure this is in range of devices */
           /*try to get the device's max natural buffer size and use that (but no larger than 1024).*/
           AudioValueRange audioRange;
-          size_t size = sizeof( audioRange );
+          UInt32 size = sizeof( audioRange );
           requested = MIN( requested, 1024 );
           if( inputParameters ) {
              WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[inputParameters->device],
@@ -1404,6 +1405,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
              if( result )
                 requested = MIN( requested, audioRange.mMaximum );
           }
+          size = sizeof( audioRange );
           if( outputParameters ) {
              WARNING( result = AudioDeviceGetProperty( auhalHostApi->devIds[outputParameters->device],
                                           0,

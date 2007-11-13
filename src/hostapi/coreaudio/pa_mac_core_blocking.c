@@ -464,7 +464,7 @@ PaError ReadStream( PaStream* stream,
 
     /* report underflow only once: */
     if( ret ) {
-       OSAtomicAnd32( ~paInputOverflow, &blio->statusFlags );
+       OSAtomicAnd32( (uint32_t)(~paInputOverflow), &blio->statusFlags );
        ret = paInputOverflowed;
     }
 
@@ -541,7 +541,7 @@ PaError WriteStream( PaStream* stream,
 
     /* report underflow only once: */
     if( ret ) {
-      OSAtomicAnd32( ~paOutputUnderflow, &blio->statusFlags );
+      OSAtomicAnd32( (uint32_t)(~paOutputUnderflow), &blio->statusFlags );
       ret = paOutputUnderflowed;
     }
 
