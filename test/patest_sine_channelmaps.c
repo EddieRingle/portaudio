@@ -109,7 +109,7 @@ int main(void)
     paTestData data;
 #ifdef __APPLE__
     PaMacCoreStreamInfo macInfo;
-    const long channelMap[4] = { -1, -1, 0, 1 };
+    const SInt32 channelMap[4] = { -1, -1, 0, 1 };
 #endif
     int i;
 
