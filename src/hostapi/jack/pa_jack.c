@@ -729,6 +729,7 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi,
         /* the V19 development docs say that if an implementation
          * detects that it cannot be used, it should return a NULL
          * interface and paNoError */
+        PA_DEBUG(( "%s: Couldn't connect to JACK, status: %d\n", __FUNCTION__, jackStatus ));
         result = paNoError;
         goto error;
     }
