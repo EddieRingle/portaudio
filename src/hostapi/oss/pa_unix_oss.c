@@ -1487,14 +1487,27 @@ static PaError PaOssStream_Stop( PaOssStream *stream, int abort )
     PaError result = paNoError;
 
     /* Looks like the only safe way to stop audio without reopening the device is SNDCTL_DSP_POST.
-     * Also disable capture/playback till the stream is started again */
+     * Also disable capture/playback till the stream is started again.
+     */
+    int captureErr = 0, playbackErr = 0;
     if( stream->capture )
     {
-        ENSURE_( ioctl( stream->capture->fd, SNDCTL_DSP_POST, 0 ), paUnanticipatedHostError );
+        if( (captureErr = ioctl( stream->capture->fd, SNDCTL_DSP_POST, 0 )) < 0 )
+        {
+            PA_DEBUG(( "%s: Failed to stop capture device, error: %d\n", __FUNCTION__, captureErr ));
+        }
     }
     if( stream->playback && !stream->sharedDevice )
     {
-        ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_POST, 0 ), paUnanticipatedHostError );
+        if( (playbackErr = ioctl( stream->playback->fd, SNDCTL_DSP_POST, 0 )) < 0 )
+        {
+            PA_DEBUG(( "%s: Failed to stop playback device, error: %d\n", __FUNCTION__, playbackErr ));
+        }
+    }
+
+    if( captureErr || playbackErr )
+    {
+        result = paUnanticipatedHostError;
     }
 
 error:
