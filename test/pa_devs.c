@@ -113,7 +113,7 @@ int main(void)
     numDevices = Pa_GetDeviceCount();
     if( numDevices < 0 )
     {
-        printf( "ERROR: Pa_CountDevices returned 0x%x\n", numDevices );
+        printf( "ERROR: Pa_GetDeviceCount returned 0x%x\n", numDevices );
         err = numDevices;
         goto error;
     }
