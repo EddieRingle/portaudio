@@ -40,7 +40,7 @@ OTHER_OBJS = @OTHER_OBJS@
 PALIB = libportaudio.la
 PAINC = include/portaudio.h
 
-PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined -export-symbols-regex "(Pa|PaMacCore)_.*" -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
+PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined -export-symbols-regex "(Pa|PaMacCore|PaJack|PaAlsa)_.*" -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
 #MAKEFILE = Makefile
 
 COMMON_OBJS = \
