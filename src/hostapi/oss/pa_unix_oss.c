@@ -332,7 +332,11 @@ static PaError QueryDirection( const char *deviceName, StreamMode mode, double *
         }
         else
         {
-            PA_DEBUG(( "%s: Can't access device: %s\n", __FUNCTION__, strerror( errno ) ));
+            /* Ignore ENOENT, which means we've tried a non-existent device */
+            if( errno != ENOENT )
+            {
+                PA_DEBUG(( "%s: Can't access device %s: %s\n", __FUNCTION__, deviceName, strerror( errno ) ));
+            }
         }
 
         return paDeviceUnavailable;
@@ -515,20 +519,13 @@ static PaError BuildDeviceList( PaOSSHostApiRepresentation *ossApi )
        char deviceName[32];
        PaDeviceInfo *deviceInfo;
        int testResult;
-       struct stat stbuf;
 
        if( i == 0 )
           snprintf(deviceName, sizeof (deviceName), "%s", DEVICE_NAME_BASE);
        else
           snprintf(deviceName, sizeof (deviceName), "%s%d", DEVICE_NAME_BASE, i);
 
-       /* PA_DEBUG(("PaOSS BuildDeviceList: trying device %s\n", deviceName )); */
-       if( stat( deviceName, &stbuf ) < 0 )
-       {
-           if( ENOENT != errno )
-               PA_DEBUG(( "%s: Error stat'ing %s: %s\n", __FUNCTION__, deviceName, strerror( errno ) ));
-           continue;
-       }
+       /* PA_DEBUG(("%s: trying device %s\n", __FUNCTION__, deviceName )); */
        if( (testResult = QueryDevice( deviceName, ossApi, &deviceInfo )) != paNoError )
        {
            if( testResult != paDeviceUnavailable )
