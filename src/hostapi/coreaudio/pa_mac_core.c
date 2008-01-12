@@ -314,7 +314,9 @@ static void startStopCallback(
    PaMacCoreStream *stream = (PaMacCoreStream *) inRefCon;
    UInt32 isRunning;
    UInt32 size = sizeof( isRunning );
-   assert( !AudioUnitGetProperty( ci, kAudioOutputUnitProperty_IsRunning, inScope, inElement, &isRunning, &size ) );
+   OSStatus err;
+   err = AudioUnitGetProperty( ci, kAudioOutputUnitProperty_IsRunning, inScope, inElement, &isRunning, &size );
+   assert( !err );
    if( isRunning )
       return; //We are only interested in when we are stopping
    // -- if we are using 2 I/O units, we only need one notification!

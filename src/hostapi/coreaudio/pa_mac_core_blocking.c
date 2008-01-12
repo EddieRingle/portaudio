@@ -121,6 +121,7 @@ PaError initializeBlioRingBuffers(
 {
    void *data;
    int result;
+   OSStatus err;
 
    /* zeroify things */
    bzero( blio, sizeof( PaMacBlio ) );
@@ -169,10 +170,11 @@ PaError initializeBlioRingBuffers(
          goto error;
       }
 
-      assert( 0 == PaUtil_InitializeRingBuffer(
+      err = PaUtil_InitializeRingBuffer(
             &blio->inputRingBuffer,
             ringBufferSize*blio->inputSampleSizePow2*inChan,
-            data ) );
+            data );
+      assert( !err );
    }
    if( outChan ) {
       data = calloc( ringBufferSize, blio->outputSampleSizePow2*outChan );
@@ -182,10 +184,11 @@ PaError initializeBlioRingBuffers(
          goto error;
       }
 
-      assert( 0 == PaUtil_InitializeRingBuffer(
+      err = PaUtil_InitializeRingBuffer(
             &blio->outputRingBuffer,
             ringBufferSize*blio->outputSampleSizePow2*outChan,
-            data ) );
+            data );
+      assert( !err );
    }
 
    result = resetBlioRingBuffers( blio );
@@ -344,6 +347,8 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
    long avail;
    long toRead;
    long toWrite;
+   long read;
+   long written;
 
    /* set flags returned by OS: */
    OSAtomicOr32( statusFlags, &blio->statusFlags ) ;
@@ -360,7 +365,8 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
 
       /* copy the data */
       /*printf( "reading %d\n", toRead );*/
-      assert( toRead == PaUtil_WriteRingBuffer( &blio->inputRingBuffer, input, toRead ) );
+      read = PaUtil_WriteRingBuffer( &blio->inputRingBuffer, input, toRead );
+      assert( toRead == read );
 #ifdef PA_MAC__BLIO_MUTEX
       /* Priority inversion. See notes below. */
       blioSetIsInputEmpty( blio, false );
@@ -383,7 +389,8 @@ int BlioCallback( const void *input, void *output, unsigned long frameCount,
                 frameCount * blio->outputSampleSizeActual * blio->outChan - toWrite );
       /* copy the data */
       /*printf( "writing %d\n", toWrite );*/
-      assert( toWrite == PaUtil_ReadRingBuffer( &blio->outputRingBuffer, output, toWrite ) );
+      written = PaUtil_ReadRingBuffer( &blio->outputRingBuffer, output, toWrite );
+      assert( toWrite == written );
 #ifdef PA_MAC__BLIO_MUTEX
       /* We have a priority inversion here. However, we will only have to
          wait if this was true and is now false, which means we've got
