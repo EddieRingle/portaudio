@@ -97,7 +97,7 @@ static pthread_t mainThread_;
             /* PaUtil_SetLastHostErrorInfo should only be used in the main thread */ \
             if( (code) == paUnanticipatedHostError && pthread_self() == mainThread_ ) \
             { \
-                PaUtil_SetLastHostErrorInfo( paALSA, sysErr_, strerror( errno ) ); \
+                PaUtil_SetLastHostErrorInfo( paOSS, sysErr_, strerror( errno ) ); \
             } \
             \
             PaUtil_DebugPrint(( "Expression '" #expr "' failed in '" __FILE__ "', line: " STRINGIZE( __LINE__ ) "\n" )); \
