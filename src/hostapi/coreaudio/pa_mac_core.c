@@ -294,9 +294,9 @@ static OSStatus xrunCallback(
    if( stream->state != ACTIVE )
       return 0; //if the stream isn't active, we don't care if the device is dropping
    if( isInput )
-      OSAtomicOr32( paInputUnderflow, (uint32_t *)&(stream->xrunFlags) );
+      OSAtomicOr32( paInputOverflow, (uint32_t *)&(stream->xrunFlags) );
    else
-      OSAtomicOr32( paOutputOverflow, (uint32_t *)&(stream->xrunFlags) );
+      OSAtomicOr32( paOutputUnderflow, (uint32_t *)&(stream->xrunFlags) );
 
    return 0;
 }
