@@ -128,6 +128,8 @@ const char *PaMacCore_GetChannelName( int device, int channelIndex, bool input )
    OSStatus error;
    err = PaUtil_GetHostApiRepresentation( &hostApi, paCoreAudio );
    assert(err == paNoError);
+   if( err != paNoError )
+      return NULL;
    PaMacAUHAL *macCoreHostApi = (PaMacAUHAL*)hostApi;
    AudioDeviceID hostApiDevice = macCoreHostApi->devIds[device];
 
@@ -317,6 +319,8 @@ static void startStopCallback(
    OSStatus err;
    err = AudioUnitGetProperty( ci, kAudioOutputUnitProperty_IsRunning, inScope, inElement, &isRunning, &size );
    assert( !err );
+   if( err )
+      isRunning = false; //it's very unclear what to do in case of error here. There's no real way to notify the user, and crashing seems unreasonable.
    if( isRunning )
       return; //We are only interested in when we are stopping
    // -- if we are using 2 I/O units, we only need one notification!
@@ -1828,7 +1832,8 @@ static OSStatus AudioIOProc( void *inRefCon,
                     INPUT_ELEMENT,
                     inNumberFrames,
                     &stream->inputAudioBufferList );
-      /* FEEDBACK: I'm not sure what to do when this call fails */
+      /* FEEDBACK: I'm not sure what to do when this call fails. There's nothing in the PA API to
+       * do about failures in the callback system. */
       assert( !err );
 
       PaUtil_SetInputFrameCount( &(stream->bufferProcessor), frames );
