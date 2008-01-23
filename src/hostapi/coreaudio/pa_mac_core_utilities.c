@@ -58,6 +58,7 @@
 
 #include "pa_mac_core_utilities.h"
 #include "pa_mac_core_internal.h"
+#include <libkern/OSAtomic.h>
 #include <strings.h>
 
 PaError PaMacCore_SetUnixError( int err, int line )
