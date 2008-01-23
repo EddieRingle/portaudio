@@ -57,6 +57,8 @@
 */
 
 #include "pa_mac_core_utilities.h"
+#include "pa_mac_core_internal.h"
+#include <strings.h>
 
 PaError PaMacCore_SetUnixError( int err, int line )
 {
@@ -618,3 +620,104 @@ PaError setBestFramesPerBuffer( const AudioDeviceID device,
 
    return paNoError;
 }
+
+/**********************
+ *
+ * XRun stuff
+ *
+ **********************/
+
+struct PaMacXRunListNode_s {
+   PaMacCoreStream *stream;
+   AudioDeviceID audioDevice;
+   struct PaMacXRunListNode_s *next;
+} ;
+
+typedef struct PaMacXRunListNode_s PaMacXRunListNode;
+
+OSStatus xrunCallback(
+    AudioDeviceID inDevice, 
+    UInt32 inChannel, 
+    Boolean isInput, 
+    AudioDevicePropertyID inPropertyID, 
+    void* inClientData)
+{
+   PaMacXRunListNode *node = (PaMacXRunListNode *) inClientData;
+
+   node = node->next ; //skip the first node
+
+   for( ; node; node=node->next ) {
+      if( node->audioDevice != inDevice )
+         continue; //not the same device. continue.
+
+      PaMacCoreStream *stream = node->stream;
+
+      if( stream->state != ACTIVE )
+         continue; //if the stream isn't active, we don't care if the device is dropping
+
+      if( isInput )
+         OSAtomicOr32( paInputOverflow, (uint32_t *)&(stream->xrunFlags) );
+      else
+         OSAtomicOr32( paOutputUnderflow, (uint32_t *)&(stream->xrunFlags) );
+   }
+
+   return 0;
+}
+
+/** Always empty, so that it can always be the one returned by
+    addToXRunListenerList. note that it's not a pointer. */
+static PaMacXRunListNode firstXRunListNode;
+static int xRunListSize;
+
+void initializeXRunListenerList()
+{
+   xRunListSize = 0;
+   bzero( (void *) &firstXRunListNode, sizeof(firstXRunListNode) );
+}
+void destroyXRunListenerList()
+{
+   PaMacXRunListNode *node;
+   node = firstXRunListNode.next;
+   while( node ) {
+      PaMacXRunListNode *tmp = node;
+      node = node->next;
+      free( tmp );
+   }
+   xRunListSize = 0;
+}
+
+void *addToXRunListenerList( void *stream, AudioDeviceID audioDevice )
+{
+   PaMacXRunListNode *newNode;
+   // setup new node:
+   newNode = (PaMacXRunListNode *) malloc( sizeof( PaMacXRunListNode ) );
+   newNode->stream = (PaMacCoreStream *) stream;
+   newNode->audioDevice = audioDevice;
+   newNode->next = firstXRunListNode.next;
+   // insert:
+   firstXRunListNode.next = newNode;
+
+   return &firstXRunListNode;
+}
+
+int removeFromXRunListenerList( void *stream, AudioDeviceID audioDevice )
+{
+   PaMacXRunListNode *node, *prev;
+   prev = &firstXRunListNode;
+   node = firstXRunListNode.next;
+   while( node ) {
+      if( node->stream == stream && node->audioDevice == audioDevice ) {
+         //found it:
+         --xRunListSize;
+         prev->next = node->next;
+         free( node );
+         return xRunListSize;
+      }
+      prev = prev->next;
+      node = node->next;
+   }
+
+   // failure
+   return xRunListSize;
+}
+

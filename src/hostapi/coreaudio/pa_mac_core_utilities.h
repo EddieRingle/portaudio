@@ -202,4 +202,27 @@ PaError setBestFramesPerBuffer( const AudioDeviceID device,
                                 const bool isOutput,
                                 UInt32 requestedFramesPerBuffer, 
                                 UInt32 *actualFramesPerBuffer );
+
+
+/*********************
+ *
+ *  xrun handling
+ *
+ *********************/
+
+OSStatus xrunCallback(
+    AudioDeviceID inDevice, 
+    UInt32 inChannel, 
+    Boolean isInput, 
+    AudioDevicePropertyID inPropertyID, 
+    void* inClientData ) ;
+
+void initializeXRunListenerList();
+void destroyXRunListenerList();
+
+/**Returns the list, so that it can be passed to CorAudio.*/
+void *addToXRunListenerList( void *stream, AudioDeviceID audioDevice );
+/**Returns the number of Listeners in the list remaining.*/
+int removeFromXRunListenerList( void *stream, AudioDeviceID audioDevice );
+
 #endif /* PA_MAC_CORE_UTILITIES_H__*/

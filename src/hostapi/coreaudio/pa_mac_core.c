@@ -282,28 +282,6 @@ static PaError OpenAndSetupOneAudioUnit(
     PaUtil_SetLastHostErrorInfo( paInDevelopment, errorCode, errorText )
 
 /*
- * Callback for setting over/underrun flags.
- *
- */
-static OSStatus xrunCallback(
-    AudioDeviceID inDevice, 
-    UInt32 inChannel, 
-    Boolean isInput, 
-    AudioDevicePropertyID inPropertyID, 
-    void* inClientData)
-{
-   PaMacCoreStream *stream = (PaMacCoreStream *) inClientData;
-   if( stream->state != ACTIVE )
-      return 0; //if the stream isn't active, we don't care if the device is dropping
-   if( isInput )
-      OSAtomicOr32( paInputOverflow, (uint32_t *)&(stream->xrunFlags) );
-   else
-      OSAtomicOr32( paOutputUnderflow, (uint32_t *)&(stream->xrunFlags) );
-
-   return 0;
-}
-
-/*
  * Callback called when starting or stopping a stream.
  */
 static void startStopCallback(
@@ -557,6 +535,8 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
 
     VVDBUG(("PaMacCore_Initialize(): hostApiIndex=%d\n", hostApiIndex));
 
+    initializeXRunListenerList();
+
     auhalHostApi = (PaMacAUHAL*)PaUtil_AllocateMemory( sizeof(PaMacAUHAL) );
     if( !auhalHostApi )
     {
@@ -678,6 +658,8 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PaMacAUHAL *auhalHostApi = (PaMacAUHAL*)hostApi;
 
     VVDBUG(("Terminate()\n"));
+
+    destroyXRunListenerList();
 
     /*
         IMPLEMENT ME:
@@ -950,13 +932,18 @@ static PaError OpenAndSetupOneAudioUnit(
                     sizeof(AudioDeviceID) ) );
     }
     /* -- add listener for dropouts -- */
-    ERR_WRAP( AudioDeviceAddPropertyListener( *audioDevice,
-                                              0,
-                                              outStreamParams ? false : true,
-                                              kAudioDeviceProcessorOverload,
-                                              xrunCallback,
-                                              (void *)stream) );
-
+    result = AudioDeviceAddPropertyListener( *audioDevice,
+                                             0,
+                                             outStreamParams ? false : true,
+                                             kAudioDeviceProcessorOverload,
+                                             xrunCallback,
+                                             addToXRunListenerList( (void *)stream, *audioDevice ) ) ;
+    if( result == kAudioHardwareIllegalOperationError ) {
+       // -- already registered, we're good
+    } else {
+       // -- not already registered, just check for errors
+       ERR_WRAP( result );
+    }
     /* -- listen for stream start and stop -- */
     ERR_WRAP( AudioUnitAddPropertyListener( *audioUnit,
                                             kAudioOutputUnitProperty_IsRunning,
@@ -2139,18 +2126,24 @@ static PaError CloseStream( PaStream* s )
     VDBUG( ( "Closing stream.\n" ) );
 
     if( stream ) {
-       if( stream->outputUnit )
-          AudioDeviceRemovePropertyListener( stream->outputDevice,
-                                             0,
-                                             false,
-                                             kAudioDeviceProcessorOverload,
-                                             xrunCallback );
-       if( stream->inputUnit && stream->outputUnit != stream->inputUnit )
-          AudioDeviceRemovePropertyListener( stream->inputDevice,
-                                             0,
-                                             true,
-                                             kAudioDeviceProcessorOverload,
-                                             xrunCallback );
+       if( stream->outputUnit ) {
+          int count = removeFromXRunListenerList( stream, stream->outputDevice );
+          if( count == 0 )
+             AudioDeviceRemovePropertyListener( stream->outputDevice,
+                                                0,
+                                                false,
+                                                kAudioDeviceProcessorOverload,
+                                                xrunCallback );
+       }
+       if( stream->inputUnit && stream->outputUnit != stream->inputUnit ) {
+          int count = removeFromXRunListenerList( stream, stream->inputDevice );
+          if( count == 0 )
+             AudioDeviceRemovePropertyListener( stream->inputDevice,
+                                                0,
+                                                true,
+                                                kAudioDeviceProcessorOverload,
+                                                xrunCallback );
+       }
        if( stream->outputUnit && stream->outputUnit != stream->inputUnit ) {
           AudioUnitUninitialize( stream->outputUnit );
           CloseComponent( stream->outputUnit );
