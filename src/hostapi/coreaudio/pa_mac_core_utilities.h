@@ -221,8 +221,8 @@ void initializeXRunListenerList();
 void destroyXRunListenerList();
 
 /**Returns the list, so that it can be passed to CorAudio.*/
-void *addToXRunListenerList( void *stream, AudioDeviceID audioDevice );
+void *addToXRunListenerList( void *stream );
 /**Returns the number of Listeners in the list remaining.*/
-int removeFromXRunListenerList( void *stream, AudioDeviceID audioDevice );
+int removeFromXRunListenerList( void *stream );
 
 #endif /* PA_MAC_CORE_UTILITIES_H__*/

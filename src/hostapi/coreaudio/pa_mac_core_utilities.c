@@ -630,7 +630,6 @@ PaError setBestFramesPerBuffer( const AudioDeviceID device,
 
 struct PaMacXRunListNode_s {
    PaMacCoreStream *stream;
-   AudioDeviceID audioDevice;
    struct PaMacXRunListNode_s *next;
 } ;
 
@@ -648,18 +647,18 @@ OSStatus xrunCallback(
    node = node->next ; //skip the first node
 
    for( ; node; node=node->next ) {
-      if( node->audioDevice != inDevice )
-         continue; //not the same device. continue.
-
       PaMacCoreStream *stream = node->stream;
 
       if( stream->state != ACTIVE )
          continue; //if the stream isn't active, we don't care if the device is dropping
 
-      if( isInput )
-         OSAtomicOr32( paInputOverflow, (uint32_t *)&(stream->xrunFlags) );
-      else
-         OSAtomicOr32( paOutputUnderflow, (uint32_t *)&(stream->xrunFlags) );
+      if( isInput ) {
+         if( stream->inputDevice == inDevice )
+            OSAtomicOr32( paInputOverflow, (uint32_t *)&(stream->xrunFlags) );
+      } else {
+         if( stream->outputDevice == inDevice )
+            OSAtomicOr32( paOutputUnderflow, (uint32_t *)&(stream->xrunFlags) );
+      }
    }
 
    return 0;
@@ -687,13 +686,12 @@ void destroyXRunListenerList()
    xRunListSize = 0;
 }
 
-void *addToXRunListenerList( void *stream, AudioDeviceID audioDevice )
+void *addToXRunListenerList( void *stream )
 {
    PaMacXRunListNode *newNode;
    // setup new node:
    newNode = (PaMacXRunListNode *) malloc( sizeof( PaMacXRunListNode ) );
    newNode->stream = (PaMacCoreStream *) stream;
-   newNode->audioDevice = audioDevice;
    newNode->next = firstXRunListNode.next;
    // insert:
    firstXRunListNode.next = newNode;
@@ -701,13 +699,13 @@ void *addToXRunListenerList( void *stream, AudioDeviceID audioDevice )
    return &firstXRunListNode;
 }
 
-int removeFromXRunListenerList( void *stream, AudioDeviceID audioDevice )
+int removeFromXRunListenerList( void *stream )
 {
    PaMacXRunListNode *node, *prev;
    prev = &firstXRunListNode;
    node = firstXRunListNode.next;
    while( node ) {
-      if( node->stream == stream && node->audioDevice == audioDevice ) {
+      if( node->stream == stream ) {
          //found it:
          --xRunListSize;
          prev->next = node->next;

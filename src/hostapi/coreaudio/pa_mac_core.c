@@ -937,7 +937,7 @@ static PaError OpenAndSetupOneAudioUnit(
                                              outStreamParams ? false : true,
                                              kAudioDeviceProcessorOverload,
                                              xrunCallback,
-                                             addToXRunListenerList( (void *)stream, *audioDevice ) ) ;
+                                             addToXRunListenerList( (void *)stream ) ) ;
     if( result == kAudioHardwareIllegalOperationError ) {
        // -- already registered, we're good
     } else {
@@ -2127,7 +2127,7 @@ static PaError CloseStream( PaStream* s )
 
     if( stream ) {
        if( stream->outputUnit ) {
-          int count = removeFromXRunListenerList( stream, stream->outputDevice );
+          int count = removeFromXRunListenerList( stream );
           if( count == 0 )
              AudioDeviceRemovePropertyListener( stream->outputDevice,
                                                 0,
@@ -2136,7 +2136,7 @@ static PaError CloseStream( PaStream* s )
                                                 xrunCallback );
        }
        if( stream->inputUnit && stream->outputUnit != stream->inputUnit ) {
-          int count = removeFromXRunListenerList( stream, stream->inputDevice );
+          int count = removeFromXRunListenerList( stream );
           if( count == 0 )
              AudioDeviceRemovePropertyListener( stream->inputDevice,
                                                 0,
