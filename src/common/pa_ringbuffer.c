@@ -55,68 +55,7 @@
 #include <math.h>
 #include "pa_ringbuffer.h"
 #include <string.h>
-
-/****************
- * First, we'll define some memory barrier primitives based on the system.
- * right now only OS X, FreeBSD, and Linux are supported. In addition to providing
- * memory barriers, these functions should ensure that data cached in registers
- * is written out to cache where it can be snooped by other CPUs. (ie, the volatile
- * keyword should not be required)
- *
- * the primitives that must be defined are:
- *
- * PaUtil_FullMemoryBarrier()
- * PaUtil_ReadMemoryBarrier()
- * PaUtil_WriteMemoryBarrier()
- *
- ****************/
-
-#if defined(__APPLE__)
-#   include <libkern/OSAtomic.h>
-    /* Here are the memory barrier functions. Mac OS X only provides
-       full memory barriers, so the three types of barriers are the same,
-       however, these barriers are superior to compiler-based ones. */
-#   define PaUtil_FullMemoryBarrier()  OSMemoryBarrier()
-#   define PaUtil_ReadMemoryBarrier()  OSMemoryBarrier()
-#   define PaUtil_WriteMemoryBarrier() OSMemoryBarrier()
-#elif defined(__GNUC__)
-    /* GCC >= 4.1 has built-in intrinsics. We'll use those */
-#   if (__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1)
-#      define PaUtil_FullMemoryBarrier()  __sync_synchronize()
-#      define PaUtil_ReadMemoryBarrier()  __sync_synchronize()
-#      define PaUtil_WriteMemoryBarrier() __sync_synchronize()
-    /* as a fallback, GCC understands volatile asm and "memory" to mean it
-     * should not reorder memory read/writes */
-#   elif defined( __PPC__ )
-#      define PaUtil_FullMemoryBarrier()  asm volatile("sync":::"memory")
-#      define PaUtil_ReadMemoryBarrier()  asm volatile("sync":::"memory")
-#      define PaUtil_WriteMemoryBarrier() asm volatile("sync":::"memory")
-#   elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || defined( __i686__ ) || defined( __x86_64__ )
-#      define PaUtil_FullMemoryBarrier()  asm volatile("mfence":::"memory")
-#      define PaUtil_ReadMemoryBarrier()  asm volatile("lfence":::"memory")
-#      define PaUtil_WriteMemoryBarrier() asm volatile("sfence":::"memory")
-#   else
-#      ifdef ALLOW_SMP_DANGERS
-#         warning Memory barriers not defined on this system or system unknown
-#         warning For SMP safety, you should fix this.
-#         define PaUtil_FullMemoryBarrier()
-#         define PaUtil_ReadMemoryBarrier()
-#         define PaUtil_WriteMemoryBarrier()
-#      else
-#         error Memory barriers are not defined on this system. You can still compile by defining ALLOW_SMP_DANGERS, but SMP safety will not be guaranteed.
-#      endif
-#   endif
-#else
-#   ifdef ALLOW_SMP_DANGERS
-#      warning Memory barriers not defined on this system or system unknown
-#      warning For SMP safety, you should fix this.
-#      define PaUtil_FullMemoryBarrier()
-#      define PaUtil_ReadMemoryBarrier()
-#      define PaUtil_WriteMemoryBarrier()
-#   else
-#      error Memory barriers are not defined on this system. You can still compile by defining ALLOW_SMP_DANGERS, but SMP safety will not be guaranteed.
-#   endif
-#endif
+#include "pa_memorybarrier.h"
 
 /***************************************************************************
  * Initialize FIFO.
