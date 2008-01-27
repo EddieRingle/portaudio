@@ -150,11 +150,13 @@ case "${host_os}" in
 
 	AC_DEFINE(PA_USE_COREAUDIO)
         if [[ "$enable_mac_debug" = "yes" ]] ; then
-		CFLAGS="$CFLAGS -g -Werror";
+		CFLAGS="$CFLAGS -g";
 		CXXFLAGS="$CXXFLAGS -g";
 	else
 		CFLAGS="$CFLAGS -DNDEBUG";
 	fi
+
+        CFLAGS="$CFLAGS -Werror"
 
 	if [[ -d /Developer/SDKs/MacOSX10.5.sdk ]] ; then
 		SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib -arch x86_64 -arch ppc64 -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.3";

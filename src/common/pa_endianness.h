@@ -120,18 +120,22 @@ extern "C"
  and raises an assertion if they don't match. <assert.h> must be included in
  the context in which this macro is used.
 */
-#if defined(PA_LITTLE_ENDIAN)
-    #define PA_VALIDATE_ENDIANNESS \
-    { \
-        const long nativeOne = 1; \
-        assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 1 ); \
-    }
-#elif defined(PA_BIG_ENDIAN)
-    #define PA_VALIDATE_ENDIANNESS \
-    { \
-        const long nativeOne = 1; \
-        assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 0 ); \
-    }
+#if defined(NDEBUG)
+    #define PA_VALIDATE_ENDIANNESS
+#else
+    #if defined(PA_LITTLE_ENDIAN)
+        #define PA_VALIDATE_ENDIANNESS \
+        { \
+            const long nativeOne = 1; \
+            assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 1 ); \
+        }
+    #elif defined(PA_BIG_ENDIAN)
+        #define PA_VALIDATE_ENDIANNESS \
+        { \
+            const long nativeOne = 1; \
+            assert( "PortAudio: compile time and runtime endianness don't match" && (((char *)&nativeOne)[0]) == 0 ); \
+        }
+    #endif
 #endif
 
 
