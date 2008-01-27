@@ -217,8 +217,10 @@ OSStatus xrunCallback(
     AudioDevicePropertyID inPropertyID, 
     void* inClientData ) ;
 
-void initializeXRunListenerList();
-void destroyXRunListenerList();
+/** returns zero on success or a unix style error code. */
+int initializeXRunListenerList();
+/** returns zero on success or a unix style error code. */
+int destroyXRunListenerList();
 
 /**Returns the list, so that it can be passed to CorAudio.*/
 void *addToXRunListenerList( void *stream );
