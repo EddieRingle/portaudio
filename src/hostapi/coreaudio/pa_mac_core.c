@@ -532,10 +532,14 @@ PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIn
     int i;
     PaMacAUHAL *auhalHostApi;
     PaDeviceInfo *deviceInfoArray;
+    int unixErr;
 
     VVDBUG(("PaMacCore_Initialize(): hostApiIndex=%d\n", hostApiIndex));
 
-    initializeXRunListenerList();
+    unixErr = initializeXRunListenerList();
+    if( 0 != unixErr ) {
+       return UNIX_ERR(unixErr);
+    }
 
     auhalHostApi = (PaMacAUHAL*)PaUtil_AllocateMemory( sizeof(PaMacAUHAL) );
     if( !auhalHostApi )
@@ -655,11 +659,15 @@ error:
 
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 {
+    int unixErr;
+
     PaMacAUHAL *auhalHostApi = (PaMacAUHAL*)hostApi;
 
     VVDBUG(("Terminate()\n"));
 
-    destroyXRunListenerList();
+    unixErr = destroyXRunListenerList();
+    if( 0 != unixErr )
+       UNIX_ERR(unixErr);
 
     /*
         IMPLEMENT ME:

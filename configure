@@ -21286,7 +21286,7 @@ _ACEOF
 		CFLAGS="$CFLAGS -g -Werror";
 		CXXFLAGS="$CXXFLAGS -g";
 	else
-		CFLAGS="$CFLAGS -DNDEBUG";
+		CFLAGS="$CFLAGS -DNDEBUG -Werror";
 	fi
 
 	if [ -d /Developer/SDKs/MacOSX10.5.sdk ] ; then
