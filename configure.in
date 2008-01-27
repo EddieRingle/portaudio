@@ -153,7 +153,7 @@ case "${host_os}" in
 		CFLAGS="$CFLAGS -g -Werror";
 		CXXFLAGS="$CXXFLAGS -g";
 	else
-		CFLAGS="$CFLAGS -DNDEBUG -Werror";
+		CFLAGS="$CFLAGS -DNDEBUG";
 	fi
 
 	if [[ -d /Developer/SDKs/MacOSX10.5.sdk ]] ; then
