@@ -1453,6 +1453,7 @@ Optional Features:
   --enable-debug-output
   --enable-cxx (default=no)
   --enable-mac-debug (default=no)
+  --enable-mac-universal (default=yes)
   --enable-shared[=PKGS]  build shared libraries [default=yes]
   --enable-static[=PKGS]  build static libraries [default=yes]
   --enable-fast-install[=PKGS]
@@ -2023,6 +2024,14 @@ if test "${enable_mac_debug+set}" = set; then
   enableval=$enable_mac_debug; enable_mac_debug=$enableval
 else
   enable_mac_debug="no"
+fi
+
+
+# Check whether --enable-mac-universal was given.
+if test "${enable_mac_universal+set}" = set; then
+  enableval=$enable_mac_universal; enable_mac_universal=$enableval
+else
+  enable_mac_universal="yes"
 fi
 
 
@@ -3775,7 +3784,7 @@ ia64-*-hpux*)
   ;;
 *-*-irix6*)
   # Find out which ABI we are using.
-  echo '#line 3778 "configure"' > conftest.$ac_ext
+  echo '#line 3787 "configure"' > conftest.$ac_ext
   if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -6744,11 +6753,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:6747: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:6756: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:6751: \$? = $ac_status" >&5
+   echo "$as_me:6760: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -7012,11 +7021,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:7015: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:7024: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:7019: \$? = $ac_status" >&5
+   echo "$as_me:7028: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -7116,11 +7125,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:7119: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:7128: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:7123: \$? = $ac_status" >&5
+   echo "$as_me:7132: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -9461,7 +9470,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 9464 "configure"
+#line 9473 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -9561,7 +9570,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<EOF
-#line 9564 "configure"
+#line 9573 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11897,11 +11906,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:11900: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:11909: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:11904: \$? = $ac_status" >&5
+   echo "$as_me:11913: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -12001,11 +12010,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:12004: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:12013: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:12008: \$? = $ac_status" >&5
+   echo "$as_me:12017: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -13608,11 +13617,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:13611: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:13620: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:13615: \$? = $ac_status" >&5
+   echo "$as_me:13624: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -13712,11 +13721,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:13715: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:13724: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:13719: \$? = $ac_status" >&5
+   echo "$as_me:13728: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -15947,11 +15956,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:15950: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:15959: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:15954: \$? = $ac_status" >&5
+   echo "$as_me:15963: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -16215,11 +16224,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:16218: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:16227: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:16222: \$? = $ac_status" >&5
+   echo "$as_me:16231: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -16319,11 +16328,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:16322: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:16331: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:16326: \$? = $ac_status" >&5
+   echo "$as_me:16335: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -21263,7 +21272,8 @@ LT_AGE=0
 
 
 if ( echo "${host_os}" | grep ^darwin >> /dev/null ) &&
-      [ "$enable_mac_debug" != "yes" ] ; then
+      [ "$enable_mac_universal" = "yes" ] &&
+       [ "$enable_mac_debug" != "yes" ] ; then
    CFLAGS="-O2 -Wall -pedantic -pipe -fPIC -DNDEBUG"
 else
    CFLAGS=${CFLAGS:-"-g -O2 -Wall -pedantic -pipe -fPIC"}
@@ -21286,15 +21296,22 @@ _ACEOF
         CFLAGS="$CFLAGS -Werror"
         LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon"
 
-        if [ -d /Developer/SDKs/MacOSX10.5.sdk ] ; then
-           mac_arches="-arch i386 -arch ppc -arch x86_64 -arch ppc64"
-           mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.5.sdk"
+        if test "x$enable_mac_universal" = "xyes" ; then
+           mac_version_min="-mmacosx-version-min=10.3"
+           if [ -d /Developer/SDKs/MacOSX10.5.sdk ] ; then
+              mac_arches="-arch i386 -arch ppc -arch x86_64 -arch ppc64"
+              mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.5.sdk"
+           else
+              mac_arches="-arch i386 -arch ppc"
+              mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.4u.sdk"
+           fi
         else
-           mac_arches="-arch i386 -arch ppc"
-           mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.4u.sdk"
+           mac_arches=""
+           mac_sysroot=""
+           mac_version=""
         fi
-        SHARED_FLAGS="$LIBS -dynamiclib $mac_arches $mac_sysroot -mmacosx-version-min=10.3"
-        CFLAGS="-std=c99 $CFLAGS $mac_arches $mac_sysroot -mmacosx-version-min=10.3"
+        SHARED_FLAGS="$LIBS -dynamiclib $mac_arches $mac_sysroot $mac_version_min"
+        CFLAGS="-std=c99 $CFLAGS $mac_arches $mac_sysroot $mac_version_min"
         OTHER_OBJS="src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o src/common/pa_ringbuffer.o"
         PADLL="libportaudio.dylib"
         if [ $with_macapi = "asio" ] ; then
