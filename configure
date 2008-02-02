@@ -21284,16 +21284,18 @@ _ACEOF
 
 
         CFLAGS="$CFLAGS -Werror"
+        LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon"
 
         if [ -d /Developer/SDKs/MacOSX10.5.sdk ] ; then
-           SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib -arch x86_64 -arch ppc64 -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.3"
-           CFLAGS="-std=c99 $CFLAGS -arch x86_64 -arch ppc64 -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.3"
+           mac_arches="-arch i386 -arch ppc -arch x86_64 -arch ppc64"
+           mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.5.sdk"
         else
-           SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib  -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3"
-           CFLAGS="-std=c99 $CFLAGS -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3"
+           mac_arches="-arch i386 -arch ppc"
+           mac_sysroot="-isysroot /Developer/SDKs/MacOSX10.4u.sdk"
         fi
+        SHARED_FLAGS="$LIBS -dynamiclib $mac_arches $mac_sysroot -mmacosx-version-min=10.3"
+        CFLAGS="-std=c99 $CFLAGS $mac_arches $mac_sysroot -mmacosx-version-min=10.3"
         OTHER_OBJS="src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o src/common/pa_ringbuffer.o"
-        LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon"
         PADLL="libportaudio.dylib"
         if [ $with_macapi = "asio" ] ; then
             if [ $with_asiodir ] ; then
