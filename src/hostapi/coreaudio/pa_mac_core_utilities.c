@@ -61,7 +61,6 @@
 #include <libkern/OSAtomic.h>
 #include <strings.h>
 #include <pthread.h>
-#include "pa_memorybarrier.h"
 
 PaError PaMacCore_SetUnixError( int err, int line )
 {
@@ -659,7 +658,6 @@ OSStatus xrunCallback(
       node = node->next ; //skip the first node
 
       for( ; node; node=node->next ) {
-         PaUtil_ReadMemoryBarrier();
          PaMacCoreStream *stream = node->stream;
 
          if( stream->state != ACTIVE )
@@ -707,7 +705,6 @@ void *addToXRunListenerList( void *stream )
    newNode = (PaMacXRunListNode *) malloc( sizeof( PaMacXRunListNode ) );
    newNode->stream = (PaMacCoreStream *) stream;
    newNode->next = firstXRunListNode.next;
-   PaUtil_WriteMemoryBarrier();
    // insert:
    firstXRunListNode.next = newNode;
    pthread_mutex_unlock( &xrunMutex );
@@ -726,7 +723,6 @@ int removeFromXRunListenerList( void *stream )
          //found it:
          --xRunListSize;
          prev->next = node->next;
-         PaUtil_WriteMemoryBarrier();
          free( node );
          pthread_mutex_unlock( &xrunMutex );
          return xRunListSize;
