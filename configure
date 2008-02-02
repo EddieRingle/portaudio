@@ -21296,7 +21296,7 @@ _ACEOF
            CFLAGS="-std=c99 $CFLAGS -arch x86_64 -arch ppc64 -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.5.sdk -mmacosx-version-min=10.3"
         else
            SHARED_FLAGS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon -dynamiclib  -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3"
-           CFLAGS="-std=c99 $CFALGS -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3"
+           CFLAGS="-std=c99 $CFLAGS -arch i386 -arch ppc -isysroot /Developer/SDKs/MacOSX10.4u.sdk -mmacosx-version-min=10.3"
         fi
         OTHER_OBJS="src/os/mac_osx/pa_mac_hostapis.o src/os/unix/pa_unix_util.o src/hostapi/coreaudio/pa_mac_core.o src/hostapi/coreaudio/pa_mac_core_utilities.o src/hostapi/coreaudio/pa_mac_core_blocking.o src/common/pa_ringbuffer.o"
         LIBS="-framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework Carbon"
