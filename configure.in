@@ -131,9 +131,9 @@ AC_SUBST(NASM)
 AC_SUBST(NASMOPT)
 
 dnl -g is optional on darwin
-if( echo "${host_os}" | grep ^darwin >> /dev/null ) ; then
-   CFLAGS="-O2 -Wall -pedantic -pipe -fPIC"
-   CXXFLAGS="-O2"
+if ( echo "${host_os}" | grep ^darwin >> /dev/null ) &&
+      [[ "$enable_mac_debug" != "yes" ]] ; then
+   CFLAGS="-O2 -Wall -pedantic -pipe -fPIC -DNDEBUG"
 else
    CFLAGS=${CFLAGS:-"-g -O2 -Wall -pedantic -pipe -fPIC"}
 fi
@@ -149,12 +149,6 @@ case "${host_os}" in
         dnl Mac OS X configuration
 
         AC_DEFINE(PA_USE_COREAUDIO)
-        if [[ "$enable_mac_debug" = "yes" ]] ; then
-           CFLAGS="$CFLAGS -g"
-           CXXFLAGS="$CXXFLAGS -g"
-        else
-           CFLAGS="$CFLAGS -DNDEBUG"
-        fi
 
         CFLAGS="$CFLAGS -Werror"
 
