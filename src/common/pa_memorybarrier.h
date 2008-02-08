@@ -76,11 +76,14 @@
 #      define PaUtil_WriteMemoryBarrier() __sync_synchronize()
     /* as a fallback, GCC understands volatile asm and "memory" to mean it
      * should not reorder memory read/writes */
-#   elif defined( __PPC__ )
+    /* Note that it is not clear that any compiler actually defines __PPC__,
+     * it can probably removed safely. */
+#   elif defined( __ppc__ ) || defined( __powerpc__) || defined( __PPC__ )
 #      define PaUtil_FullMemoryBarrier()  asm volatile("sync":::"memory")
 #      define PaUtil_ReadMemoryBarrier()  asm volatile("sync":::"memory")
 #      define PaUtil_WriteMemoryBarrier() asm volatile("sync":::"memory")
-#   elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || defined( __i686__ ) || defined( __x86_64__ )
+#   elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || \
+	 defined( __i686__ ) || defined( __x86_64__ )
 #      define PaUtil_FullMemoryBarrier()  asm volatile("mfence":::"memory")
 #      define PaUtil_ReadMemoryBarrier()  asm volatile("lfence":::"memory")
 #      define PaUtil_WriteMemoryBarrier() asm volatile("sfence":::"memory")
