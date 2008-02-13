@@ -1913,13 +1913,16 @@ static HRESULT QueryOutputSpace( PaWinDsStream *stream, long *bytesEmpty )
         long            bytesPlayed;
         long            bytesExpected;
         long            buffersWrapped;
+
         QueryPerformanceCounter( &currentTime );
         elapsedTime.QuadPart = currentTime.QuadPart - stream->previousPlayTime.QuadPart;
         stream->previousPlayTime = currentTime;
+
         /* How many bytes does DirectSound say have been played. */
         bytesPlayed = playCursor - stream->previousPlayCursor;
         if( bytesPlayed < 0 ) bytesPlayed += stream->outputBufferSizeBytes; // unwrap
         stream->previousPlayCursor = playCursor;
+
         /* Calculate how many bytes we would have expected to been played by now. */
         bytesExpected = (long) ((elapsedTime.QuadPart * stream->outputBufferSizeBytes) / stream->perfCounterTicksPerBuffer.QuadPart);
         buffersWrapped = (bytesExpected - bytesPlayed) / stream->outputBufferSizeBytes;
@@ -1933,6 +1936,7 @@ static HRESULT QueryOutputSpace( PaWinDsStream *stream, long *bytesEmpty )
     }
     numBytesEmpty = playCursor - stream->outputBufferWriteOffsetBytes;
     if( numBytesEmpty < 0 ) numBytesEmpty += stream->outputBufferSizeBytes; // unwrap offset
+
     /* Have we underflowed? */
     if( numBytesEmpty > (stream->outputBufferSizeBytes - playWriteGap) )
     {
@@ -1940,6 +1944,17 @@ static HRESULT QueryOutputSpace( PaWinDsStream *stream, long *bytesEmpty )
         {
             stream->outputUnderflowCount += 1;
         }
+
+        /*
+            From MSDN:
+                The write cursor indicates the position at which it is safe  
+            to write new data to the buffer. The write cursor always leads the
+            play cursor, typically by about 15 milliseconds' worth of audio
+            data.
+                It is always safe to change data that is behind the position 
+            indicated by the lpdwCurrentPlayCursor parameter.
+        */
+
         stream->outputBufferWriteOffsetBytes = writeCursor;
         numBytesEmpty = stream->outputBufferSizeBytes - playWriteGap;
     }
