@@ -201,7 +201,7 @@ case "${host_os}" in
               DXDIR="/usr/local/dx7sdk"
             fi
             echo "DXDIR: $DXDIR"
-            OTHER_OBJS="src/hostapi/dsound/pa_win_ds.o src/hostapi/dsound/pa_win_ds_dynlink.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o"
+            OTHER_OBJS="src/hostapi/dsound/pa_win_ds.o src/hostapi/dsound/pa_win_ds_dynlink.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/os/win/pa_win_waveformat.o"
             LIBS="-lwinmm -lm -ldsound -lole32"
             PADLL="portaudio.dll"
             THREAD_CFLAGS="-mthreads"
@@ -243,7 +243,7 @@ case "${host_os}" in
             #CFLAGS="$CFLAGS -I$VC98 -DPA_NO_WMME -DPA_NO_ASIO"
             CFLAGS="$CFLAGS -I\$(top_srcdir)/src/common -I$DXDIR/include -DPA_NO_WMME -DPA_NO_DS -DPA_NO_ASIO"
         else   # WMME default
-            OTHER_OBJS="src/hostapi/wmme/pa_win_wmme.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o"
+            OTHER_OBJS="src/hostapi/wmme/pa_win_wmme.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/os/win/pa_win_waveformat.o"
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid"
             PADLL="portaudio.dll"
             THREAD_CFLAGS="-mthreads"
@@ -256,7 +256,7 @@ case "${host_os}" in
   cygwin* )
         dnl Cygwin configuration
 
-        OTHER_OBJS="src/hostapi/wmme/pa_win_wmme.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o"
+        OTHER_OBJS="src/hostapi/wmme/pa_win_wmme.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/os/win/pa_win_waveformat.o"
         CFLAGS="$CFLAGS -DPA_NO_DS -DPA_NO_WDMKS -DPA_NO_ASIO -DPA_NO_WASAPI"
         LIBS="-lwinmm -lm"
         PADLL="portaudio.dll"
