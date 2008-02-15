@@ -40,7 +40,8 @@
  */
 
 /** @file
- @brief The PortAudio API.
+ @ingroup public_header
+ @brief The portable PortAudio API.
 */
 
 

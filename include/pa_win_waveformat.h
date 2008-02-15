@@ -40,6 +40,7 @@
  */
 
 /** @file
+ @ingroup public_header
  @brief Windows specific PortAudio API extension and utilities header file.
 */
 

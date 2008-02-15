@@ -40,6 +40,7 @@
 
 
 /** @file
+ @ingroup public_header
  @brief ASIO-specific PortAudio API extension header file.
 */
 

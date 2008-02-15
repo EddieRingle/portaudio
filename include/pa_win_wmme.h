@@ -39,6 +39,7 @@
  */
 
 /** @file
+ @ingroup public_header
  @brief WMME-specific PortAudio API extension header file.
 */
 

@@ -39,6 +39,7 @@
  */
 
 /** @file
+ @ingroup public_header
  @brief DirectSound-specific PortAudio API extension header file.
 */
 

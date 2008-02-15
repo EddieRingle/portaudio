@@ -40,7 +40,8 @@
  */
 
 /** @file
- * ALSA-specific PortAudio API extension header file.
+ *  @ingroup public_header
+ *  @brief ALSA-specific PortAudio API extension header file.
  */
 #include "portaudio.h"
 
