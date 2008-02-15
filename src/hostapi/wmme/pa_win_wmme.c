@@ -3600,7 +3600,7 @@ static PaError ReadStream( PaStream* s,
         }
         else
         {
-            userBuffer = alloca( sizeof(void*) * stream->bufferProcessor.inputChannelCount );
+            userBuffer = (void*)alloca( sizeof(void*) * stream->bufferProcessor.inputChannelCount );
             if( !userBuffer )
                 return paInsufficientMemory;
             for( i = 0; i<stream->bufferProcessor.inputChannelCount; ++i )
@@ -3704,7 +3704,7 @@ static PaError WriteStream( PaStream* s,
         }
         else
         {
-            userBuffer = alloca( sizeof(void*) * stream->bufferProcessor.outputChannelCount );
+            userBuffer = (const void*)alloca( sizeof(void*) * stream->bufferProcessor.outputChannelCount );
             if( !userBuffer )
                 return paInsufficientMemory;
             for( i = 0; i<stream->bufferProcessor.outputChannelCount; ++i )
