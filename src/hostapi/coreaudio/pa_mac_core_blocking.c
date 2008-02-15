@@ -53,7 +53,7 @@
 
 /**
  @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 
  This file contains the implementation
  required for blocking I/O. It is separated from pa_mac_core.c simply to ease

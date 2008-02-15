@@ -43,8 +43,10 @@
 
  @brief Skeleton implementation of support for a host API.
 
- @note This file is provided as a starting point for implementing support for
- a new host API. IMPLEMENT ME comments are used to indicate functionality
+ This file is provided as a starting point for implementing support for
+ a new host API. It provides examples of how the common code can be used.
+
+ @note IMPLEMENT ME comments are used to indicate functionality
  which much be customised for each implementation.
 */
 

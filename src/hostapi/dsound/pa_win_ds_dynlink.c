@@ -41,7 +41,7 @@
 
 /**
  @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 */
 
 #include "pa_win_ds_dynlink.h"

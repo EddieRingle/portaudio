@@ -38,7 +38,7 @@
  */
 
 /** @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 
     @todo implement paInputOverflow callback status flag
     

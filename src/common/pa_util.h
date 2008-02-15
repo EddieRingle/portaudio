@@ -6,7 +6,7 @@
  * common implementation utilities and interfaces
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
+ * Copyright (c) 1999-2008 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -43,6 +43,9 @@
  @ingroup common_src
 
     @brief Prototypes for utility functions used by PortAudio implementations.
+
+    Some functions declared here are defined in pa_front.c while others
+    are implemented separately for each platform.
 
     @todo Document and adhere to the alignment guarantees provided by
     PaUtil_AllocateMemory().

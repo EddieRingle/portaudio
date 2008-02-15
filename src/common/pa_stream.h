@@ -6,7 +6,7 @@
  * stream interface
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
+ * Copyright (c) 1999-2008 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -42,8 +42,8 @@
 /** @file
  @ingroup common_src
 
- @brief Interface used by pa_front to virtualize functions which operate on
- streams.
+ @brief Stream interfaces, representation structures and helper functions
+ used to interface between pa_front.c host API implementations.
 */
 
 

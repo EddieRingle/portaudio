@@ -3,7 +3,7 @@
  * Portable Audio I/O Library Windows initialization table
  *
  * Based on the Open Source API proposed by Ross Bencina
- * Copyright (c) 1999-2002 Ross Bencina, Phil Burk
+ * Copyright (c) 1999-2008 Ross Bencina, Phil Burk
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -39,7 +39,7 @@
 /** @file
  @ingroup win_src
 
-    Win32 host API initialization function table.
+    @brief Win32 host API initialization function table.
 
     @todo Consider using PA_USE_WMME etc instead of PA_NO_WMME. This is what
     the Unix version does, we should consider being consistent.

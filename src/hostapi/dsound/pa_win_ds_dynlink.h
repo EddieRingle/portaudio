@@ -41,7 +41,7 @@
 
 /**
  @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
 */
 
 #ifndef INCLUDED_PA_DSOUND_DYNLINK_H

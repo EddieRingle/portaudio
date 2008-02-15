@@ -40,7 +40,7 @@
 /** @file
  @ingroup common_src
 
- @brief Event trace mechanism for debugging.
+ @brief Real-time safe event trace logging facility for debugging.
 */
 
 

@@ -62,7 +62,9 @@
 */
 
 /** @file
-	@ingroup hostaip_src
+	@ingroup hostapi_src
+
+    @brief Win32 host API implementation for the Windows MultiMedia Extensions (WMME) audio API.
 
 	@todo Fix buffer catch up code, can sometimes get stuck (perhaps fixed now,
             needs to be reviewed and tested.)

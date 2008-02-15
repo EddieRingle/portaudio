@@ -37,7 +37,7 @@
  */
 
 /** @file
- @ingroup hostaip_src
+ @ingroup hostapi_src
  @brief WASAPI implementation of support for a host API.
 
  @note pa_wasapi currently requires VC 2005, and the latest Vista SDK

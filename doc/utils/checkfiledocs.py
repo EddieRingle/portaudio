@@ -5,18 +5,19 @@ import string
 paRootDirectory = '../../'
 paHtmlDocDirectory = os.path.join( paRootDirectory, "doc", "html" )
 
-##this script assumes that html doxygen documentation has been generated
+## Script to check documentation status
+## this script assumes that html doxygen documentation has been generated
 ##
-##it then walks the entire portaudio source tree and check that
-##- every source file (.c,.h,.cpp) has a doxygen comment block containing
+## it then walks the entire portaudio source tree and check that
+## - every source file (.c,.h,.cpp) has a doxygen comment block containing
 ##	- a @file directive
 ##	- a @brief directive
 ##	- a @ingroup directive
-##- it also checks that a corresponding html documentation file has been generated.
+## - it also checks that a corresponding html documentation file has been generated.
 ##
-##This can be used as a first-level check to make sure the documentation is in order.
+## This can be used as a first-level check to make sure the documentation is in order.
 ##
-##The idea is to get a list of which files are missing doxygen documentation.
+## The idea is to get a list of which files are missing doxygen documentation.
 
 
 # recurse from top and return a list of all with the given
