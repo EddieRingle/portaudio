@@ -2,7 +2,7 @@ ASIO-README.txt
 
 This document contains information to help you compile PortAudio with 
 ASIO support. If you find any omissions or errors in this document 
-please notify Ross Bencina <rossb@audiomulch.com>.
+please notify us on the PortAudio mailing list.
 
 
 Building PortAudio with ASIO support
@@ -10,10 +10,10 @@ Building PortAudio with ASIO support
 
 To build PortAudio with ASIO support you need to compile and link with
 pa_asio.c, and files from the ASIO SDK (see below), along with the common 
-files from pa_common/ and platform specific files from pa_win/ (for Win32) 
-or pa_mac/ (for Macintosh).
+files from src/common/ and platform specific files from src/os/win/ (for Win32) 
+or src/os/mac/ (for Macintosh).
 
-If you are compiling with a non-Microsoft compiler on windows, also 
+If you are compiling with a non-Microsoft compiler on Windows, also 
 compile and link with iasiothiscallresolver.cpp (see below for 
 an explanation).
 
@@ -40,7 +40,7 @@ source code to be distributed.
 NOTE: In some cases the ASIO SDK may require patching, see below 
 for further details.
 
-http://www.steinberg.net/en/ps/support/3rdparty/asio_sdk/
+http://www.steinberg.de/329+M52087573ab0.html
 
 If the above link is broken search Google for:
 "download steinberg ASIO SDK"
@@ -56,6 +56,9 @@ following files from the ASIO SDK:
 host/asiodrivers.cpp 
 host/mac/asioshlib.cpp 
 host/mac/codefragements.cpp
+
+You may also need to adjust your include paths to support inclusion of 
+header files from the above directories.
 
 
 
@@ -75,7 +78,7 @@ header files from the above directories.
 The ASIO SDK depends on the following COM API functions: 
 CoInitialize, CoUninitialize, CoCreateInstance, CLSIDFromString
 For compilation with MinGW you will need to link with -lole32, for
-Borland link with Import32.lib.
+Borland compilers link with Import32.lib.
 
 
 
