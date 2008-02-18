@@ -77,9 +77,6 @@
     paNeverDropInput is not necessary or possible with this driver due to the
     synchronous full duplex double-buffered architecture of ASIO.
 
-    @todo check that CoInitialize()/CoUninitialize() are always correctly
-        paired, even in error cases.
-
     @todo implement host api specific extension to set i/o buffer sizes in frames
 
     @todo implement ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable
@@ -120,6 +117,7 @@
 #include <assert.h>
 #include <string.h>
 //#include <values.h>
+#include <new>
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -164,16 +162,24 @@
 #endif
 */
 
-/* external references */
-extern AsioDrivers* asioDrivers ;
-bool loadAsioDriver(char *name);
+
+/* external reference to ASIO SDK's asioDrivers.
+
+ This is a bit messy because we want to explicitly manage 
+ allocation/deallocation of this structure, but some layers of the SDK 
+ which we currently use (eg the implementation in asio.cpp) still
+ use this global version.
+
+ For now we keep it in sync with our local instance in the host
+ API representation structure, but later we should be able to remove
+ all dependence on it.
+*/
+extern AsioDrivers* asioDrivers;
 
 
 /* We are trying to be compatible with CARBON but this has not been thoroughly tested. */
-/* not tested at all since new code was introduced. */
+/* not tested at all since new V19 code was introduced. */
 #define CARBON_COMPATIBLE  (0)
-
-
 
 
 /* prototypes for functions declared in this file */
@@ -300,6 +306,7 @@ typedef struct
 
     PaUtilAllocationGroup *allocations;
 
+    AsioDrivers *asioDrivers;
     void *systemSpecific;
     
     /* the ASIO C API only allows one ASIO driver to be open at a time,
@@ -323,7 +330,7 @@ PaAsioHostApiRepresentation;
     Retrieve <driverCount> driver names from ASIO, returned in a char**
     allocated in <group>.
 */
-static char **GetAsioDriverNames( PaUtilAllocationGroup *group, long driverCount )
+static char **GetAsioDriverNames( PaAsioHostApiRepresentation *asioHostApi, PaUtilAllocationGroup *group, long driverCount )
 {
     char **result = 0;
     int i;
@@ -341,7 +348,7 @@ static char **GetAsioDriverNames( PaUtilAllocationGroup *group, long driverCount
     for( i=0; i<driverCount; ++i )
         result[i] = result[0] + (32 * i);
 
-    asioDrivers->getDriverNames( result, driverCount );
+    asioHostApi->asioDrivers->getDriverNames( result, driverCount );
 
 error:
     return result;
@@ -952,14 +959,18 @@ PaError PaAsio_GetAvailableLatencyValues( PaDeviceIndex device,
     and must be closed by the called by calling ASIOExit() - if an error
     is returned the driver will already be closed.
 */
-static PaError LoadAsioDriver( const char *driverName,
+static PaError LoadAsioDriver( PaAsioHostApiRepresentation *asioHostApi, const char *driverName,
         PaAsioDriverInfo *driverInfo, void *systemSpecific )
 {
     PaError result = paNoError;
     ASIOError asioError;
     int asioIsInitialized = 0;
 
-    if( !loadAsioDriver( const_cast<char*>(driverName) ) )
+    /* @todo note that the V18 version always called CoInitialize() here to ensure 
+        that COM was initialized before loading the driver. 
+        probably the docs need to require clients to initialize COM in new threads?
+    */
+    if( !asioHostApi->asioDrivers->loadDriver( const_cast<char*>(driverName) ) )
     {
         result = paUnanticipatedHostError;
         PA_ASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
@@ -1039,12 +1050,33 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
         goto error;
     }
 
+    asioHostApi->asioDrivers = 0; /* avoid surprises in our error handler below */
+
     asioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !asioHostApi->allocations )
     {
         result = paInsufficientMemory;
         goto error;
     }
+
+    /* Allocate the AsioDrivers() driver list (class from ASIO SDK) */
+    try
+    {
+        asioHostApi->asioDrivers = new AsioDrivers(); /* calls CoInitialize(0) */
+    } 
+    catch (std::bad_alloc)
+    {
+        asioHostApi->asioDrivers = 0;
+    }
+    /* some implementations of new (ie MSVC, see http://support.microsoft.com/?kbid=167733)
+       don't throw std::bad_alloc, so we also explicitly test for a null return. */
+    if( asioHostApi->asioDrivers == 0 )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+    asioDrivers = asioHostApi->asioDrivers; /* keep SDK global in sync until we stop depending on it */
 
     asioHostApi->systemSpecific = 0;
     asioHostApi->openAsioDeviceIndex = paNoDevice;
@@ -1059,23 +1091,19 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
     #ifdef WINDOWS
         /* use desktop window as system specific ptr */
         asioHostApi->systemSpecific = GetDesktopWindow();
-        CoInitialize(NULL);
     #endif
-
-    /* MUST BE CHECKED : to force fragments loading on Mac */
-    loadAsioDriver( "dummy" ); 
 
     /* driverCount is the number of installed drivers - not necessarily
         the number of installed physical devices. */
     #if MAC
-        driverCount = asioDrivers->getNumFragments();
+        driverCount = asioHostApi->asioDrivers->getNumFragments();
     #elif WINDOWS
-        driverCount = asioDrivers->asioGetNumDev();
+        driverCount = asioHostApi->asioDrivers->asioGetNumDev();
     #endif
 
     if( driverCount > 0 )
     {
-        names = GetAsioDriverNames( asioHostApi->allocations, driverCount );
+        names = GetAsioDriverNames( asioHostApi, asioHostApi->allocations, driverCount );
         if( !names )
         {
             result = paInsufficientMemory;
@@ -1141,7 +1169,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
 
             /* Attempt to load the asio driver... */
-            if( LoadAsioDriver( names[i], &paAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
+            if( LoadAsioDriver( asioHostApi, names[i], &paAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
             {
                 PaAsioDeviceInfo *asioDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
                 PaDeviceInfo *deviceInfo = &asioDeviceInfo->commonDeviceInfo;
@@ -1311,6 +1339,9 @@ error:
             PaUtil_DestroyAllocationGroup( asioHostApi->allocations );
         }
 
+        delete asioHostApi->asioDrivers;
+        asioDrivers = asioHostApi->asioDrivers; /* keep SDK global in sync until we stop depending on it */
+
         PaUtil_FreeMemory( asioHostApi );
     }
     return result;
@@ -1323,7 +1354,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     /*
         IMPLEMENT ME:
-            - clean up any resources not handled by the allocation group
+            - clean up any resources not handled by the allocation group (need to review if there are any)
     */
 
     if( asioHostApi->allocations )
@@ -1331,6 +1362,9 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         PaUtil_FreeAllAllocations( asioHostApi->allocations );
         PaUtil_DestroyAllocationGroup( asioHostApi->allocations );
     }
+
+    delete asioHostApi->asioDrivers; /* calls CoUninitialize() */
+    asioDrivers = asioHostApi->asioDrivers; /* keep SDK global in sync until we stop depending on it */
 
     PaUtil_FreeMemory( asioHostApi );
 }
@@ -1430,7 +1464,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     /* open the device if it's not already open */
     if( asioHostApi->openAsioDeviceIndex == paNoDevice )
     {
-        result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+        result = LoadAsioDriver( asioHostApi, asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
                 driverInfo, asioHostApi->systemSpecific );
         if( result != paNoError )
             return result;
@@ -1762,7 +1796,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+    result = LoadAsioDriver( asioHostApi, asioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
             driverInfo, asioHostApi->systemSpecific );
     if( result == paNoError )
         asioIsInitialized = 1;
@@ -2896,7 +2930,11 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
 
     asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
-    if( !loadAsioDriver( const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
+    /* @todo note that the V18 version always called CoInitialize() here to ensure 
+        that COM was initialized before loading the driver. 
+        probably the docs need to require clients to initialize COM in new threads?
+    */
+    if( !asioHostApi->asioDrivers->loadDriver( const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
     {
         result = paUnanticipatedHostError;
         goto error;
