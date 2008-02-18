@@ -1340,7 +1340,7 @@ error:
         }
 
         delete asioHostApi->asioDrivers;
-        asioDrivers = asioHostApi->asioDrivers; /* keep SDK global in sync until we stop depending on it */
+        asioDrivers = 0; /* keep SDK global in sync until we stop depending on it */
 
         PaUtil_FreeMemory( asioHostApi );
     }
@@ -1364,7 +1364,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     }
 
     delete asioHostApi->asioDrivers; /* calls CoUninitialize() */
-    asioDrivers = asioHostApi->asioDrivers; /* keep SDK global in sync until we stop depending on it */
+    asioDrivers = 0; /* keep SDK global in sync until we stop depending on it */
 
     PaUtil_FreeMemory( asioHostApi );
 }
