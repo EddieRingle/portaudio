@@ -1536,7 +1536,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
           /* now we can initialize the ring buffer */
           PaUtil_InitializeRingBuffer( &stream->inputRingBuffer,
-                                   ringSize*szfl, data ) ;
+                                   1, ringSize*szfl, data ) ;
           /* advance the read point a little, so we are reading from the
              middle of the buffer */
           if( stream->outputUnit )

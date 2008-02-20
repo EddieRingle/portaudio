@@ -254,7 +254,7 @@ static PaError BlockingInitFIFO( PaUtilRingBuffer *rbuf, long numFrames, long by
     char *buffer = (char *) malloc( numBytes );
     if( buffer == NULL ) return paInsufficientMemory;
     memset( buffer, 0, numBytes );
-    return (PaError) PaUtil_InitializeRingBuffer( rbuf, numBytes, buffer );
+    return (PaError) PaUtil_InitializeRingBuffer( rbuf, 1, numBytes, buffer );
 }
 
 /* Free buffer. */
