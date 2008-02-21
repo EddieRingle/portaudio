@@ -65,7 +65,11 @@
 
 #ifdef HAVE_SYS_SOUNDCARD_H
 # include <sys/soundcard.h>
-# define DEVICE_NAME_BASE            "/dev/dsp"
+# ifdef __NetBSD__
+#  define DEVICE_NAME_BASE           "/dev/audio"
+# else
+#  define DEVICE_NAME_BASE           "/dev/dsp"
+# endif
 #elif defined(HAVE_LINUX_SOUNDCARD_H)
 # include <linux/soundcard.h>
 # define DEVICE_NAME_BASE            "/dev/dsp"
@@ -1970,8 +1974,9 @@ static signed long GetStreamWriteAvailable( PaStream* s )
     PaError result = paNoError;
     PaOssStream *stream = (PaOssStream*)s;
     int delay = 0;
-
+#ifdef SNDCTL_DSP_GETODELAY
     ENSURE_( ioctl( stream->playback->fd, SNDCTL_DSP_GETODELAY, &delay ), paUnanticipatedHostError );
+#endif
     return (PaOssStreamComponent_BufferSize( stream->playback ) - delay) / PaOssStreamComponent_FrameSize( stream->playback );
 
 error:
