@@ -89,6 +89,7 @@ dnl turn them on or off
 
 AC_CHECK_LIB(asound, snd_pcm_open, have_alsa=yes, have_alsa=no)
 AC_CHECK_LIB(hpi, HPI_SubSysCreate, have_asihpi=yes, have_asihpi=no, -lm)
+AC_CHECK_LIB(ossaudio, _oss_ioctl, have_libossaudio=yes, have_libossaudio=no)
 
 dnl Determine the host description for the subsequent test.
 dnl PKG_CHECK_MODULES seems to check and set the host variable also, but
@@ -313,6 +314,10 @@ case "${host_os}" in
 
         if [[ $with_oss != "no" ]] ; then
            OTHER_OBJS="$OTHER_OBJS src/hostapi/oss/pa_unix_oss.o"
+           if [[ $have_libossaudio = "yes" ]] ; then
+                   DLL_LIBS="$DLL_LIBS -lossaudio"
+                   LIBS="$LIBS -lossaudio"
+           fi      
            AC_DEFINE(PA_USE_OSS)
         fi
 
