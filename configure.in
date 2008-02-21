@@ -328,11 +328,21 @@ case "${host_os}" in
            AC_DEFINE(PA_USE_ASIHPI)
         fi
 
-        THREAD_CFLAGS="-pthread"
         DLL_LIBS="$DLL_LIBS -lm -lpthread"
         LIBS="$LIBS -lm -lpthread"
         PADLL="libportaudio.so"
-        SHARED_FLAGS="-shared -fPIC"
+
+        ## support sun cc compiler flags
+        case "${host_os}" in
+           solaris*)
+              SHARED_FLAGS="-G"
+              THREAD_CFLAGS="-mt"
+              ;;
+           *)
+              SHARED_FLAGS="-shared -fPIC"
+              THREAD_CFLAGS="-pthread"
+              ;;
+        esac
 
         OTHER_OBJS="$OTHER_OBJS src/os/unix/pa_unix_hostapis.o src/os/unix/pa_unix_util.o"
 esac

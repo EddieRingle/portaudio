@@ -21804,6 +21804,7 @@ _ACEOF
         if [ $with_oss != "no" ] ; then
            OTHER_OBJS="$OTHER_OBJS src/hostapi/oss/pa_unix_oss.o"
            if [ $have_libossaudio = "yes" ] ; then
+                   DLL_LIBS="$DLL_LIBS -lossaudio"
                    LIBS="$LIBS -lossaudio"
            fi
            cat >>confdefs.h <<\_ACEOF
@@ -21822,11 +21823,21 @@ _ACEOF
 
         fi
 
-        THREAD_CFLAGS="-pthread"
         DLL_LIBS="$DLL_LIBS -lm -lpthread"
         LIBS="$LIBS -lm -lpthread"
         PADLL="libportaudio.so"
-        SHARED_FLAGS="-shared -fPIC"
+
+        ## support sun cc compiler flags
+        case "${host_os}" in
+           solaris*)
+              SHARED_FLAGS="-G"
+              THREAD_CFLAGS="-mt"
+              ;;
+           *)
+              SHARED_FLAGS="-shared -fPIC"
+              THREAD_CFLAGS="-pthread"
+              ;;
+        esac
 
         OTHER_OBJS="$OTHER_OBJS src/os/unix/pa_unix_hostapis.o src/os/unix/pa_unix_util.o"
 esac
