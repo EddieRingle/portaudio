@@ -74,6 +74,8 @@ if Platform in Posix:
     if env["useOSS"]:
         # TODO: It looks like the prefix for soundcard.h depends on the platform
         optionalImpls["OSS"] = ("oss", "sys/soundcard.h", None)
+	if Platform == 'netbsd':
+	        optionalImpls["OSS"] = ("ossaudio", "sys/soundcard.h", "_oss_ioctl")
     if env["useASIHPI"]:
         optionalImpls["ASIHPI"] = ("hpi", "asihpi/hpi.h", "HPI_SubSysCreate")
     if env["useCOREAUDIO"]:

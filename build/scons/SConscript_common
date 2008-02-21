@@ -7,12 +7,14 @@ class ConfigurationError(Exception):
 env = Environment()
 
 # sunos, aix, hpux, irix, sunos appear to be platforms known by SCons, assuming they're POSIX compliant
-Posix = ("linux", "darwin", "sunos", "aix", "hpux", "irix", "sunos")
+Posix = ("linux", "darwin", "sunos", "aix", "hpux", "irix", "sunos", "netbsd")
 Windows = ("win32", "cygwin")
 
 if env["PLATFORM"] == "posix":
     if sys.platform[:5] == "linux":
         Platform = "linux"
+    elif sys.platform[:6] == "netbsd":
+	Platform = "netbsd"
     else:
         raise ConfigurationError("Unknown platform %s" % sys.platform)
 else:
