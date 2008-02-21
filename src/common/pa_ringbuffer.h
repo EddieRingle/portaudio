@@ -50,6 +50,21 @@
 
 /** @file
  @ingroup common_src
+ @brief Single-reader single-writer lock-free ring buffer
+
+ PaUtilRingBuffer is a ring buffer used to transport samples between
+ different execution contexts (threads, OS callbacks, interrupt handlers)
+ without requiring the use of any locks. This only works when there is
+ a single reader and a single writer (ie. one thread or callback writes
+ to the ring buffer, another thread or callback reads from it).
+
+ The PaUtilRingBuffer structure manages a ring buffer containing N 
+ elements, where N must be a power of two. An element may be any size 
+ (specified in bytes).
+
+ The memory area used to store the buffer elements must be allocated by 
+ the client prior to calling PaUtil_InitializeRingBuffer() and must outlive
+ the use of the ring buffer.
 */
 
 #ifdef __cplusplus
@@ -59,20 +74,22 @@ extern "C"
 
 typedef struct PaUtilRingBuffer
 {
-    long  bufferSize;   /* Number of elements in FIFO. Power of 2. Set by PaUtil_InitRingBuffer. */
-    long  writeIndex;   /* Index of next writable element. Set by PaUtil_AdvanceRingBufferWriteIndex. */
-    long  readIndex;    /* Index of next readable element. Set by PaUtil_AdvanceRingBufferReadIndex. */
-    long  bigMask;    /* Used for wrapping indices with extra bit to distinguish full/empty. */
-    long  smallMask;  /* Used for fitting indices to buffer. */
-    long  elementSizeBytes; /* Number of bytes per element. */
-    char  *buffer;
+    long  bufferSize; /**< Number of elements in FIFO. Power of 2. Set by PaUtil_InitRingBuffer. */
+    long  writeIndex; /**< Index of next writable element. Set by PaUtil_AdvanceRingBufferWriteIndex. */
+    long  readIndex;  /**< Index of next readable element. Set by PaUtil_AdvanceRingBufferReadIndex. */
+    long  bigMask;    /**< Used for wrapping indices with extra bit to distinguish full/empty. */
+    long  smallMask;  /**< Used for fitting indices to buffer. */
+    long  elementSizeBytes; /**< Number of bytes per element. */
+    char  *buffer;    /**< Pointer to the buffer containing the actual data. */
 }PaUtilRingBuffer;
 
 /** Initialize Ring Buffer.
 
  @param rbuf The ring buffer.
 
- @param elementCount The number of elements in the buffer and must be power of 2.
+ @param elementSizeBytes The size of a single data element in bytes.
+
+ @param elementCount The number of elements in the buffer (must be power of 2).
 
  @param dataPtr A pointer to a previously allocated area where the data
  will be maintained.  It must be elementCount*elementSizeBytes long.
