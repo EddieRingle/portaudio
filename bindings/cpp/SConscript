@@ -12,7 +12,8 @@ Import("Platform", "Posix")
 if Platform in Posix:
     env["SHLIBSUFFIX"] = ".so.%d.%d.%d" % (Major, Minor, Micro)
     soFile = "libportaudiocpp.so"
-    env.AppendUnique(SHLINKFLAGS="-Wl,-soname=%s.%d" % (soFile, Major))
+    if Platform != 'darwin':
+        env.AppendUnique(SHLINKFLAGS="-Wl,-soname=%s.%d" % (soFile, Major))
 
     # Create symlinks
     def symlink(env, target, source):

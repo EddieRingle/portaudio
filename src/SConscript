@@ -76,12 +76,13 @@ if Platform in Posix:
         optionalImpls["OSS"] = ("oss", "sys/soundcard.h", None)
     if env["useASIHPI"]:
         optionalImpls["ASIHPI"] = ("hpi", "asihpi/hpi.h", "HPI_SubSysCreate")
+    if env["useCOREAUDIO"]:
+        optionalImpls["COREAUDIO"] = ("CoreAudio", "CoreAudio/CoreAudio.h", None)
 else:
     raise ConfigurationError("unknown platform %s" % Platform)
 
 if Platform == "darwin":
-    env.Append(LINKFLAGS=["-framework CoreAudio", "-framework AudioToolBox"])
-    env.Append(CPPDEFINES=["PA_USE_COREAUDIO"])
+    env.Append(LINKFLAGS="-framework CoreFoundation -framework CoreServices -framework CoreAudio -framework AudioToolBox -framework AudioUnit")
 elif Platform == "cygwin":
     env.Append(LIBS=["winmm"])
 elif Platform == "irix":
@@ -160,7 +161,7 @@ env = conf.Finish()
 CommonSources = [os.path.join("common", f) for f in "pa_allocation.c pa_converters.c pa_cpuload.c pa_dither.c pa_front.c \
         pa_process.c pa_skeleton.c pa_stream.c pa_trace.c pa_debugprint.c pa_ringbuffer.c".split()]
 
-# Host API implementations
+# Host APIs implementations
 ImplSources = []
 if Platform in Posix:
     ImplSources += [os.path.join("os", "unix", f) for f in "pa_unix_hostapis.c pa_unix_util.c".split()]
@@ -173,6 +174,10 @@ if "OSS" in optionalImpls:
     ImplSources.append(os.path.join("hostapi", "oss", "pa_unix_oss.c"))
 if "ASIHPI" in optionalImpls:
     ImplSources.append(os.path.join("hostapi", "asihpi", "pa_linux_asihpi.c"))
+if "COREAUDIO" in optionalImpls:
+    ImplSources.append([os.path.join("hostapi", "coreaudio", f) for f in """
+	pa_mac_core.c  pa_mac_core_blocking.c  pa_mac_core_utilities.c 
+    """.split()])
 
 
 sources = CommonSources + ImplSources
@@ -180,7 +185,8 @@ sources = CommonSources + ImplSources
 sharedLibEnv = env.Copy()
 if Platform in Posix:
     # Add soname to library, this is so a reference is made to the versioned library in programs linking against libportaudio.so
-    sharedLibEnv.AppendUnique(SHLINKFLAGS="-Wl,-soname=libportaudio.so.%d" % int(ApiVer.split(".")[0]))
+    if Platform != 'darwin':
+        sharedLibEnv.AppendUnique(SHLINKFLAGS="-Wl,-soname=libportaudio.so.%d" % int(ApiVer.split(".")[0]))
 sharedLib = sharedLibEnv.SharedLibrary(target="portaudio", source=sources)
 
 staticLib = env.StaticLibrary(target="portaudio", source=sources)

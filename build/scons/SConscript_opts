@@ -63,14 +63,13 @@ apis = []
 if Platform in Posix:
     apis.append(_PackageOption("OSS"))
     apis.append(_PackageOption("JACK"))
-    if Platform == "linux":
-        apis.append(_PackageOption("ALSA"))
-        apis.append(_PackageOption("ASIHPI"))
+    apis.append(_PackageOption("ALSA", Platform == "linux"))
+    apis.append(_PackageOption("ASIHPI", Platform == "linux"))
+    apis.append(_PackageOption("COREAUDIO", Platform == "darwin"))
 elif Platform in Windows:
     if Platform == "cygwin":
         apis.append(_EnumOption("winAPI", "Windows API to use", ("wmme", "directx", "asio"), "wmme"))
-elif Platform == "darwin":
-    apis.append(_EnumOption("macAPI", "Mac API to use", ("asio", "core", "sm"), "core"))
+
 opts["Host APIs"] = apis
 
 opts["Build Parameters"] = [\

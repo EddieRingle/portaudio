@@ -36,13 +36,16 @@ buildDir = os.path.join("#", sconsDir, env["PLATFORM"])
 
 # Determine parameters to build tools
 if Platform in Posix:
-    baseLinkFlags = threadCFlags = "-pthread"
+    threadCFlags = ''
+    if Platform != 'darwin':
+        threadCFlags = "-pthread "
+    baseLinkFlags = threadCFlags
     baseCxxFlags = baseCFlags = "-Wall -pedantic -pipe " + threadCFlags
     debugCxxFlags = debugCFlags = "-g"
     optCxxFlags = optCFlags  = "-O2"
-env["CCFLAGS"] = baseCFlags.split()
-env["CXXFLAGS"] = baseCxxFlags.split()
-env["LINKFLAGS"] = baseLinkFlags.split()
+env.Append(CCFLAGS = baseCFlags)
+env.Append(CXXFLAGS = baseCxxFlags)
+env.Append(LINKFLAGS = baseLinkFlags)
 if env["enableDebug"]:
     env.AppendUnique(CCFLAGS=debugCFlags.split())
     env.AppendUnique(CXXFLAGS=debugCxxFlags.split())
@@ -180,8 +183,8 @@ def buildConfigH(target, source, env):
     return 0
 
 # Define the builder for the config header
-env.Append(BUILDERS={"portaudioConfig": env.Builder(action=Action(buildConfigH,
-        "generating '$TARGET'"), target_factory=env.fs.File,)})
+env.Append(BUILDERS={"portaudioConfig": env.Builder(
+            action=Action(buildConfigH), target_factory=env.fs.File)})
 
 confH = env.portaudioConfig(File("portaudio_config.h", "include"),
         File("portaudio.h", "include"))
