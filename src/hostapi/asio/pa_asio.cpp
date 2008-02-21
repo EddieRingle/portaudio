@@ -1716,7 +1716,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
-    if( asioHostApi->openAsioDeviceIndex != paNoDevice ){
+    if( asioHostApi->openAsioDeviceIndex != paNoDevice )
+    {
         PA_DEBUG(("OpenStream paDeviceUnavailable\n"));
         return paDeviceUnavailable;
     }
@@ -1725,7 +1726,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         /* full duplex ASIO stream must use the same device for input and output */
 
-        if( inputParameters->device != outputParameters->device ){
+        if( inputParameters->device != outputParameters->device )
+        {
             PA_DEBUG(("OpenStream paBadIODeviceCombination\n"));
             return paBadIODeviceCombination;
     }
