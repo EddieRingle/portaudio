@@ -209,4 +209,4 @@ install-recursive:
 	if test -n "$(SUBDIRS)" ; then for dir in "$(SUBDIRS)"; do $(MAKE) -C $$dir install; done ; fi
 
 uninstall-recursive:
-	if test -n "$(SUBDIRS)" ; then for dir in "$(SUBDIRS)"; do $(MAKE)-C $$dir uninstall; done ; fi
+	if test -n "$(SUBDIRS)" ; then for dir in "$(SUBDIRS)"; do $(MAKE) -C $$dir uninstall; done ; fi
