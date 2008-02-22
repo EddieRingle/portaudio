@@ -1931,8 +1931,9 @@ static PaError PaAsiHpi_PrimeOutputWithSilence( PaAsiHpiStream *stream )
     PaAsiHpiStreamComponent *out;
     PaUtilZeroer *zeroer;
     PaSampleFormat outputFormat;
+#if (HPI_VER < HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
     HPI_DATA data;
-
+#endif
     assert( stream );
     out = stream->output;
     /* Only continue if stream has output channels */
@@ -1948,13 +1949,21 @@ static PaError PaAsiHpi_PrimeOutputWithSilence( PaAsiHpiStream *stream )
     zeroer = PaUtil_SelectZeroer( outputFormat );
     zeroer(out->tempBuffer, 1, out->tempBufferSize / Pa_GetSampleSize(outputFormat) );
     /* Write temp buffer to hardware fifo twice, to get started */
+#if (HPI_VER >= HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
+    PA_ASIHPI_UNLESS_( HPI_OutStreamWriteBuf( out->hpiDevice->subSys, out->hpiStream, 
+                                              out->tempBuffer, out->tempBufferSize, &out->hpiFormat),
+                                              paUnanticipatedHostError );
+    PA_ASIHPI_UNLESS_( HPI_OutStreamWriteBuf( out->hpiDevice->subSys, out->hpiStream, 
+                                              out->tempBuffer, out->tempBufferSize, &out->hpiFormat),
+                                              paUnanticipatedHostError );
+#else
     PA_ASIHPI_UNLESS_( HPI_DataCreate( &data, &out->hpiFormat, out->tempBuffer, out->tempBufferSize ),
                        paUnanticipatedHostError );
     PA_ASIHPI_UNLESS_( HPI_OutStreamWrite( out->hpiDevice->subSys,
                                            out->hpiStream, &data ), paUnanticipatedHostError );
     PA_ASIHPI_UNLESS_( HPI_OutStreamWrite( out->hpiDevice->subSys,
                                            out->hpiStream, &data ), paUnanticipatedHostError );
-
+#endif
 error:
     return result;
 }
@@ -2026,7 +2035,7 @@ static PaError StartStream( PaStream *s )
     {
         /* Create and start callback engine thread */
         /* Also waits 1 second for stream to be started by engine thread (otherwise aborts) */
-        PA_ENSURE_( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1., 0 ) );
+        PA_ENSURE_( PaUnixThread_New( &stream->thread, &CallbackThreadFunc, stream, 1., 0 /*rtSched*/ ) );
     }
     else
     {
@@ -2473,7 +2482,10 @@ static PaError PaAsiHpi_BeginProcessing( PaAsiHpiStream *stream, unsigned long *
     if( stream->input )
     {
         PaAsiHpiStreamInfo info;
+	
+#if (HPI_VER < HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
         HPI_DATA data;
+#endif
         HW32 framesToGet = *numFrames;
 
         /* Check for overflows and underflows yet again */
@@ -2499,6 +2511,14 @@ static PaError PaAsiHpi_BeginProcessing( PaAsiHpiStream *stream, unsigned long *
                    stream->input->tempBufferSize / Pa_GetSampleSize(inputFormat) );
         }
 
+#if (HPI_VER >= HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
+        /* Read block of data into temp buffer */
+        PA_ASIHPI_UNLESS_( HPI_InStreamReadBuf( stream->input->hpiDevice->subSys,
+                                             stream->input->hpiStream, 
+                                             stream->input->tempBuffer,
+                                             framesToGet * stream->input->bytesPerFrame),
+                           paUnanticipatedHostError );
+#else
         /* Setup HPI data structure around temp buffer */
         HPI_DataCreate( &data, &stream->input->hpiFormat, stream->input->tempBuffer,
                         framesToGet * stream->input->bytesPerFrame );
@@ -2506,6 +2526,7 @@ static PaError PaAsiHpi_BeginProcessing( PaAsiHpiStream *stream, unsigned long *
         PA_ASIHPI_UNLESS_( HPI_InStreamRead( stream->input->hpiDevice->subSys,
                                              stream->input->hpiStream, &data ),
                            paUnanticipatedHostError );
+#endif
         /* Register temp buffer with buffer processor (always FULL buffer) */
         PaUtil_SetInputFrameCount( &stream->bufferProcessor, *numFrames );
         /* HPI interface only allows interleaved channels */
@@ -2549,8 +2570,9 @@ static PaError PaAsiHpi_EndProcessing( PaAsiHpiStream *stream, unsigned long num
     if( stream->output )
     {
         PaAsiHpiStreamInfo info;
+#if (HPI_VER < HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
         HPI_DATA data;
-
+#endif
         /* Check for underflows after the (potentially time-consuming) callback */
         PA_ENSURE_( PaAsiHpi_GetStreamInfo( stream->output, &info ) );
         if( info.underflow )
@@ -2558,6 +2580,15 @@ static PaError PaAsiHpi_EndProcessing( PaAsiHpiStream *stream, unsigned long num
             *cbFlags |= paOutputUnderflow;
         }
 
+#if (HPI_VER >= HPI_VERSION_CONSTRUCTOR( 3, 5, 5 ))
+        /* Write temp buffer to HPI stream */
+        PA_ASIHPI_UNLESS_( HPI_OutStreamWriteBuf( stream->output->hpiDevice->subSys,
+                                           stream->output->hpiStream, 
+                                           stream->output->tempBuffer,
+                                           numFrames * stream->output->bytesPerFrame, 
+                                           &stream->output->hpiFormat),
+                           paUnanticipatedHostError );
+#else
         /* Setup HPI data structure around temp buffer */
         HPI_DataCreate( &data, &stream->output->hpiFormat, stream->output->tempBuffer,
                         numFrames * stream->output->bytesPerFrame );
@@ -2565,6 +2596,7 @@ static PaError PaAsiHpi_EndProcessing( PaAsiHpiStream *stream, unsigned long num
         PA_ASIHPI_UNLESS_( HPI_OutStreamWrite( stream->output->hpiDevice->subSys,
                                                stream->output->hpiStream, &data ),
                            paUnanticipatedHostError );
+#endif
     }
 
 error:
