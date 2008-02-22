@@ -120,7 +120,6 @@ LT_CURRENT=2
 LT_REVISION=0
 LT_AGE=0
 
-dnl AC_SUBST(LT_RELEASE)
 AC_SUBST(LT_CURRENT)
 AC_SUBST(LT_REVISION)
 AC_SUBST(LT_AGE)
@@ -186,7 +185,7 @@ case "${host_os}" in
             echo "ASIODIR: $ASIODIR"
 
             OTHER_OBJS="$CFLAGS pa_asio/iasiothiscallresolver.o $ASIODIR/host/asiodrivers.o $ASIODIR/common/asio.o $ASIODIR/host/mac/asioshlib.o"
-            CFLAGS="$CFLAGS -I\$(top_srcdir)/pa_asio -I$ASIDIR/host/mac -I$ASIODIR/common"
+            CFLAGS="$CFLAGS -I\$(top_srcdir)/pa_asio -I$ASIODIR/host/mac -I$ASIODIR/common"
             CXXFLAGS="$CFLAGS"
         fi
         ;;
@@ -351,10 +350,10 @@ CFLAGS="$CFLAGS $THREAD_CFLAGS"
 if test "$enable_cxx" = "yes"; then
    AC_CONFIG_SUBDIRS([bindings/cpp])
    ENABLE_CXX_TRUE=""
-   ENABLE_CXX_FALE="#"
+   ENABLE_CXX_FALSE="#"
 else
    ENABLE_CXX_TRUE="#"
-   ENABLE_CXX_FALE=""
+   ENABLE_CXX_FALSE=""
 fi
 AC_SUBST(ENABLE_CXX_TRUE)
 AC_SUBST(ENABLE_CXX_FALSE)

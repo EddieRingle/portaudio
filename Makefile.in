@@ -30,7 +30,6 @@ CXXFLAGS = @CXXFLAGS@
 NASM = @NASM@
 NASMOPT = @NASMOPT@
 LN_S = @LN_S@
-LT_RELEASE=@LT_RELEASE@
 LT_CURRENT=@LT_CURRENT@
 LT_REVISION=@LT_REVISION@
 LT_AGE=@LT_AGE@
@@ -40,8 +39,9 @@ OTHER_OBJS = @OTHER_OBJS@
 PALIB = libportaudio.la
 PAINC = include/portaudio.h
 
-PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined -export-symbols-regex "(Pa|PaMacCore|PaJack|PaAlsa)_.*" -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
-#MAKEFILE = Makefile
+PA_LDFLAGS = $(LDFLAGS) $(SHARED_FLAGS) -rpath $(libdir) -no-undefined \
+	     -export-symbols-regex "(Pa|PaMacCore|PaJack|PaAlsa)_.*" \
+	     -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
 
 COMMON_OBJS = \
 	src/common/pa_allocation.o \
@@ -113,9 +113,25 @@ ALL_TESTS = \
 	bin/debug_srate \
 	bin/debug_test1
 
-OBJS = $(COMMON_OBJS) $(OTHER_OBJS)
+OBJS := $(COMMON_OBJS) $(OTHER_OBJS)
 
-LTOBJS:= $(OBJS:.o=.lo)
+LTOBJS := $(OBJS:.o=.lo)
+
+SRC_DIRS = \
+	src/common \
+	src/hostapi/alsa \
+	src/hostapi/asihpi \
+	src/hostapi/asio \
+	src/hostapi/coreaudio \
+	src/hostapi/dsound \
+	src/hostapi/jack \
+	src/hostapi/oss \
+	src/hostapi/wasapi \
+	src/hostapi/wdmks \
+	src/hostapi/wmme \
+	src/os/mac_osx \
+	src/os/unix \
+	src/os/win
 
 SUBDIRS =
 @ENABLE_CXX_TRUE@SUBDIRS += bindings/cpp
@@ -158,11 +174,11 @@ uninstall:
 
 clean:
 	$(LIBTOOL) --mode=clean rm -f $(LTOBJS) $(ALL_TESTS) lib/$(PALIB)
-	rm -f bin-stamp lib-stamp
-	-rm -rf bin lib
+	$(RM) bin-stamp lib-stamp
+	-$(RM) -r bin lib
 
 distclean: clean
-	rm -f config.log config.status Makefile libtool portaudio-2.0.pc
+	$(RM) config.log config.status Makefile libtool portaudio-2.0.pc
 
 %.o: %.c $(MAKEFILE) $(PAINC)
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -182,21 +198,7 @@ bin-stamp:
 
 lib-stamp:
 	-mkdir lib
-	-mkdir -p \
-		src/common \
-		src/hostapi/alsa \
-		src/hostapi/asihpi \
-		src/hostapi/asio \
-		src/hostapi/coreaudio \
-		src/hostapi/dsound \
-		src/hostapi/jack \
-		src/hostapi/oss \
-		src/hostapi/wasapi \
-		src/hostapi/wdmks \
-		src/hostapi/wmme \
-		src/os/mac_osx \
-		src/os/unix \
-		src/os/win
+	-mkdir -p $(SRC_DIRS)
 	touch $@
 
 Makefile: Makefile.in config.status
