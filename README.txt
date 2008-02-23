@@ -4,7 +4,7 @@ README for PortAudio
  * PortAudio Portable Real-Time Audio Library
  * Latest Version at: http://www.portaudio.com
  *
- * Copyright (c) 1999-2006 Phil Burk and Ross Bencina
+ * Copyright (c) 1999-2008 Phil Burk and Ross Bencina
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files
@@ -49,13 +49,17 @@ Documentation:
 	Documentation is available in "/doc/html/index.html"
 	Also see "src/common/portaudio.h" for API spec.
 	Also see http://www.portaudio.com/docs/
-	And see "tests/patest_saw.c" for an example.
+	And see the "test/" directory for many examples of usage
+		(we suggest "test/patest_saw.c" for an example)
 
 For information on compiling programs with PortAudio, please see the
 tutorial at:
 
   http://portaudio.com/trac/wiki/TutorialDir/TutorialStart
   
+We have an active mailing list for user and developer discussions.
+Please feel free to join. See http://www.portaudio.com for details.
+
 
 Important Files and Folders:
     include/portaudio.h     = header file for PortAudio API. Specifies API.	
@@ -64,8 +68,6 @@ Important Files and Folders:
     src/os                  = os specific (but host api neutral) code
     src/hostapi             = implementations for different host apis
 
-    pablio                  = simple blocking read/write interface
-    
 
 Host API Implementations:
     src/hostapi/alsa        = Advanced Linux Sound Architecture (ALSA)
@@ -77,20 +79,20 @@ Host API Implementations:
     src/hostapi/oss         = Unix Open Sound System (OSS)
     src/hostapi/wasapi      = Windows Vista WASAPI
     src/hostapi/wdmks       = Windows WDM Kernel Streaming
-    src/hostapi/wmme        = Windows MME (most widely supported)
+    src/hostapi/wmme        = Windows MultiMedia Extensions (MME)
 
 
 Test Programs:
-    tests/pa_fuzz.c         = guitar fuzz box
-    tests/pa_devs.c         = print a list of available devices
-    tests/pa_minlat.c       = determine minimum latency for your machine
-    tests/paqa_devs.c       = self test that opens all devices
-    tests/paqa_errs.c       = test error detection and reporting
-    tests/patest_clip.c     = hear a sine wave clipped and unclipped
-    tests/patest_dither.c   = hear effects of dithering (extremely subtle)
-    tests/patest_pink.c     = fun with pink noise
-    tests/patest_record.c   = record and playback some audio
-    tests/patest_maxsines.c = how many sine waves can we play? Tests Pa_GetCPULoad().
-    tests/patest_sine.c     = output a sine wave in a simple PA app
-    tests/patest_sync.c     = test syncronization of audio and video
-    tests/patest_wire.c     = pass input to output, wire simulator
+    test/pa_fuzz.c         = guitar fuzz box
+    test/pa_devs.c         = print a list of available devices
+    test/pa_minlat.c       = determine minimum latency for your machine
+    test/paqa_devs.c       = self test that opens all devices
+    test/paqa_errs.c       = test error detection and reporting
+    test/patest_clip.c     = hear a sine wave clipped and unclipped
+    test/patest_dither.c   = hear effects of dithering (extremely subtle)
+    test/patest_pink.c     = fun with pink noise
+    test/patest_record.c   = record and playback some audio
+    test/patest_maxsines.c = how many sine waves can we play? Tests Pa_GetCPULoad().
+    test/patest_sine.c     = output a sine wave in a simple PA app
+    test/patest_sync.c     = test syncronization of audio and video
+    test/patest_wire.c     = pass input to output, wire simulator
