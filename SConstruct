@@ -174,7 +174,7 @@ def buildConfigH(target, source, env):
 
         out += "\n"
     # Strip the last newline
-    if out[-1] == "\n":
+    if out and out[-1] == "\n":
         out = out[:-1]
 
     f = file(str(target[0]), 'w')
