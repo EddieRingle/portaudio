@@ -125,6 +125,10 @@ SOURCE=..\..\src\common\pa_process.c
 # End Source File
 # Begin Source File
 
+SOURCE=..\..\src\common\pa_ringbuffer.c
+# End Source File
+# Begin Source File
+
 SOURCE=..\..\src\common\pa_skeleton.c
 # End Source File
 # Begin Source File
