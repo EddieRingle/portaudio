@@ -98,6 +98,10 @@
 #         error Memory barriers are not defined on this system. You can still compile by defining ALLOW_SMP_DANGERS, but SMP safety will not be guaranteed.
 #      endif
 #   endif
+#elif defined(_MSC_VER) || defined(__BORLANDC__)
+#      define PaUtil_FullMemoryBarrier() _asm { lock add    [esp], 0 }
+#      define PaUtil_ReadMemoryBarrier() _asm { lock add    [esp], 0 }
+#      define PaUtil_WriteMemoryBarrier() _asm { lock add    [esp], 0 }
 #else
 #   ifdef ALLOW_SMP_DANGERS
 #      warning Memory barriers not defined on this system or system unknown
