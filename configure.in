@@ -219,7 +219,7 @@ case "${host_os}" in
             echo "ASIODIR: $ASIODIR"
 
 
-            OTHER_OBJS="src/hostapi/asio/pa_asio.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/hostapi/asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o"
+            OTHER_OBJS="src/hostapi/asio/pa_asio.o src/common/pa_ringbuffer.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/hostapi/asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o"
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid"
             PADLL="portaudio.dll"
             THREAD_CFLAGS="-mthreads"
