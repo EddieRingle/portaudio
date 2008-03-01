@@ -158,6 +158,10 @@ int main(void)
         goto error;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* Default output device. */
+    if (outputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default output device.\n");
+      goto error;
+    }
     outputParameters.channelCount = 2;                     /* Stereo output. */
     outputParameters.sampleFormat = TEST_FORMAT;
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;

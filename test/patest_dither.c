@@ -112,6 +112,10 @@ PaError PlaySine( paTestData *data, PaStreamFlags flags, float amplitude )
         goto done;
 
     outputParameters.device = Pa_GetDefaultOutputDevice();  /* default output device */
+    if (outputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default output device.\n");
+      goto done;
+    }
     outputParameters.channelCount = 2;                      /* stereo output */
     outputParameters.hostApiSpecificStreamInfo = NULL;
     outputParameters.sampleFormat = paFloat32;      /* 32 bit floating point output. */

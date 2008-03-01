@@ -223,6 +223,10 @@ int main(void)
     if( err != paNoError ) goto done;
 
     inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    if (inputParameters.device == paNoDevice) {
+        fprintf(stderr,"Error: No default input device.\n");
+        goto done;
+    }
     inputParameters.channelCount = 2;                    /* stereo input */
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
@@ -295,6 +299,10 @@ int main(void)
     data.frameIndex = 0;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    if (outputParameters.device == paNoDevice) {
+        fprintf(stderr,"Error: No default output device.\n");
+        goto done;
+    }
     outputParameters.channelCount = 2;                     /* stereo output */
     outputParameters.sampleFormat =  PA_SAMPLE_TYPE;
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;

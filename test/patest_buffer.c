@@ -167,6 +167,12 @@ PaError TestOnce( int buffersize, PaDeviceIndex device )
         outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
     else
         outputParameters.device = device ;
+
+    if (outputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default output device.\n");
+      goto error;
+    }
+
     outputParameters.channelCount = 2;                      /* stereo output */
     outputParameters.sampleFormat = paInt16;                /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;

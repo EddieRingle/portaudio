@@ -1,11 +1,3 @@
-/** @file patest_sine.c
-	@ingroup test_src
-	@brief Plays sine waves using sme simple channel maps.
-          Designed for use with COreAudio, but should made to work with other APIs
-	@author Bjorn Roche <bjorn@xowave.com>
-   @author Ross Bencina <rossb@audiomulch.com>
-   @author Phil Burk <philburk@softsynth.com>
-*/
 /*
  * $Id: patest_sine.c 1097 2006-08-26 08:27:53Z rossb $
  *
@@ -43,6 +35,16 @@
  * requested that these non-binding requests be included along with the 
  * license above.
  */
+
+/** @file patest_sine_channelmaps.c
+	@ingroup test_src
+	@brief Plays sine waves using sme simple channel maps.
+          Designed for use with CoreAudio, but should made to work with other APIs
+	@author Bjorn Roche <bjorn@xowave.com>
+   @author Ross Bencina <rossb@audiomulch.com>
+   @author Phil Burk <philburk@softsynth.com>
+*/
+
 #include <stdio.h>
 #include <math.h>
 #include "portaudio.h"
@@ -139,6 +141,10 @@ int main(void)
 #endif
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    if (outputParameters.device == paNoDevice) {
+        fprintf(stderr,"Error: No default output device.\n");
+        goto error;
+    }
     outputParameters.channelCount = 2;       /* stereo output */
     outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;

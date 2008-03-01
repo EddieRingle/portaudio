@@ -236,6 +236,10 @@ int main(void)
 
     /* Open a stereo PortAudio stream so we can hear the result. */
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* Take the default output device. */
+    if (outputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default output device.\n");
+      goto error;
+    }
     outputParameters.channelCount = 2;                     /* Stereo output, most likely supported. */
     outputParameters.hostApiSpecificStreamInfo = NULL;
     outputParameters.sampleFormat = paFloat32;             /* 32 bit floating point output. */

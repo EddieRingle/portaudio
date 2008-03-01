@@ -140,6 +140,10 @@ int main(void)
     if( err != paNoError ) goto error;
 
     inputParameters.device = Pa_GetDefaultInputDevice();  /* default input device */
+    if (inputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default input device.\n");
+      goto error;
+    }
     inputParameters.channelCount = 1;                      /* mono output */
     inputParameters.sampleFormat = paFloat32;              /* 32 bit floating point output */
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;

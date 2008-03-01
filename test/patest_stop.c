@@ -249,6 +249,10 @@ int TestStopMode( paTestData *data )
     if( err != paNoError ) goto error;
 
     outputParameters.device = OUTPUT_DEVICE;
+    if (outputParameters.device == paNoDevice) {
+        fprintf(stderr,"Error: No default output device.\n");
+        goto error;
+    }
     outputParameters.channelCount = 2;          /* stereo output */
     outputParameters.sampleFormat = paFloat32;  /* 32 bit floating point output */
     outputParameters.suggestedLatency = LATENCY_SECONDS;

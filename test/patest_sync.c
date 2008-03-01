@@ -188,6 +188,10 @@ int main(void)
     if( err != paNoError ) goto error;
     
     outputParameters.device = Pa_GetDefaultOutputDevice();
+    if (outputParameters.device == paNoDevice) {
+        fprintf(stderr,"Error: No default output device.\n");
+        goto error;
+    }
     outputParameters.channelCount = 2;
     outputParameters.hostApiSpecificStreamInfo = NULL;
     outputParameters.sampleFormat = paFloat32;

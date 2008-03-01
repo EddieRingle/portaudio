@@ -131,14 +131,21 @@ int main(void)
     err = Pa_Initialize();
     if( err != paNoError ) goto error;
 
-
     inputParameters.device = Pa_GetDefaultInputDevice(); /* default input device */
+    if (inputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default input device.\n");
+      goto error;
+    }
     inputParameters.channelCount = 2;       /* stereo input */
     inputParameters.sampleFormat = PA_SAMPLE_TYPE;
     inputParameters.suggestedLatency = Pa_GetDeviceInfo( inputParameters.device )->defaultLowInputLatency;
     inputParameters.hostApiSpecificStreamInfo = NULL;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+    if (outputParameters.device == paNoDevice) {
+      fprintf(stderr,"Error: No default output device.\n");
+      goto error;
+    }
     outputParameters.channelCount = 2;       /* stereo output */
     outputParameters.sampleFormat = PA_SAMPLE_TYPE;
     outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
