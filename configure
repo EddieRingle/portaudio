@@ -21389,8 +21389,8 @@ _ACEOF
             fi
             echo "ASIODIR: $ASIODIR"
 
-            OTHER_OBJS="$CFLAGS pa_asio/iasiothiscallresolver.o $ASIODIR/host/asiodrivers.o $ASIODIR/common/asio.o $ASIODIR/host/mac/asioshlib.o"
-            CFLAGS="$CFLAGS -I\$(top_srcdir)/pa_asio -I$ASIODIR/host/mac -I$ASIODIR/common"
+            OTHER_OBJS="src/hostapi/asio/iasiothiscallresolver.o $ASIODIR/host/asiodrivers.o $ASIODIR/common/asio.o $ASIODIR/host/mac/asioshlib.o"
+            CFLAGS="$CFLAGS -I\$(top_srcdir)/src/hostapi/asio -I$ASIODIR/host/mac -I$ASIODIR/common"
             CXXFLAGS="$CFLAGS"
         fi
         ;;
@@ -21422,13 +21422,14 @@ _ACEOF
             fi
             echo "ASIODIR: $ASIODIR"
 
-            OTHER_OBJS="pa_asio/pa_asio.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o pa_asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o"
+
+            OTHER_OBJS="src/hostapi/asio/pa_asio.o src/common/pa_ringbuffer.o src/os/win/pa_win_hostapis.o src/os/win/pa_win_util.o src/hostapi/asio/iasiothiscallresolver.o $ASIODIR/common/asio.o $ASIODIR/host/asiodrivers.o $ASIODIR/host/pc/asiolist.o"
             LIBS="-lwinmm -lm -lstdc++ -lole32 -luuid"
             PADLL="portaudio.dll"
             THREAD_CFLAGS="-mthreads"
             SHARED_FLAGS="-shared"
             DLL_LIBS="${DLL_LIBS} -lwinmm -lm -lstdc++ -lole32 -luuid"
-            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -I\$(top_srcdir)/src/common -I\$(top_srcdir)/pa_asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DPA_NO_WDMKS -DWINDOWS"
+            CFLAGS="$CFLAGS -ffast-math -fomit-frame-pointer -I\$(top_srcdir)/src/common -I\$(top_srcdir)/src/hostapi/asio -I$ASIODIR/host/pc -I$ASIODIR/common -I$ASIODIR/host -DPA_NO_WMME -DPA_NO_DS -DPA_NO_WDMKS -DWINDOWS"
             CXXFLAGS="$CFLAGS"
         elif [ $with_winapi = "wdmks" ] ; then
             if [ $with_dxdir ] ; then
