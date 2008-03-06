@@ -83,7 +83,7 @@
 #      define PaUtil_ReadMemoryBarrier()  asm volatile("sync":::"memory")
 #      define PaUtil_WriteMemoryBarrier() asm volatile("sync":::"memory")
 #   elif defined( __i386__ ) || defined( __i486__ ) || defined( __i586__ ) || \
-	 defined( __i686__ ) || defined( __x86_64__ )
+         defined( __i686__ ) || defined( __x86_64__ )
 #      define PaUtil_FullMemoryBarrier()  asm volatile("mfence":::"memory")
 #      define PaUtil_ReadMemoryBarrier()  asm volatile("lfence":::"memory")
 #      define PaUtil_WriteMemoryBarrier() asm volatile("sfence":::"memory")
@@ -107,9 +107,9 @@
 #   define PaUtil_ReadMemoryBarrier()  _ReadBarrier()
 #   define PaUtil_WriteMemoryBarrier() _WriteBarrier()
 #elif defined(_MSC_VER) || defined(__BORLANDC__)
-#      define PaUtil_FullMemoryBarrier() _asm { lock add    [esp], 0 }
-#      define PaUtil_ReadMemoryBarrier() _asm { lock add    [esp], 0 }
-#      define PaUtil_WriteMemoryBarrier() _asm { lock add    [esp], 0 }
+#   define PaUtil_FullMemoryBarrier()  _asm { lock add    [esp], 0 }
+#   define PaUtil_ReadMemoryBarrier()  _asm { lock add    [esp], 0 }
+#   define PaUtil_WriteMemoryBarrier() _asm { lock add    [esp], 0 }
 #else
 #   ifdef ALLOW_SMP_DANGERS
 #      warning Memory barriers not defined on this system or system unknown
