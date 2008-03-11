@@ -141,7 +141,7 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
 static PaError DoTest( int flags )
 {
     PaStream *stream;
-    PaError    err;
+    PaError    err = paNoError;
     paTestData data;
     PaStreamParameters outputParameters;
 
