@@ -1535,6 +1535,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
           }
 
           /* now we can initialize the ring buffer */
+          //FIXME: element size whould probably be szfl*inputchan
+          //       but that will require some work all over the
+          //       place to patch up. szfl may be sufficient and would
+          //       be way easier to handle, but it seems clear from the
+          //       discussion that buffer processor compatibility
+          //       requires szfl*inputchan.
+          //       See revision 1346 and discussion:
+          //       http://techweb.rfa.org/pipermail/portaudio/2008-February/008295.html
           PaUtil_InitializeRingBuffer( &stream->inputRingBuffer,
                                    1, ringSize*szfl, data ) ;
           /* advance the read point a little, so we are reading from the
