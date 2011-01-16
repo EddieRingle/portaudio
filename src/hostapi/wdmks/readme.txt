@@ -3,12 +3,15 @@ Notes about WDM-KS host API
 
 Status history
 --------------
+16th January 2011:
+Added support for WaveRT device API (Vista and later) for even lesser 
+latency support.
+
 10th November 2005:
 Made following changes:
  * OpenStream: Try all PaSampleFormats internally if the the chosen
      format is not supported natively.  This fixed several problems
-     with soundcards that soundcards that did not take kindly to
-     using 24-bit 3-byte formats.
+     with soundcards that did not take kindly to using 24-bit 3-byte formats.
  * OpenStream: Make the minimum framesPerHostIBuffer (and framesPerHostOBuffer)
      the default frameSize for the playback/recording pin.
  * ProcessingThread: Added a switch to only call PaUtil_EndBufferProcessing
