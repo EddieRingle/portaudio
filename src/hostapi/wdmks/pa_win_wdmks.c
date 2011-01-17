@@ -3884,7 +3884,7 @@ PA_THREAD_FUNC ProcessingThread(LPVOID pParam)
     /* Setup handle array for WFMO */
     if (info.stream->capturePin != 0) {
         handles[noOfHandles++] = info.stream->eventsCapture[0];
-        if (!info.stream->renderPin->parentFilter->isWaveRT)
+        if (!info.stream->capturePin->parentFilter->isWaveRT)
         {
             handles[noOfHandles++] = info.stream->eventsCapture[1];
         }
