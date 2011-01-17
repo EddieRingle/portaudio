@@ -43,7 +43,7 @@
 
 @note This is the implementation of the Portaudio host API using the
 Windows WDM/Kernel Streaming API in order to enable very low latency
-playback and recording on all modern Windows platforms (e.g. 2K, XP)
+playback and recording on all modern Windows platforms (e.g. 2K, XP, Vista, Win7)
 Note: This API accesses the device drivers below the usual KMIXER
 component which is normally used to enable multi-client mixing and
 format conversion. That means that it will lock out all other users
@@ -83,8 +83,6 @@ of a device for the duration of active stream using those devices
 #include "portaudio.h"
 #include "pa_debugprint.h"
 #include "pa_memorybarrier.h"
-
-#include "pa_win_wdmks.h"
 
 #include <windows.h>
 #include <winioctl.h>
@@ -2332,15 +2330,15 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             * So: we give 512x48000Hz frames as the default low input latency
             **/
             if (pFilter->isWaveRT) {
-                deviceInfo->defaultLowInputLatency = 0.001;
-                deviceInfo->defaultLowOutputLatency = 0.001;
+                deviceInfo->defaultLowInputLatency = 0.003;
+                deviceInfo->defaultLowOutputLatency = 0.003;
                 deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
                 deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                 deviceInfo->defaultSampleRate = (double)(pFilter->bestSampleRate);
             }
             else {
-                deviceInfo->defaultLowInputLatency = (512.0/48000.0);
-                deviceInfo->defaultLowOutputLatency = (512.0/48000.0);
+                deviceInfo->defaultLowInputLatency = 0.01;
+                deviceInfo->defaultLowOutputLatency = 0.01;
                 deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
                 deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                 deviceInfo->defaultSampleRate = (double)(pFilter->bestSampleRate);
@@ -2507,17 +2505,8 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
         {
-            PaWinWDMKSInfo* pInfo = (PaWinWDMKSInfo*)inputParameters->hostApiSpecificStreamInfo;
-            if (pInfo->size != sizeof(PaWinWDMKSInfo))
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
-
-            if (pInfo->hostApiType != Pa_GetHostApiInfo( hostApi->deviceInfos[ inputParameters->device ]->hostApi )->type)
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
-
-            if (pInfo->version != 1)
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
         }
-            
 
         /* Check that the input format is supported */
         FillWFEXT(&wfx,paInt16,sampleRate,inputChannelCount);
@@ -2565,15 +2554,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
         {
-            PaWinWDMKSInfo* pInfo = (PaWinWDMKSInfo*)outputParameters->hostApiSpecificStreamInfo;
-            if (pInfo->size != sizeof(PaWinWDMKSInfo))
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
-
-            if (pInfo->hostApiType != Pa_GetHostApiInfo( hostApi->deviceInfos[ outputParameters->device ]->hostApi )->type)
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
-
-            if (pInfo->version != 1)
-                return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
+            return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
         }
 
         /* Check that the output format is supported */
@@ -2736,8 +2717,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaSampleFormat hostInputSampleFormat, hostOutputSampleFormat;
     int userInputChannels,userOutputChannels;
-    unsigned framesForProcessor;
-    PaWinWDMKSInfo *pInfoIn = NULL, *pInfoOut = NULL;
     WAVEFORMATEXTENSIBLE wfx;
 
     PA_LOGE_;
@@ -2762,19 +2741,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* validate inputStreamInfo */
         if( inputParameters->hostApiSpecificStreamInfo )
         {
-            pInfoIn = (PaWinWDMKSInfo*)inputParameters->hostApiSpecificStreamInfo;
-            if (pInfoIn->size != sizeof(PaWinWDMKSInfo)) {
-                PA_DEBUG(("PaWinWDMKSInfo size error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
-            if (pInfoIn->hostApiType != paWDMKS) {
-                PA_DEBUG(("PaWinWDMKSInfo hostApiType error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
-            if (pInfoIn->version != 1) {
-                PA_DEBUG(("PaWinWDMKSInfo version error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
+            return paIncompatibleHostApiSpecificStreamInfo;
         }
     }
     else
@@ -2801,19 +2768,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* validate outputStreamInfo */
         if( outputParameters->hostApiSpecificStreamInfo )
         {
-            pInfoOut = (PaWinWDMKSInfo*)outputParameters->hostApiSpecificStreamInfo;
-            if (pInfoOut->size != sizeof(PaWinWDMKSInfo)) {
-                PA_DEBUG(("PaWinWDMKSInfo size error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
-            if (pInfoOut->hostApiType != paWDMKS) {
-                PA_DEBUG(("PaWinWDMKSInfo hostApiType error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
-            if (pInfoOut->version != 1) {
-                PA_DEBUG(("PaWinWDMKSInfo version error!\n"));
-                return paIncompatibleHostApiSpecificStreamInfo;
-            }
+            return paIncompatibleHostApiSpecificStreamInfo;
         }
     }
     else
@@ -2945,9 +2900,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         stream->capturePin->frameSize /= stream->bytesPerInputFrame;
-        if (pInfoIn && pInfoIn->flags & paWinWDMKSOverrideFramesize) {
-            stream->capturePin->frameSize = stream->bytesPerInputFrame;
-        }
         PA_DEBUG(("Pin output frames: %d\n",stream->capturePin->frameSize));
     }
     else
@@ -3045,33 +2997,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         stream->renderPin->frameSize /= stream->bytesPerOutputFrame;
-
-        if (pInfoOut && pInfoOut->flags & paWinWDMKSOverrideFramesize) {
-            stream->renderPin->frameSize = stream->bytesPerOutputFrame;
-        }
         PA_DEBUG(("Pin output frames: %d\n",stream->renderPin->frameSize));
     }
     else
     {
         stream->renderPin = NULL;
         stream->bytesPerOutputFrame = 0;
-    }
-
-    /* Check if both filters are connected to same device node */
-    if (stream->renderPin &&
-        stream->capturePin &&
-        (stream->renderPin->parentFilter->deviceNode != stream->capturePin->parentFilter->deviceNode))
-    {
-        if ( (pInfoIn && !!(pInfoIn->flags & paWinWDMKSEnforceFullDuplex)) ||
-             (pInfoOut && !!(pInfoOut->flags & paWinWDMKSEnforceFullDuplex)))
-        {
-            /* Ok, we let it pass anyway if user so badly wants it. It won't be good though... */
-        }
-        else
-        {
-            result = paBadIODeviceCombination;
-            goto error;
-        }
     }
 
     /* Calculate the framesPerHostXxxxBuffer size based upon the suggested latency values */
@@ -3106,6 +3037,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         PA_DEBUG(("Output frames chosen:%ld\n",stream->framesPerHostOBuffer));
     }
 
+#if 0
     /* Calculate the number of frames the processor should work with */
     {
         unsigned minFrameSize = min(stream->framesPerHostOBuffer,stream->framesPerHostIBuffer);
@@ -3147,7 +3079,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             framesForProcessor = max(gcdFrameSize, framesPerUserBuffer);
         }
     }
-
+#endif
     /* Host buffer size is bounded to the largest of the input and output
     frame sizes */
 
@@ -3881,26 +3813,23 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
 
         if( doChannelCopy )
         {
-            // TODO!
-            assert( FALSE );
-#if 0
+            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
             /* Copy the first output channel to the other channels */
             switch (pInfo->stream->outputSampleSize)
             {
             case 2:
-                DuplicateFirstChannelInt16(stream->packetsPlay[outbuf].Header.Data,stream->deviceOutputChannels,stream->framesPerHostOBuffer);
+                DuplicateFirstChannelInt16(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->framesPerHostOBuffer);
                 break;
             case 3:
-                DuplicateFirstChannelInt24(stream->packetsPlay[outbuf].Header.Data,stream->deviceOutputChannels,stream->framesPerHostOBuffer);
+                DuplicateFirstChannelInt24(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->framesPerHostOBuffer);
                 break;
             case 4:
-                DuplicateFirstChannelInt32(stream->packetsPlay[outbuf].Header.Data,stream->deviceOutputChannels,stream->framesPerHostOBuffer);
+                DuplicateFirstChannelInt32(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->framesPerHostOBuffer);
                 break;
             default:
                 assert(0); /* Unsupported format! */
                 break;
             }
-#endif
         }
         PaUtil_EndCpuLoadMeasurement( &pInfo->stream->cpuLoadMeasurer, framesProcessed );
 
@@ -3928,12 +3857,9 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
 PA_THREAD_FUNC ProcessingThread(LPVOID pParam)
 {
     PaError result = paNoError;
-    BOOL bHighestPrio = TRUE;
-    HANDLE hCaptureThread = NULL;
     HANDLE hAVRT = NULL;
     HANDLE handles[5];
     unsigned noOfHandles = 0;
-    unsigned pinsStarted = 0;
     unsigned captureEvents = 0;
     unsigned renderEvents = 0;
 

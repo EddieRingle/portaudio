@@ -84,11 +84,9 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 		PaWasapi_Initialize,
 #endif
 
-/*
 #ifndef PA_NO_WDMKS
-       PaWinWdm_Initialize,
+        PaWinWdm_Initialize,
 #endif
-*/
 
         //PaSkeleton_Initialize, /* just for testing */
 
