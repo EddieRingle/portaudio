@@ -247,7 +247,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\..\src\common;..\..\include;.\;..\..\src\os\win"
-				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
+				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO;PA_NO_ASIO"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
@@ -1325,6 +1325,14 @@
 					>
 					<File
 						RelativePath="..\..\src\hostapi\wasapi\pa_win_wasapi.c"
+						>
+					</File>
+				</Filter>
+				<Filter
+					Name="wdmks"
+					>
+					<File
+						RelativePath="..\..\src\hostapi\wdmks\pa_win_wdmks.c"
 						>
 					</File>
 				</Filter>
