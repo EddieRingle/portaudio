@@ -56,7 +56,7 @@
 				AdditionalIncludeDirectories="..\..\src\common;..\..\include;.\;..\..\src\os\win"
 				PreprocessorDefinitions="WIN32;NDEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO"
 				StringPooling="true"
-				RuntimeLibrary="2"
+				RuntimeLibrary="0"
 				EnableFunctionLevelLinking="true"
 				PrecompiledHeaderFile="$(PlatformName)\$(ConfigurationName)/portaudio.pch"
 				AssemblerListingLocation="$(PlatformName)\$(ConfigurationName)\"
@@ -78,7 +78,6 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x86.dll"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -250,7 +249,7 @@
 				PreprocessorDefinitions="WIN32;_DEBUG;_USRDLL;PA_ENABLE_DEBUG_OUTPUT;_CRT_SECURE_NO_DEPRECATE;PAWIN_USE_WDMKS_DEVICE_INFO;PA_NO_ASIO"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
-				RuntimeLibrary="3"
+				RuntimeLibrary="1"
 				PrecompiledHeaderFile="$(PlatformName)\$(ConfigurationName)/portaudio.pch"
 				AssemblerListingLocation="$(PlatformName)\$(ConfigurationName)\"
 				ObjectFile="$(PlatformName)\$(ConfigurationName)\"
@@ -272,7 +271,6 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="ksuser.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x86.dll"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"

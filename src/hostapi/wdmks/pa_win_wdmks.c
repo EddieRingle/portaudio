@@ -50,7 +50,14 @@ format conversion. That means that it will lock out all other users
 of a device for the duration of active stream using those devices
 */
 
+/* Exclude compilation altogether if not wanted. Will remove linking to setupapi.lib */
+#ifndef PA_NO_WDMKS
+
 #include <stdio.h>
+
+#if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */
+#pragma comment( lib, "setupapi.lib" )
+#endif
 
 /* Debugging/tracing support */
 
@@ -117,15 +124,6 @@ of a device for the duration of active stream using those devices
 #define DYNAMIC_GUID(data) DYNAMIC_GUID_THUNK(data)
 #endif
 
-/* use CreateThread for CYGWIN/Windows Mobile, _beginthreadex for all others */
-#if !defined(__CYGWIN__) && !defined(_WIN32_WCE)
-#define CREATE_THREAD_FUNCTION (HANDLE)_beginthreadex
-#define PA_THREAD_FUNC static unsigned WINAPI
-#else
-#define CREATE_THREAD_FUNCTION CreateThread
-#define PA_THREAD_FUNC static DWORD WINAPI
-#endif
-
 #ifdef _MSC_VER
 #define NOMMIDS
 #define DYNAMIC_GUID(data) {data}
@@ -136,6 +134,7 @@ of a device for the duration of active stream using those devices
 #define DEFINE_GUIDEX(n) DEFINE_GUID_THUNK(n, STATIC_##n)
 #endif
 
+#include <setupapi.h>
 #include <mmreg.h>
 #include <ks.h>
 #include <ksmedia.h>
@@ -277,7 +276,7 @@ typedef struct __PaWinWdmStream
     int                         streamStop;
     int                         streamAbort;
     int                         oldProcessPriority;
-    HANDLE                      streamThread;
+    PaThread                    streamThread;
     HANDLE                      eventAbort;
     HANDLE                      eventsRender[2];    /* 2 (WaveCyclic) 1 (WaveRT) */
     HANDLE                      eventsCapture[2];   /* 2 (WaveCyclic) 1 (WaveRT) */
@@ -319,8 +318,6 @@ struct __PaProcessThreadInfo
 };
 
 static const unsigned cPacketsArrayMask = 3;
-
-#include <setupapi.h>
 
 HMODULE         DllKsUser = NULL;
 KSCREATEPIN*    FunctionKsCreatePin = NULL;
@@ -480,7 +477,7 @@ static BOOL PinWrite(HANDLE h, DATAPACKET* p);
 static BOOL PinRead(HANDLE h, DATAPACKET* p);
 static void DuplicateFirstChannelInt16(void* buffer, int channels, int samples);
 static void DuplicateFirstChannelInt24(void* buffer, int channels, int samples);
-PA_THREAD_FUNC ProcessingThread(LPVOID pParam);
+static unsigned int ProcessingThread(void*);
 
 /* Pin handler functions */
 static void PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
@@ -2375,6 +2372,12 @@ error:
         DllKsUser = NULL;
     }
 
+    if( DllAvRt != NULL )
+    {
+        FreeLibrary( DllAvRt );
+        DllAvRt = NULL;
+    }
+
     if( wdmHostApi )
     {
         PaUtil_FreeMemory( wdmHostApi->filters );
@@ -3087,7 +3090,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->userInputChannels, inputSampleFormat, hostInputSampleFormat,
         stream->userOutputChannels, outputSampleFormat, hostOutputSampleFormat,
         sampleRate, streamFlags, framesPerUserBuffer,
-        max(stream->framesPerHostIBuffer, stream->framesPerHostOBuffer), //framesForProcessor
+        max(stream->framesPerHostIBuffer, stream->framesPerHostOBuffer), 
         paUtilBoundedHostBufferSize,
         streamCallback, userData );
     if( result != paNoError )
@@ -3593,14 +3596,6 @@ static HANDLE BumpThreadPriority()
     DWORD dwTask = 0;
     HANDLE hAVRT = NULL;
 
-    if (timeBeginPeriod(1) != TIMERR_NOERROR) {
-        PA_DEBUG(("timeBeginPeriod(1) failed!\n"));
-    }
-
-    if (!SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL)) {
-        PA_DEBUG(("SetThreadPriority failed!\n"));
-    }
-
     /* If we have access to AVRT.DLL (Vista and later), use it */
     if (FunctionAvSetMmThreadCharacteristics != NULL) 
     {
@@ -3618,6 +3613,18 @@ static HANDLE BumpThreadPriority()
             PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed!\n"));
         }
     }
+    else
+    {
+        /* For XP and earlier */
+        if (timeBeginPeriod(1) != TIMERR_NOERROR) {
+            PA_DEBUG(("timeBeginPeriod(1) failed!\n"));
+        }
+
+        if (!SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL)) {
+            PA_DEBUG(("SetThreadPriority failed!\n"));
+        }
+
+    }
     return hAVRT;
 }
 
@@ -3633,10 +3640,12 @@ static void DropThreadPriority(HANDLE hAVRT)
         FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_NORMAL);
         FunctionAvRevertMmThreadCharacteristics(hAVRT);
     }
+    else 
+    {
+        SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
+        timeEndPeriod(1);
+    }
 
-    SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
-
-    timeEndPeriod(1);
 }
 
 static PaError StartPin(PaWinWdmPin* pin)
@@ -3655,10 +3664,6 @@ static PaError StartPin(PaWinWdmPin* pin)
         return result;
     }
     result = PinSetState(pin, KSSTATE_RUN);
-    if (result != paNoError)
-    {
-        //PinSetState(pin, KSSTATE_STOP);
-    }
     return result;
 }
 
@@ -3669,12 +3674,10 @@ static PaError StartPins(PaProcessThreadInfo* pInfo)
     if (pInfo->stream->capturePin)
     {
         result = StartPin(pInfo->stream->capturePin);
-        //PinSetState(pInfo->stream->capturePin, KSSTATE_RUN);
     }
     if(pInfo->stream->renderPin)
     {
         result = StartPin(pInfo->stream->renderPin);
-        //PinSetState(pInfo->stream->renderPin, KSSTATE_RUN);
     }
     /* Submit buffers */
     if(pInfo->stream->capturePin)
@@ -3854,7 +3857,7 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
     }
 }
 
-PA_THREAD_FUNC ProcessingThread(LPVOID pParam)
+static unsigned int ProcessingThread(void* pParam)
 {
     PaError result = paNoError;
     HANDLE hAVRT = NULL;
@@ -3979,7 +3982,6 @@ PA_THREAD_FUNC ProcessingThread(LPVOID pParam)
                 info.stream->renderPin->fnEventHandler(&info, eventSignalled);
             }
             else {
-                // Abort event
                 assert(info.stream->streamAbort);
                 aborted = 1;
                 break;
@@ -4037,177 +4039,11 @@ PA_THREAD_FUNC ProcessingThread(LPVOID pParam)
     return 0;
 }
 
-// PA_THREAD_FUNC RenderThread(LPVOID pParam)
-// {
-//     PaError result = paNoError;
-//     BOOL bHighestPrio = TRUE;
-//     HANDLE hCaptureThread = NULL;
-//     HANDLE hAVRT;
-//     HANDLE handles[3];
-//     unsigned noOfHandles = 0;
-//     unsigned pinsStarted = 0;
-// 
-//     PaProcessThreadInfo info;
-//     memset(&info, 0, sizeof(PaProcessThreadInfo));
-//     info.stream = (PaWinWdmStream*)pParam;
-//     info.captureThreadEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-// 
-//     PA_LOGE_;
-// 
-//     info.ti.inputBufferAdcTime = 0.0;
-//     info.ti.currentTime = 0.0;
-//     info.ti.outputBufferDacTime = 0.0;
-// 
-//     PA_DEBUG(("Out buffer len: %.3f ms\n",(2000*info.stream->framesPerHostOBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
-//     PA_DEBUG(("In buffer len: %.3f ms\n",(2000*info.stream->framesPerHostIBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
-//     info.timeout = max(
-//         ((2000*(DWORD)info.stream->framesPerHostOBuffer) / (DWORD)info.stream->streamRepresentation.streamInfo.sampleRate),
-//         ((2000*(DWORD)info.stream->framesPerHostIBuffer) / (DWORD)info.stream->streamRepresentation.streamInfo.sampleRate));
-//     info.timeout = max(info.timeout+1,1);
-//     PA_DEBUG(("Timeout = %ld ms\n",info.timeout));
-// 
-//     if (info.stream->capturePin != 0) {
-//         DWORD dwId;
-//         hCaptureThread = CREATE_THREAD_FUNCTION (NULL, 0, CaptureThread, &info, CREATE_SUSPENDED, &dwId);
-//         if (hCaptureThread == 0) {
-//             PA_DEBUG(("Failed to create capture thread!\n"));
-//             return 0;
-//         }
-//         ResumeThread(hCaptureThread);
-//         /* Wait for the capture thread to start looping */
-//         if (WaitForSingleObject(info.captureThreadEvent, 10000) != WAIT_OBJECT_0)
-//         {
-//             PA_DEBUG(("Failed to create capture thread!\n"));
-// 
-//         }
-//     }
-//     if (info.stream->renderPin != 0) {
-//         handles[noOfHandles++] = info.stream->eventsRender[0];
-//         if (!info.stream->renderPin->parentFilter->isWaveRT) {
-//             handles[noOfHandles++] = info.stream->eventsRender[1];
-//         }
-//     }
-//     handles[noOfHandles++] = info.stream->eventAbort;
-//     info.outBufferSize = 2 * info.stream->bytesPerOutputFrame * info.stream->framesPerHostOBuffer;
-// 
-//     /* Heighten priority here */
-//     hAVRT = BumpThreadPriority();
-// 
-//     /* Start render and capture pins */
-//     if (StartPins(&info) != paNoError) 
-//     {
-//         PA_DEBUG(("Failed to start device(s)!\n"));
-//     }
-// 
-//     while(!info.stream->streamAbort)
-//     {
-//         unsigned long wait = WaitForMultipleObjects(noOfHandles, handles, FALSE, 0);
-// 
-//         if (wait == WAIT_FAILED) 
-//         {
-//             PA_DEBUG(("Wait failed = %ld! \n",wait));
-//             break;
-//         }
-// 
-//         if (wait == WAIT_TIMEOUT)
-//         {
-//             if (info.renderHead != info.renderTail)
-//             {
-//                 PaDoProcessing(&info);
-// 
-//                 /* Can only resubmit packets after they're dealt with */
-//                 if (info.cbResult == paContinue) {
-//                     while (info.renderSubmit != info.renderTail )
-//                     {
-//                         info.stream->renderPin->fnSubmitHandler(&info, info.renderSubmit);
-//                     }
-//                 }
-// 
-//             }
-// 
-//             wait = WaitForMultipleObjects(noOfHandles, handles, FALSE, info.timeout);
-//         }
-//         else {
-//             if (!info.priming) {
-//                 PA_DEBUG(("Output underflow!\n"));
-//                 info.underover |= paOutputUnderflow;
-//             }
-//         }
-// 
-//         if(info.stream->streamStop && info.cbResult != paComplete)
-//         {
-//             PA_DEBUG(("Stream stop! pending=%d\n",info.pending));
-//             info.cbResult = paComplete; /* Stop, but play remaining buffers */
-//         }
-// 
-//         if(info.pending<0)
-//         {
-//             PA_DEBUG(("pending==0 finished...;\n"));
-//             break;
-//         }
-//         if((!info.stream->renderPin)&&(info.cbResult!=paContinue))
-//         {
-//             PA_DEBUG(("record only cbResult=%d...;\n",info.cbResult));
-//             break;
-//         }
-// 
-//         if (wait == WAIT_TIMEOUT) {
-//             continue;
-//         }
-// 
-//         wait -= WAIT_OBJECT_0;
-// 
-//         if (wait == noOfHandles - 1) {
-//             ResetEvent(info.stream->eventAbort);
-//             assert(info.stream->streamAbort);
-//             PA_DEBUG(("ABORTING!\n"));
-//             break;
-//         }
-// 
-//         info.stream->renderPin->fnEventHandler(&info, wait);
-//     }
-// 
-//     PA_DEBUG(("Finished processing loop\n"));
-// 
-//     /* Stop capture thread */
-//     if (hCaptureThread) {
-//         PA_DEBUG(("Waiting for capture thread to stop...\n"));
-//         SetEvent(info.captureThreadEvent);
-//         if (WaitForSingleObject(hCaptureThread, 1000) != WAIT_OBJECT_0) {
-//             PA_DEBUG(("Waiting for capture thread to stop failed!\n"));
-//             TerminateThread(hCaptureThread, 0);
-//         }
-//         hCaptureThread = NULL;
-//     }
-// 
-//     StopPins(&info);
-// 
-//     /* Lower prio here */
-//     DropThreadPriority(hAVRT);
-// 
-//     info.stream->streamActive = 0;
-// 
-//     if((!info.stream->streamStop)&&(!info.stream->streamAbort))
-//     {
-//         /* Invoke the user stream finished callback */
-//         /* Only do it from here if not being stopped/aborted by user */
-//         if( info.stream->streamRepresentation.streamFinishedCallback != 0 )
-//             info.stream->streamRepresentation.streamFinishedCallback( info.stream->streamRepresentation.userData );
-//     }
-//     info.stream->streamStop = 0;
-//     info.stream->streamAbort = 0;
-// 
-//     CloseHandle(info.captureThreadEvent);
-// 
-//     PA_LOGL_;
-//     return 0;
-// }
 
 static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
     PaWinWdmStream *stream = (PaWinWdmStream*)s;
-    DWORD dwID;
  
     PA_LOGE_;
 
@@ -4226,14 +4062,13 @@ static PaError StartStream( PaStream *s )
     PA_DEBUG(("Class ret = %d;",ret));*/
 
     stream->streamStarted = 1;
-    stream->streamThread = CREATE_THREAD_FUNCTION (NULL, 0, ProcessingThread, stream, CREATE_SUSPENDED, &dwID);
-    if(stream->streamThread == NULL)
+    if (PaUtil_CreateThread(&stream->streamThread, ProcessingThread, stream, 1) != paNoError)
     {
         stream->streamStarted = 0;
         result = paInsufficientMemory;
         goto end;
     }
-    ResumeThread(stream->streamThread);
+    PaUtil_StartThread(stream->streamThread);
 
     /* Setting thread prios in BumpThreadPriority now 
     ret = SetThreadPriority(stream->streamThread,THREAD_PRIORITY_TIME_CRITICAL);
@@ -4260,15 +4095,16 @@ static PaError StopStream( PaStream *s )
     {
         doCb = 1;
         stream->streamStop = 1;
-        if (WaitForSingleObject(stream->streamThread, 1000) != WAIT_OBJECT_0)
+        if (PaUtil_WaitForThreadToExit(stream->streamThread, 1000) != paNoError)
         {
-            __PA_DEBUG(("StopStream: stream thread terminated\n"));
-            TerminateThread(stream->streamThread, -1);
+            PA_DEBUG(("StopStream: stream thread terminated\n"));
+            PaUtil_TerminateThread(stream->streamThread);
             result = paTimedOut;
         }
     }
 
-    stream->streamThread = NULL;
+    PaUtil_DestroyThread(stream->streamThread);
+    stream->streamThread = 0;
     stream->streamStarted = 0;
 
     if(doCb)
@@ -4297,10 +4133,15 @@ static PaError AbortStream( PaStream *s )
         doCb = 1;
         stream->streamAbort = 1;
         SetEvent(stream->eventAbort); /* Signal immediately */
-        WaitForSingleObject(stream->streamThread, INFINITE);
+        if (PaUtil_WaitForThreadToExit(stream->streamThread, 10000) != paNoError)
+        {
+            PA_DEBUG(("AbortStream: stream thread terminated\n"));
+            PaUtil_TerminateThread(stream->streamThread);
+            result = paTimedOut;
+        }
         assert(!stream->streamActive);
     }
-
+    PaUtil_DestroyThread(stream->streamThread);
     stream->streamThread = NULL;
     stream->streamStarted = 0;
 
@@ -4576,4 +4417,7 @@ static void PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned
         }
     }
 }
+
+#endif /* PA_NO_WDMKS */
+
 

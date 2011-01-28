@@ -48,6 +48,7 @@
  
 #include <windows.h>
 #include <mmsystem.h> /* for timeGetTime() */
+#include <assert.h>
 
 #include "pa_util.h"
 
@@ -149,3 +150,122 @@ double PaUtil_GetTime( void )
 #endif                
     }
 }
+
+#include <process.h>
+
+/* use CreateThread for CYGWIN/Windows Mobile, _beginthreadex for all others */
+#if !defined(__CYGWIN__) && !defined(_WIN32_WCE)
+#define CREATE_THREAD_FUNCTION (HANDLE)_beginthreadex
+#define THREAD_FUNCTION_RETURN_TYPE unsigned
+#define PA_THREAD_FUNC static THREAD_FUNCTION_RETURN_TYPE WINAPI
+#define EXIT_THREAD_FUNCTION    _endthreadex
+#else
+#define CREATE_THREAD_FUNCTION CreateThread
+#define THREAD_FUNCTION_RETURN_TYPE DWORD
+#define PA_THREAD_FUNC static THREAD_FUNCTION_RETURN_TYPE WINAPI
+#define EXIT_THREAD_FUNCTION    ExitThread
+#endif
+
+typedef struct _tag_PaThread
+{
+    PaThreadFunction function;
+    void*            data;
+    HANDLE           handle;
+    DWORD            dwThreadId;
+} PaThreadStruct;
+
+PA_THREAD_FUNC ThreadFunction(void* ptr)
+{
+    PaThreadStruct* p = (PaThreadStruct*)ptr;
+    THREAD_FUNCTION_RETURN_TYPE retval = p->function(p->data);
+    p->function = 0;
+    EXIT_THREAD_FUNCTION(retval);
+    return retval;
+}
+
+int PaUtil_CreateThread(PaThread* thread, PaThreadFunction threadFunction, void* data, unsigned createSuspended)
+{
+    PaThreadStruct* p;
+    if (thread == NULL || threadFunction == NULL)
+        return paUnanticipatedHostError;
+
+    p = (PaThreadStruct*)PaUtil_AllocateMemory(sizeof(PaThreadStruct));
+    if (p == NULL)
+        return paInsufficientMemory;
+
+    p->function = threadFunction;
+    p->data = data;
+    p->handle = CREATE_THREAD_FUNCTION(NULL, 0, ThreadFunction, p, createSuspended ? CREATE_SUSPENDED : 0, &p->dwThreadId);
+    if (p->handle == 0 || p->handle == INVALID_HANDLE_VALUE)
+    {
+        PaUtil_FreeMemory(p);
+        return paUnanticipatedHostError;
+    }
+    *thread = p;
+    return paNoError;
+}
+
+int PaUtil_DestroyThread(PaThread thread)
+{
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p->function != 0)
+    {
+        /* This means that function is called while thread is still running */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
+
+    PaUtil_FreeMemory(thread);
+    return paNoError;
+}
+
+int PaUtil_StartThread(PaThread thread)
+{
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    return (ResumeThread(p->handle) != (DWORD)-1) ? paNoError : paUnanticipatedHostError;
+}
+
+int PaUtil_WaitForThreadToExit( PaThread thread, unsigned timeOutMilliseconds )
+{
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    return (WaitForSingleObject(p->handle, timeOutMilliseconds) == WAIT_OBJECT_0) ? paNoError : paTimedOut;
+}
+
+int PaUtil_TerminateThread(PaThread thread)
+{
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    TerminateThread(p->handle, -1);
+    p->function = 0;
+    return paNoError;
+}
+
+extern const PaThread paCurrentThread = (PaThread)(size_t)(-2);
+
+static const int kPriorityMapping[Priority_kCnt] = { 
+    THREAD_PRIORITY_IDLE,
+    THREAD_PRIORITY_BELOW_NORMAL,
+    THREAD_PRIORITY_NORMAL,
+    THREAD_PRIORITY_ABOVE_NORMAL,
+    THREAD_PRIORITY_TIME_CRITICAL,
+};
+
+int PaUtil_SetThreadPriority(PaThread thread, PaThreadPriority priority)
+{
+    HANDLE hThread = (thread == paCurrentThread) ? GetCurrentThread() : ((PaThreadStruct*)thread)->handle;
+    return SetThreadPriority(hThread, kPriorityMapping[priority]) ? paNoError : paUnanticipatedHostError;
+}
+
+PaThreadPriority PaUtil_GetThreadPriority(PaThread thread)
+{
+    int i;
+    HANDLE hThread = (thread == paCurrentThread) ? GetCurrentThread() : ((PaThreadStruct*)thread)->handle;
+    int winPrio = GetThreadPriority(hThread);
+    for (i = 0; i < Priority_kCnt; ++i)
+    {
+        if (kPriorityMapping[i] >= winPrio)
+            return (PaThreadPriority)i;
+    }
+    assert(0);
+    return Priority_kNormal;
+}
+
