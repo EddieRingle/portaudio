@@ -51,11 +51,62 @@
 #include <assert.h>
 
 #include "pa_util.h"
+#include "pa_debugprint.h"
 
 #if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) && !defined(_WIN32_WCE) /* MSC version 6 and above */
 #pragma comment( lib, "winmm.lib" )
 #endif
 
+/* These definitions allows the use of AVRT.DLL on Vista and later OSs */
+typedef HANDLE WINAPI AVSETMMTHREADCHARACTERISTICS(LPCSTR, LPDWORD TaskIndex);
+typedef BOOL WINAPI AVREVERTMMTHREADCHARACTERISTICS(HANDLE);
+
+typedef enum _PA_AVRT_PRIORITY
+{
+    PA_AVRT_PRIORITY_LOW = -1,
+    PA_AVRT_PRIORITY_NORMAL,
+    PA_AVRT_PRIORITY_HIGH,
+    PA_AVRT_PRIORITY_CRITICAL
+} PA_AVRT_PRIORITY, *PPA_AVRT_PRIORITY;
+
+typedef BOOL WINAPI AVSETMMTHREADPRIORITY(HANDLE, PA_AVRT_PRIORITY);
+
+HMODULE         DllAvRt = NULL;
+AVSETMMTHREADCHARACTERISTICS* FunctionAvSetMmThreadCharacteristics = NULL;
+AVREVERTMMTHREADCHARACTERISTICS* FunctionAvRevertMmThreadCharacteristics = NULL;
+AVSETMMTHREADPRIORITY* FunctionAvSetMmThreadPriority = NULL;
+static unsigned sThreadInitCntr = 0;
+
+extern void PaUtil_ThreadsInitialize()
+{
+    if (sThreadInitCntr++ == 0)
+    {
+        /* Attempt to load AVRT.DLL, if we can't, then no problemo */
+        if(DllAvRt == NULL)
+        {
+            DllAvRt = LoadLibrary(TEXT("avrt.dll"));
+            if (DllAvRt != NULL)
+            {
+                FunctionAvSetMmThreadCharacteristics = (AVSETMMTHREADCHARACTERISTICS*)GetProcAddress(DllAvRt,"AvSetMmThreadCharacteristicsA");
+                FunctionAvRevertMmThreadCharacteristics = (AVREVERTMMTHREADCHARACTERISTICS*)GetProcAddress(DllAvRt, "AvRevertMmThreadCharacteristics");
+                FunctionAvSetMmThreadPriority = (AVSETMMTHREADPRIORITY*)GetProcAddress(DllAvRt, "AvSetMmThreadPriority");
+            }
+        }
+    }
+}
+
+extern void PaUtil_ThreadsTerminate()
+{
+    assert(sThreadInitCntr > 0);
+    if (--sThreadInitCntr == 0)
+    {
+        if( DllAvRt != NULL )
+        {
+            FreeLibrary( DllAvRt );
+            DllAvRt = NULL;
+        }
+    }
+}
 
 /*
    Track memory allocations to avoid leaks.
@@ -64,7 +115,6 @@
 #if PA_TRACK_MEMORY
 static int numAllocations_ = 0;
 #endif
-
 
 void *PaUtil_AllocateMemory( long size )
 {
@@ -168,78 +218,111 @@ double PaUtil_GetTime( void )
 
 typedef struct _tag_PaThread
 {
+    size_t           magic;
     PaThreadFunction function;
     void*            data;
     HANDLE           handle;
+    HANDLE           hAVRT;
+    DWORD            dwTask;
+    unsigned         period;
     DWORD            dwThreadId;
 } PaThreadStruct;
+
+static const size_t kThreadMagic = (size_t)0xbeefcafedeadbabe;
 
 PA_THREAD_FUNC ThreadFunction(void* ptr)
 {
     PaThreadStruct* p = (PaThreadStruct*)ptr;
-    THREAD_FUNCTION_RETURN_TYPE retval = p->function(p->data);
+    THREAD_FUNCTION_RETURN_TYPE retval = p->function(ptr, p->data);
     p->function = 0;
+    PaUtil_SetThreadPriority(p, Priority_kNormal);
     EXIT_THREAD_FUNCTION(retval);
     return retval;
 }
 
-int PaUtil_CreateThread(PaThread* thread, PaThreadFunction threadFunction, void* data, unsigned createSuspended)
+int PaUtil_CreateThread(PaThread** thread, PaThreadFunction threadFunction, void* data, unsigned createSuspended)
 {
-    PaThreadStruct* p;
     if (thread == NULL || threadFunction == NULL)
-        return paUnanticipatedHostError;
-
-    p = (PaThreadStruct*)PaUtil_AllocateMemory(sizeof(PaThreadStruct));
-    if (p == NULL)
-        return paInsufficientMemory;
-
-    p->function = threadFunction;
-    p->data = data;
-    p->handle = CREATE_THREAD_FUNCTION(NULL, 0, ThreadFunction, p, createSuspended ? CREATE_SUSPENDED : 0, &p->dwThreadId);
-    if (p->handle == 0 || p->handle == INVALID_HANDLE_VALUE)
     {
-        PaUtil_FreeMemory(p);
         return paUnanticipatedHostError;
     }
-    *thread = p;
+    else
+    {
+        PaThreadStruct* p = (PaThreadStruct*)PaUtil_AllocateMemory(sizeof(PaThreadStruct));
+        if (p == NULL)
+            return paInsufficientMemory;
+
+        p->magic = kThreadMagic;
+        p->function = threadFunction;
+        p->data = data;
+        p->handle = CREATE_THREAD_FUNCTION(NULL, 0, ThreadFunction, p, createSuspended ? CREATE_SUSPENDED : 0, &p->dwThreadId);
+        if (p->handle == 0 || p->handle == INVALID_HANDLE_VALUE)
+        {
+            PaUtil_FreeMemory(p);
+            return paInternalError;
+        }
+        *thread = p;
+    }
     return paNoError;
 }
 
-int PaUtil_DestroyThread(PaThread thread)
+int PaUtil_CloseThread(PaThread* thread)
 {
     PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p == 0 || p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
     if (p->function != 0)
     {
         /* This means that function is called while thread is still running */
         assert(0);
         return paUnanticipatedHostError;
     }
-
+    CloseHandle(p->handle);
     PaUtil_FreeMemory(thread);
     return paNoError;
 }
 
-int PaUtil_StartThread(PaThread thread)
+int PaUtil_StartThread(PaThread* thread)
 {
     PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p == 0 || p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
     return (ResumeThread(p->handle) != (DWORD)-1) ? paNoError : paUnanticipatedHostError;
 }
 
-int PaUtil_WaitForThreadToExit( PaThread thread, unsigned timeOutMilliseconds )
+int PaUtil_WaitForThreadToExit( PaThread* thread, unsigned timeOutMilliseconds )
 {
     PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
     return (WaitForSingleObject(p->handle, timeOutMilliseconds) == WAIT_OBJECT_0) ? paNoError : paTimedOut;
 }
 
-int PaUtil_TerminateThread(PaThread thread)
+int PaUtil_TerminateThread(PaThread* thread)
 {
     PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
     TerminateThread(p->handle, -1);
     p->function = 0;
     return paNoError;
 }
-
-extern const PaThread paCurrentThread = (PaThread)(size_t)(-2);
 
 static const int kPriorityMapping[Priority_kCnt] = { 
     THREAD_PRIORITY_IDLE,
@@ -247,19 +330,83 @@ static const int kPriorityMapping[Priority_kCnt] = {
     THREAD_PRIORITY_NORMAL,
     THREAD_PRIORITY_ABOVE_NORMAL,
     THREAD_PRIORITY_TIME_CRITICAL,
+    THREAD_PRIORITY_TIME_CRITICAL,
 };
 
-int PaUtil_SetThreadPriority(PaThread thread, PaThreadPriority priority)
+int PaUtil_SetThreadPriority(PaThread* thread, PaThreadPriority priority)
 {
-    HANDLE hThread = (thread == paCurrentThread) ? GetCurrentThread() : ((PaThreadStruct*)thread)->handle;
-    return SetThreadPriority(hThread, kPriorityMapping[priority]) ? paNoError : paUnanticipatedHostError;
+    int result = paNoError;
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p == 0 || p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
+    if (priority < Priority_kRealTimeProAudio)
+    {
+        if (p->hAVRT != 0)
+        {
+            FunctionAvSetMmThreadPriority(p->hAVRT, PA_AVRT_PRIORITY_NORMAL);
+            FunctionAvRevertMmThreadCharacteristics(p->hAVRT);
+            p->hAVRT = 0;
+            return paNoError;
+        }
+        else if (p->period != 0)
+        {
+            timeEndPeriod(1U);
+        }
+        return SetThreadPriority(p->handle, kPriorityMapping[priority]) ? paNoError : paUnanticipatedHostError;
+    }
+    else if (priority > Priority_kRealTimeProAudio)
+    {
+        /* Out of range priority */
+        return paUnanticipatedHostError;
+    }
+    else
+    {
+        /* If we have access to AVRT.DLL (Vista and later), use it */
+        if (FunctionAvSetMmThreadCharacteristics != NULL) 
+        {
+            p->hAVRT = FunctionAvSetMmThreadCharacteristics("Pro Audio", &p->dwTask);
+            if (p->hAVRT != NULL) 
+            {
+                BOOL bret = FunctionAvSetMmThreadPriority(p->hAVRT, PA_AVRT_PRIORITY_CRITICAL);
+                if (!bret)
+                {
+                    PA_DEBUG(("Set mm thread prio to critical failed!\n"));
+                }
+            }
+            else
+            {
+                PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed!\n"));
+            }
+            return paNoError;
+        }
+        else
+        {
+            p->period = (timeBeginPeriod(1U) == MMSYSERR_NOERROR);
+        }
+        return SetThreadPriority(p->handle, kPriorityMapping[priority]) ? paNoError : paUnanticipatedHostError;
+    }
 }
 
-PaThreadPriority PaUtil_GetThreadPriority(PaThread thread)
+PaThreadPriority PaUtil_GetThreadPriority(PaThread* thread)
 {
     int i;
-    HANDLE hThread = (thread == paCurrentThread) ? GetCurrentThread() : ((PaThreadStruct*)thread)->handle;
-    int winPrio = GetThreadPriority(hThread);
+    int winPrio;
+    PaThreadStruct* p = (PaThreadStruct*)thread;
+    if (p == 0 || p->magic != kThreadMagic)
+    {
+        /* Called with junk ? */
+        assert(0);
+        return paUnanticipatedHostError;
+    }
+    if (p->hAVRT || p->period)
+    {
+        return Priority_kRealTimeProAudio;
+    }
+    winPrio = GetThreadPriority(p->handle);
     for (i = 0; i < Priority_kCnt; ++i)
     {
         if (kPriorityMapping[i] >= winPrio)

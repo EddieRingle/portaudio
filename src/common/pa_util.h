@@ -157,8 +157,8 @@ double PaUtil_GetTime( void );
 /* Opaque simple threading API                                          */
 /************************************************************************/
 
-typedef void* PaThread;
-typedef unsigned int (*PaThreadFunction) (void*);
+typedef void PaThread;
+typedef unsigned int (*PaThreadFunction) (PaThread* thread, void*);
 
 typedef enum PaThreadPriority
 {
@@ -167,61 +167,60 @@ typedef enum PaThreadPriority
     Priority_kNormal,
     Priority_kAboveNormal,
     Priority_kRealTime,
+    Priority_kRealTimeProAudio,
     Priority_kCnt,
 } PaThreadPriority;
-
-extern const PaThread paCurrentThread;
 
 /** Create a thread. Must be implemented in per-platform .c file
  
  @param thread           A pointer to a PaThread variable, which will be intialized with a 
                          pointer to a platform specific thread struct.
  @param threadFunction   Pointer to the actual thread function to execute
- @param data             The pointer passed to the thread function as only argument
+ @param data             The pointer passed to the thread function as second argument
  @param createSuspended  if not zero, the thread is created in suspended state and must be started
                          with PaUtil_StartThread(...)
  @return  Returns paNoError if everything went fine                          
 */
-int PaUtil_CreateThread(PaThread* thread, PaThreadFunction threadFunction, void* data, unsigned createSuspended);
+int PaUtil_CreateThread(PaThread** thread, PaThreadFunction threadFunction, void* data, unsigned createSuspended);
 
-/** Destroy a thread. Note that the thread must've exited or been terminated, otherwise
+/** Close a thread. Note that the thread must've exited or been terminated, otherwise
     this function will return an error.
  @param thread           The thread.
  @return  Returns paNoError if everything went fine                          
 */
-int PaUtil_DestroyThread(PaThread thread);
+int PaUtil_CloseThread(PaThread* thread);
 
-/** Start a thread. Should only be used it PaUtil_CreateThread has been called with createSuspended != 0
+/** Start a thread. Should only be used if PaUtil_CreateThread has been called with createSuspended != 0
   @param thread           The thread.
   @return  Returns paNoError if everything went fine                          
 */
-int PaUtil_StartThread(PaThread thread);
+int PaUtil_StartThread(PaThread* thread);
 
 /** Wait for thread to exit. 
   @param thread           The thread.
   @param timeoutMillisecs Time to wait 
   @return  Returns paNoError if Ok, paTimedOut if timeout
 */
-int PaUtil_WaitForThreadToExit(PaThread thread, unsigned timeOutMillisecs);
+int PaUtil_WaitForThreadToExit(PaThread* thread, unsigned timeOutMillisecs);
 
 /** Forcefully terminate thread
   @param thread           The thread.
   @return  Returns paNoError if Ok
 */
-int PaUtil_TerminateThread(PaThread thread);
+int PaUtil_TerminateThread(PaThread* thread);
 
 /** Set thread priority
-  @param thread           The thread, pass paCurrentThread if you'd like to set prio of calling thread
+  @param thread           The thread
   @param priority         The priority
   @return  Returns paNoError if Ok
 */
-int PaUtil_SetThreadPriority(PaThread thread, PaThreadPriority priority);
+int PaUtil_SetThreadPriority(PaThread* thread, PaThreadPriority priority);
 
 /** Get thread priority
-@param thread           The thread, pass paCurrentThread if you'd like to set prio of calling thread
+@param thread           The thread
 @return  Returns paNoError if Ok
 */
-PaThreadPriority PaUtil_GetThreadPriority(PaThread thread);
+PaThreadPriority PaUtil_GetThreadPriority(PaThread* thread);
 
 #ifdef __cplusplus
 }
