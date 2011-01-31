@@ -124,6 +124,15 @@ of a device for the duration of active stream using those devices
 #define DYNAMIC_GUID(data) DYNAMIC_GUID_THUNK(data)
 #endif
 
+/* use CreateThread for CYGWIN/Windows Mobile, _beginthreadex for all others */
+#if !defined(__CYGWIN__) && !defined(_WIN32_WCE)
+#define CREATE_THREAD_FUNCTION (HANDLE)_beginthreadex
+#define PA_THREAD_FUNC static unsigned WINAPI
+#else
+#define CREATE_THREAD_FUNCTION CreateThread
+#define PA_THREAD_FUNC static DWORD WINAPI
+#endif
+
 #ifdef _MSC_VER
 #define NOMMIDS
 #define DYNAMIC_GUID(data) {data}
@@ -146,6 +155,22 @@ of a device for the duration of active stream using those devices
 typedef KSDDKAPI DWORD WINAPI KSCREATEPIN(HANDLE, PKSPIN_CONNECT, ACCESS_MASK, PHANDLE);
 extern HMODULE      DllKsUser;
 extern KSCREATEPIN* FunctionKsCreatePin;
+
+/* These definitions allows the use of AVRT.DLL on Vista and later OSs */
+extern HMODULE      DllAvRt;
+typedef HANDLE WINAPI AVSETMMTHREADCHARACTERISTICS(LPCSTR, LPDWORD TaskIndex);
+typedef BOOL WINAPI AVREVERTMMTHREADCHARACTERISTICS(HANDLE);
+typedef enum _PA_AVRT_PRIORITY
+{
+    PA_AVRT_PRIORITY_LOW = -1,
+    PA_AVRT_PRIORITY_NORMAL,
+    PA_AVRT_PRIORITY_HIGH,
+    PA_AVRT_PRIORITY_CRITICAL
+} PA_AVRT_PRIORITY, *PPA_AVRT_PRIORITY;
+typedef BOOL WINAPI AVSETMMTHREADPRIORITY(HANDLE, PA_AVRT_PRIORITY);
+extern AVSETMMTHREADCHARACTERISTICS* FunctionAvSetMmThreadCharacteristics;
+extern AVREVERTMMTHREADCHARACTERISTICS* FunctionAvRevertMmThreadCharacteristics;
+extern AVSETMMTHREADPRIORITY* FunctionAvSetMmThreadPriority;
 
 /* Forward definition to break circular type reference between pin and filter */
 struct __PaWinWdmFilter;
@@ -260,7 +285,7 @@ typedef struct __PaWinWdmStream
     int                         streamStop;
     int                         streamAbort;
     int                         oldProcessPriority;
-    PaThread*                   streamThread;
+    HANDLE                      streamThread;
     HANDLE                      eventAbort;
     HANDLE                      eventsRender[2];    /* 2 (WaveCyclic) 1 (WaveRT) */
     HANDLE                      eventsCapture[2];   /* 2 (WaveCyclic) 1 (WaveRT) */
@@ -306,8 +331,10 @@ static const unsigned cPacketsArrayMask = 3;
 HMODULE         DllKsUser = NULL;
 KSCREATEPIN*    FunctionKsCreatePin = NULL;
 
-extern void PaUtil_ThreadsInitialize();
-extern void PaUtil_ThreadsTerminate();
+HMODULE         DllAvRt = NULL;
+AVSETMMTHREADCHARACTERISTICS* FunctionAvSetMmThreadCharacteristics = NULL;
+AVREVERTMMTHREADCHARACTERISTICS* FunctionAvRevertMmThreadCharacteristics = NULL;
+AVSETMMTHREADPRIORITY* FunctionAvSetMmThreadPriority = NULL;
 
 /* prototypes for functions declared in this file */
 
@@ -460,7 +487,7 @@ static BOOL PinWrite(HANDLE h, DATAPACKET* p);
 static BOOL PinRead(HANDLE h, DATAPACKET* p);
 static void DuplicateFirstChannelInt16(void* buffer, int channels, int samples);
 static void DuplicateFirstChannelInt24(void* buffer, int channels, int samples);
-static unsigned int ProcessingThread(PaThread*, void*);
+PA_THREAD_FUNC ProcessingThread(void*);
 
 /* Pin handler functions */
 static void PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
@@ -2213,8 +2240,17 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             goto error;
     }
 
-    /* Initialize Thread API stuff for windows */
-    PaUtil_ThreadsInitialize();
+    /* Attempt to load AVRT.DLL, if we can't, then we'll just use time critical prio instead... */
+    if(DllAvRt == NULL)
+    {
+        DllAvRt = LoadLibrary(TEXT("avrt.dll"));
+        if (DllAvRt != NULL)
+        {
+            FunctionAvSetMmThreadCharacteristics = (AVSETMMTHREADCHARACTERISTICS*)GetProcAddress(DllAvRt,"AvSetMmThreadCharacteristicsA");
+            FunctionAvRevertMmThreadCharacteristics = (AVREVERTMMTHREADCHARACTERISTICS*)GetProcAddress(DllAvRt, "AvRevertMmThreadCharacteristics");
+            FunctionAvSetMmThreadPriority = (AVSETMMTHREADPRIORITY*)GetProcAddress(DllAvRt, "AvSetMmThreadPriority");
+        }
+    }
 
     FunctionKsCreatePin = (KSCREATEPIN*)GetProcAddress(DllKsUser, "KsCreatePin");
     if(FunctionKsCreatePin == NULL)
@@ -2371,8 +2407,11 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         DllKsUser = NULL;
     }
 
-    /* Terminate Thread API stuff for windows */
-    PaUtil_ThreadsTerminate();
+    if( DllAvRt != NULL )
+    {
+        FreeLibrary( DllAvRt );
+        DllAvRt = NULL;
+    }
 
     if( wdmHostApi)
     {
@@ -3646,63 +3685,63 @@ static void DuplicateFirstChannelInt32(void* buffer, int channels, int samples)
 /*
 Increase the priority of the calling thread to RT 
 */
-//static HANDLE BumpThreadPriority() 
-//{
-//     HANDLE hThread = GetCurrentThread();
-//     DWORD dwTask = 0;
-//     HANDLE hAVRT = NULL;
-// 
-//     /* If we have access to AVRT.DLL (Vista and later), use it */
-//     if (FunctionAvSetMmThreadCharacteristics != NULL) 
-//     {
-//         hAVRT = FunctionAvSetMmThreadCharacteristics("Pro Audio", &dwTask);
-//         if (hAVRT != NULL) 
-//         {
-//             BOOL bret = FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_CRITICAL);
-//             if (!bret)
-//             {
-//                 PA_DEBUG(("Set mm thread prio to critical failed!\n"));
-//             }
-//         }
-//         else
-//         {
-//             PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed!\n"));
-//         }
-//     }
-//     else
-//     {
-//         /* For XP and earlier */
-//         if (timeBeginPeriod(1) != TIMERR_NOERROR) {
-//             PA_DEBUG(("timeBeginPeriod(1) failed!\n"));
-//         }
-// 
-//         if (!SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL)) {
-//             PA_DEBUG(("SetThreadPriority failed!\n"));
-//         }
-// 
-//     }
-//     return hAVRT;
-//}
+static HANDLE BumpThreadPriority() 
+{
+    HANDLE hThread = GetCurrentThread();
+    DWORD dwTask = 0;
+    HANDLE hAVRT = NULL;
+
+    /* If we have access to AVRT.DLL (Vista and later), use it */
+    if (FunctionAvSetMmThreadCharacteristics != NULL) 
+    {
+        hAVRT = FunctionAvSetMmThreadCharacteristics("Pro Audio", &dwTask);
+        if (hAVRT != NULL) 
+        {
+            BOOL bret = FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_CRITICAL);
+            if (!bret)
+            {
+                PA_DEBUG(("Set mm thread prio to critical failed!\n"));
+            }
+        }
+        else
+        {
+            PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed!\n"));
+        }
+    }
+    else
+    {
+        /* For XP and earlier */
+        if (timeBeginPeriod(1) != TIMERR_NOERROR) {
+            PA_DEBUG(("timeBeginPeriod(1) failed!\n"));
+        }
+
+        if (!SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL)) {
+            PA_DEBUG(("SetThreadPriority failed!\n"));
+        }
+
+    }
+    return hAVRT;
+}
 
 /*
 Decrease the priority of the calling thread to normal
 */
-// static void DropThreadPriority(HANDLE hAVRT)
-// {
-//     HANDLE hThread = GetCurrentThread();
-// 
-//     if (hAVRT != NULL) 
-//     {
-//         FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_NORMAL);
-//         FunctionAvRevertMmThreadCharacteristics(hAVRT);
-//     }
-//     else 
-//     {
-//         SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
-//         timeEndPeriod(1);
-//     }
-// 
-// }
+static void DropThreadPriority(HANDLE hAVRT)
+{
+    HANDLE hThread = GetCurrentThread();
+
+    if (hAVRT != NULL) 
+    {
+        FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_NORMAL);
+        FunctionAvRevertMmThreadCharacteristics(hAVRT);
+    }
+    else 
+    {
+        SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
+        timeEndPeriod(1);
+    }
+
+}
 
 static PaError StartPin(PaWinWdmPin* pin)
 {
@@ -3913,9 +3952,10 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
     }
 }
 
-static unsigned int ProcessingThread(PaThread* thread, void* pParam)
+PA_THREAD_FUNC ProcessingThread(void* pParam)
 {
     PaError result = paNoError;
+    HANDLE hAVRT = NULL;
     HANDLE handles[5];
     unsigned noOfHandles = 0;
     unsigned captureEvents = 0;
@@ -3963,9 +4003,7 @@ static unsigned int ProcessingThread(PaThread* thread, void* pParam)
     assert(noOfHandles <= ARRAYSIZE(handles));
 
     /* Heighten priority here */
-    PaUtil_SetThreadPriority(thread, Priority_kRealTimeProAudio);
-
-    //hAVRT = BumpThreadPriority();
+    hAVRT = BumpThreadPriority();
 
     /* Start render and capture pins */
     if (StartPins(&info) != paNoError) 
@@ -4056,8 +4094,7 @@ static unsigned int ProcessingThread(PaThread* thread, void* pParam)
     StopPins(&info);
 
     /* Lower prio here */
-    //DropThreadPriority(hAVRT);
-    PaUtil_SetThreadPriority(thread, Priority_kNormal);
+    DropThreadPriority(hAVRT);
 
     info.stream->streamActive = 0;
 
@@ -4080,6 +4117,7 @@ static PaError StartStream( PaStream *s )
 {
     PaError result = paNoError;
     PaWinWdmStream *stream = (PaWinWdmStream*)s;
+    DWORD dwID;
  
     PA_LOGE_;
 
@@ -4098,13 +4136,14 @@ static PaError StartStream( PaStream *s )
     PA_DEBUG(("Class ret = %d;",ret));*/
 
     stream->streamStarted = 1;
-    if (PaUtil_CreateThread(&stream->streamThread, ProcessingThread, stream, 1) != paNoError)
+    stream->streamThread = CREATE_THREAD_FUNCTION (NULL, 0, ProcessingThread, stream, CREATE_SUSPENDED, &dwID);
+    if(stream->streamThread == NULL)
     {
         stream->streamStarted = 0;
         result = paInsufficientMemory;
         goto end;
     }
-    PaUtil_StartThread(stream->streamThread);
+    ResumeThread(stream->streamThread);
 
     /* Setting thread prios in BumpThreadPriority now 
     ret = SetThreadPriority(stream->streamThread,THREAD_PRIORITY_TIME_CRITICAL);
@@ -4131,15 +4170,15 @@ static PaError StopStream( PaStream *s )
     {
         doCb = 1;
         stream->streamStop = 1;
-        if (PaUtil_WaitForThreadToExit(stream->streamThread, 1000) != paNoError)
+        if (WaitForSingleObject(stream->streamThread, 1000) != WAIT_OBJECT_0)
         {
             PA_DEBUG(("StopStream: stream thread terminated\n"));
-            PaUtil_TerminateThread(stream->streamThread);
+            TerminateThread(stream->streamThread, -1);
             result = paTimedOut;
         }
     }
 
-    PaUtil_CloseThread(stream->streamThread);
+    CloseHandle(stream->streamThread);
     stream->streamThread = 0;
     stream->streamStarted = 0;
 
@@ -4169,15 +4208,15 @@ static PaError AbortStream( PaStream *s )
         doCb = 1;
         stream->streamAbort = 1;
         SetEvent(stream->eventAbort); /* Signal immediately */
-        if (PaUtil_WaitForThreadToExit(stream->streamThread, 10000) != paNoError)
+        if (WaitForSingleObject(stream->streamThread, 10000) != WAIT_OBJECT_0)
         {
             PA_DEBUG(("AbortStream: stream thread terminated\n"));
-            PaUtil_TerminateThread(stream->streamThread);
+            TerminateThread(stream->streamThread, -1);
             result = paTimedOut;
         }
         assert(!stream->streamActive);
     }
-    PaUtil_CloseThread(stream->streamThread);
+    CloseHandle(stream->streamThread);
     stream->streamThread = NULL;
     stream->streamStarted = 0;
 
@@ -4453,42 +4492,6 @@ static void PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned
         }
     }
 }
-
-#include "pa_win_wdmks.h"
-
-static PaError GetStreamInfo(PaStream* stream, void *inInfo, void *outInfo)
-{
-    PaWinWdmStream* pStream = (PaWinWdmStream*)stream;
-
-    /* Validate input */
-    if (inInfo != 0)
-    {
-        PaWDMKSStreamInfo *info = (PaWDMKSStreamInfo*)inInfo;
-        if (info->size != sizeof(PaWDMKSStreamInfo) ||
-            info->version != kPaWDMKSStreamInfoVersion ||
-            info->hostApiType != paWDMKS)
-        {
-            return paIncompatibleStreamHostApi;
-        }
-
-        mbstowcs(info->deviceName, pStream->capturePin->parentFilter->filterName, 256);
-        info->streamingType = (pStream->capturePin->parentFilter->isWaveRT) ? Type_kWaveRT : Type_kWaveCyclic;
-    }
-    if (outInfo != 0)
-    {
-        PaWDMKSStreamInfo *info = (PaWDMKSStreamInfo*)outInfo;
-        if (info->version != kPaWDMKSStreamInfoVersion ||
-            info->hostApiType != paWDMKS)
-        {
-            return paIncompatibleStreamHostApi;
-        }
-
-        mbstowcs(info->deviceName, pStream->renderPin->parentFilter->filterName, 256);
-        info->streamingType = (pStream->renderPin->parentFilter->isWaveRT) ? Type_kWaveRT : Type_kWaveCyclic;
-    }
-    return paNoError;
-}
-
 
 #endif /* PA_NO_WDMKS */
 
