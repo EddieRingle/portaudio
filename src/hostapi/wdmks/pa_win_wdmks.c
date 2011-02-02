@@ -91,6 +91,8 @@ of a device for the duration of active stream using those devices
 #include "pa_debugprint.h"
 #include "pa_memorybarrier.h"
 
+#include "pa_win_wdmks.h"
+
 #include <windows.h>
 #include <winioctl.h>
 #include <process.h>
@@ -268,6 +270,7 @@ typedef struct __DATAPACKET
 typedef struct __PaWinWdmStream
 {
     PaUtilStreamRepresentation  streamRepresentation;
+    PaWDMKSSpecificStreamInfo   hostApiStreamInfo;
     PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
     PaUtilBufferProcessor       bufferProcessor;
 
@@ -3502,6 +3505,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->streamAbort = 0;
     stream->streamFlags = streamFlags;
     stream->oldProcessPriority = REALTIME_PRIORITY_CLASS;
+
+    /* Ok, now update our host API specific stream info */
+    if (stream->userInputChannels)
+    {
+        mbstowcs(stream->hostApiStreamInfo.input.deviceName, stream->capturePin->parentFilter->filterName, MAX_PATH);
+        stream->hostApiStreamInfo.input.streamingType = (stream->capturePin->parentFilter->isWaveRT ? Type_kWaveRT : Type_kWaveCyclic);
+    }
+    if (stream->userOutputChannels)
+    {
+        mbstowcs(stream->hostApiStreamInfo.output.deviceName, stream->renderPin->parentFilter->filterName, MAX_PATH);
+        stream->hostApiStreamInfo.output.streamingType = (stream->renderPin->parentFilter->isWaveRT ? Type_kWaveRT : Type_kWaveCyclic);
+    }
+    stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
 
     *s = (PaStream*)stream;
 

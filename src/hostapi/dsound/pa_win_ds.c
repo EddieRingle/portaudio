@@ -102,7 +102,7 @@
 #include "pa_win_ds.h"
 #include "pa_win_ds_dynlink.h"
 #include "pa_win_waveformat.h"
-#include "pa_win_wdmks_utils.h"
+#include "../src/os/win/pa_win_wdmks_utils.h"
 
 
 #if (defined(WIN32) && (defined(_MSC_VER) && (_MSC_VER >= 1200))) /* MSC version 6 and above */

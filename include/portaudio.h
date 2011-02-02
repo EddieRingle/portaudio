@@ -987,6 +987,15 @@ typedef struct PaStreamInfo
      parameter passed to Pa_OpenStream().
     */
     double sampleRate;
+
+    /** Host API type ID 
+    */
+    PaHostApiTypeId hostApiTypeId;
+
+    /** Host API specific stream info. Pointer can be cast to host API specific struct in
+     supplied header files.
+    */
+    const void* hostApiSpecificStreamInfo;
     
 } PaStreamInfo;
 

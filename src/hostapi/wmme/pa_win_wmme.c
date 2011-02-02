@@ -820,7 +820,6 @@ static PaError InitializeOutputDeviceInfo( PaWinMmeHostApiRepresentation *winMme
     MMRESULT mmresult;
     WAVEOUTCAPS woc;
     PaDeviceInfo *deviceInfo = &winMmeDeviceInfo->inheritedDeviceInfo;
-    int wdmksDeviceOutputChannelCountIsKnown;
 
     *success = 0;
 
