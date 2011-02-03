@@ -90,6 +90,7 @@ of a device for the duration of active stream using those devices
 #include "portaudio.h"
 #include "pa_debugprint.h"
 #include "pa_memorybarrier.h"
+#include "pa_win_waveformat.h"
 
 #include "pa_win_wdmks.h"
 
@@ -173,6 +174,10 @@ typedef BOOL WINAPI AVSETMMTHREADPRIORITY(HANDLE, PA_AVRT_PRIORITY);
 extern AVSETMMTHREADCHARACTERISTICS* FunctionAvSetMmThreadCharacteristics;
 extern AVREVERTMMTHREADCHARACTERISTICS* FunctionAvRevertMmThreadCharacteristics;
 extern AVSETMMTHREADPRIORITY* FunctionAvSetMmThreadPriority;
+
+/* An unspecified channel count (-1) is not treated correctly, so we replace it with
+* an arbitrarily large number */ 
+#define MAXIMUM_NUMBER_OF_CHANNELS 256
 
 /* Forward definition to break circular type reference between pin and filter */
 struct __PaWinWdmFilter;
@@ -426,7 +431,8 @@ static PaWinWdmPin* FilterCreateRenderPin(
 static PaWinWdmPin* FilterFindViableRenderPin(
     PaWinWdmFilter* filter,
     const WAVEFORMATEX* wfex,
-    PaError* error);
+    PaError* error,
+    int* index);
 static PaError FilterCanCreateRenderPin(
                                         PaWinWdmFilter* filter,
                                         const WAVEFORMATEX* wfex);
@@ -437,7 +443,8 @@ static PaWinWdmPin* FilterCreateCapturePin(
 static PaWinWdmPin* FilterFindViableCapturePin(
     PaWinWdmFilter* filter,
     const WAVEFORMATEX* wfex,
-    PaError* error);
+    PaError* error,
+    int* index);
 static PaError FilterCanCreateCapturePin(
     PaWinWdmFilter* filter,
     const WAVEFORMATEX* pwfx);
@@ -934,8 +941,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     result = paUnanticipatedHostError;
     for( i = 0; i < item->Count; i++ )
     {
-        if( !memcmp( (void*)&identifier[i].Set, (void*)&KSINTERFACESETID_Standard, sizeof( GUID ) ) &&
-            ( identifier[i].Id == streamingId ) )
+        if( IsEqualGUID(&identifier[i].Set, &KSINTERFACESETID_Standard) && ( identifier[i].Id == streamingId ) )
         {
             result = paNoError;
             break;
@@ -969,8 +975,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     result = paUnanticipatedHostError;
     for( i = 0; i < item->Count; i++ )
     {
-        if( !memcmp( (void*)&identifier[i].Set, (void*)&KSMEDIUMSETID_Standard, sizeof( GUID ) ) &&
-            ( identifier[i].Id == KSMEDIUM_STANDARD_DEVIO ) )
+        if( IsEqualGUID(&identifier[i].Set, &KSMEDIUMSETID_Standard) && ( identifier[i].Id == KSMEDIUM_STANDARD_DEVIO ) )
         {
             result = paNoError;
             break;
@@ -1010,28 +1015,46 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
         PA_DEBUG(("DR major format %x\n",*(unsigned long*)(&(dataRange->MajorFormat))));
         /* Check that subformat is WAVEFORMATEX, PCM or WILDCARD */
         if( IS_VALID_WAVEFORMATEX_GUID(&dataRange->SubFormat) ||
-            !memcmp((void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_PCM, sizeof ( GUID ) ) ||
-            ( !memcmp((void*)&dataRange->SubFormat, (void*)&KSDATAFORMAT_SUBTYPE_WILDCARD, sizeof ( GUID ) ) &&
-            ( !memcmp((void*)&dataRange->MajorFormat, (void*)&KSDATAFORMAT_TYPE_AUDIO, sizeof ( GUID ) ) ) ) )
+            IsEqualGUID(&dataRange->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) ||
+            IsEqualGUID(&dataRange->SubFormat, &KSDATAFORMAT_SUBTYPE_WILDCARD) ||
+            IsEqualGUID(&dataRange->MajorFormat, &KSDATAFORMAT_TYPE_AUDIO) )
         {
             result = paNoError;
             /* Record the maximum possible channels with this pin */
             PA_DEBUG(("MaxChannel: %d\n",pin->maxChannels));
-            if( (int)((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels > pin->maxChannels )
+            if( ((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels == (ULONG) -1 )
             {
-                pin->maxChannels = ((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels;
+                pin->maxChannels = MAXIMUM_NUMBER_OF_CHANNELS;
+            }
+            else if( (int) ((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels > pin->maxChannels )
+            {
+                pin->maxChannels = (int) ((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels;
                 /*PA_DEBUG(("MaxChannel: %d\n",pin->maxChannels));*/
             }
             /* Record the formats (bit depths) that are supported */
-            if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 16 )
+            if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 8 &&
+                ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 8)
+            {
+                pin->formats |= paInt8;
+                PA_DEBUG(("Format 8 bit supported\n"));
+            }
+            if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 16 &&
+                ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 16)
             {
                 pin->formats |= paInt16;
                 PA_DEBUG(("Format 16 bit supported\n"));
             }
-            if( ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 24 )
+            if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 24 &&
+                ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 24 )
             {
                 pin->formats |= paInt24;
                 PA_DEBUG(("Format 24 bit supported\n"));
+            }
+            if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 32 &&
+                ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 32 )
+            {
+                pin->formats |= paInt32 | paFloat32;
+                PA_DEBUG(("Format 32 bit supported\n"));
             }
             if( ( pin->bestSampleRate != 48000) &&
                 (((KSDATARANGE_AUDIO*)dataRange)->MaximumSampleFrequency >= 48000) &&
@@ -1283,15 +1306,16 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
     dataRange = (KSDATARANGE_AUDIO*)pin->dataRanges;
     for(count = 0; count<pin->dataRangesItem->Count; count++)
     {
-        if(( !memcmp(&(dataRange->DataRange.MajorFormat),&KSDATAFORMAT_TYPE_AUDIO,sizeof(GUID)) ) ||
-            ( !memcmp(&(dataRange->DataRange.MajorFormat),&KSDATAFORMAT_TYPE_WILDCARD,sizeof(GUID)) ))
+        if ( IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_AUDIO) || 
+             IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_WILDCARD) )
         {
             /* This is an audio or wildcard datarange... */
-            if(( !memcmp(&(dataRange->DataRange.SubFormat),&KSDATAFORMAT_SUBTYPE_WILDCARD,sizeof(GUID)) ) ||
-                ( !memcmp(&(dataRange->DataRange.SubFormat),&guid,sizeof(GUID)) ))
+            if ( IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_WILDCARD) ||
+                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_PCM) ||
+                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &guid) )
             {
-                if(( !memcmp(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WILDCARD,sizeof(GUID)) ) ||
-                    ( !memcmp(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX,sizeof(GUID) )))
+                if ( IsEqualGUID(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WILDCARD) ||
+                     IsEqualGUID(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) )
                 {
 
                     PA_DEBUG(("Pin:%x, DataRange:%d\n",(void*)pin,count));
@@ -1300,7 +1324,8 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
                     PA_DEBUG(("\tBits:%d-%d\n",dataRange->MinimumBitsPerSample,dataRange->MaximumBitsPerSample));
                     PA_DEBUG(("\tSampleRate:%d-%d\n",dataRange->MinimumSampleFrequency,dataRange->MaximumSampleFrequency));
 
-                    if( dataRange->MaximumChannels < format->nChannels )
+                    if( dataRange->MaximumChannels != (ULONG)-1 && 
+                        dataRange->MaximumChannels < format->nChannels )
                     {
                         result = paInvalidChannelCount;
                         continue;
@@ -1791,33 +1816,34 @@ static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
                                           const WAVEFORMATEX* wfex,
                                           PaError* error)
 {
-    PaError result;
-    PaWinWdmPin* pin;
-
+    PaError result = paNoError;
+    PaWinWdmPin* pin = NULL;
+    int pinId = 0;
     assert( filter );
 
-    pin = FilterFindViableRenderPin(filter,wfex,&result);
-    if(!pin)
+    while(1)
     {
-        goto error;
-    }
-    result = PinSetFormat(pin,wfex);
-    if( result != paNoError )
-    {
-        goto error;
-    }
-    result = PinInstantiate(pin);
-    if( result != paNoError )
-    {
-        goto error;
+        pin = FilterFindViableRenderPin(filter, wfex, &result, &pinId);
+        if(!pin)
+            break;
+        result = PinSetFormat(pin,wfex);
+        if( result != paNoError )
+        {
+            pinId++;
+            continue;
+        }
+        result = PinInstantiate(pin);
+        if( result != paNoError )
+        {
+            pinId++;
+            continue;
+        }        
+        /* If we get to this point in the code, we successfully created the pin. */
+        break;
     }
 
-    *error = paNoError;
-    return pin;
-
-error:
     *error = result;
-    return NULL;
+    return pin;
 }
 
 /**
@@ -1825,16 +1851,19 @@ error:
 **/
 static PaWinWdmPin* FilterFindViableRenderPin(PaWinWdmFilter* filter,
                                               const WAVEFORMATEX* wfex,
-                                              PaError* error)
+                                              PaError* error,
+                                              int *offset)
 {
-    int pinId;
-    PaWinWdmPin*  pin;
+    int pinId = 0;
+    PaWinWdmPin*  pin = NULL;
     PaError result = paDeviceUnavailable;
     *error = paNoError;
 
     assert( filter );
 
-    for( pinId = 0; pinId<filter->pinCount; pinId++ )
+    if(offset)
+        pinId = *offset;
+    for( ; pinId<filter->pinCount; pinId++ )
     {
         pin = filter->pins[pinId];
         if( pin != NULL )
@@ -1846,14 +1875,18 @@ static PaWinWdmPin* FilterFindViableRenderPin(PaWinWdmFilter* filter,
                 result = PinIsFormatSupported( pin, wfex );
                 if( result == paNoError )
                 {
-                    return pin;
+                    break;
                 }
             }
         }
     }
+    if(pinId == filter->pinCount)
+        pin = NULL;
 
     *error = result;
-    return NULL;
+    if(offset)
+        *offset = pinId;
+    return pin;
 }
 
 /**
@@ -1868,7 +1901,7 @@ static PaError FilterCanCreateRenderPin(PaWinWdmFilter* filter,
 
     assert ( filter );
 
-    pin = FilterFindViableRenderPin(filter,wfex,&result);
+    pin = FilterFindViableRenderPin(filter,wfex,&result,NULL);
     /* result will be paNoError if pin found
     * or else an error code indicating what is wrong with the format
     **/
@@ -1882,52 +1915,56 @@ static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
                                            const WAVEFORMATEX* wfex,
                                            PaError* error)
 {
-    PaError result;
-    PaWinWdmPin* pin;
+    PaError result = paNoError;
+    PaWinWdmPin* pin = NULL;
+    int pinId = 0;
 
     assert( filter );
 
-    pin = FilterFindViableCapturePin(filter,wfex,&result);
-    if(!pin)
+    while(1)
     {
-        goto error;
-    }
+        pin = FilterFindViableCapturePin(filter, wfex, &result, &pinId);
+        if(!pin)
+            break;
+        result = PinSetFormat(pin,wfex);
+        if( result != paNoError )
+        {
+            pinId++;
+            continue;
+        }
 
-    result = PinSetFormat(pin,wfex);
-    if( result != paNoError )
-    {
-        goto error;
-    }
+        result = PinInstantiate(pin);
+        if( result != paNoError )
+        {
+            pinId++;
+            continue;
+        }
 
-    result = PinInstantiate(pin);
-    if( result != paNoError )
-    {
-        goto error;
-    }
+        /* If we get to this point in the code, we successfully created the pin. */
+        break;
+    }        
 
-    *error = paNoError;
-    return pin;
-
-error:
     *error = result;
-    return NULL;
+    return pin;
 }
-
 /**
 * Find a capture pin that supports the given format
 **/
 static PaWinWdmPin* FilterFindViableCapturePin(PaWinWdmFilter* filter,
                                                const WAVEFORMATEX* wfex,
-                                               PaError* error)
+                                               PaError* error,
+                                               int *offset)
 {
-    int pinId;
-    PaWinWdmPin*  pin;
+    int pinId = 0;
+    PaWinWdmPin*  pin = NULL;
     PaError result = paDeviceUnavailable;
     *error = paNoError;
 
     assert( filter );
 
-    for( pinId = 0; pinId<filter->pinCount; pinId++ )
+    if(offset)
+        pinId = *offset;
+    for( ; pinId<filter->pinCount; pinId++ )
     {
         pin = filter->pins[pinId];
         if( pin != NULL )
@@ -1939,14 +1976,18 @@ static PaWinWdmPin* FilterFindViableCapturePin(PaWinWdmFilter* filter,
                 result = PinIsFormatSupported( pin, wfex );
                 if( result == paNoError )
                 {
-                    return pin;
+                    break;
                 }
             }
         }
     }
+    if(pinId == filter->pinCount)
+        pin = NULL;
 
     *error = result;
-    return NULL;
+    if(offset)
+        *offset = pinId;
+    return pin;
 }
 
 /**
@@ -1961,7 +2002,7 @@ static PaError FilterCanCreateCapturePin(PaWinWdmFilter* filter,
 
     assert ( filter );
 
-    pin = FilterFindViableCapturePin(filter,wfex,&result);
+    pin = FilterFindViableCapturePin(filter,wfex,&result,NULL);
     /* result will be paNoError if pin found
     * or else an error code indicating what is wrong with the format
     **/
@@ -2026,7 +2067,7 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
 
     /* Open a handle to search for devices (filters) */
     handle = SetupDiGetClassDevs(category,NULL,NULL,DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if( handle == NULL )
+    if( handle == INVALID_HANDLE_VALUE )
     {
         return paUnanticipatedHostError;
     }
@@ -2440,57 +2481,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
     PA_LOGL_;
 }
 
-static void FillWFEXT( WAVEFORMATEXTENSIBLE* pwfext, PaSampleFormat sampleFormat, double sampleRate, int channelCount)
-{
-    PA_LOGE_;
-    PA_DEBUG(( "  sampleRate = %.1lf\n" , sampleRate ));
-    PA_DEBUG(( "sampleFormat = %lx\n" , sampleFormat ));
-    PA_DEBUG(( "channelCount = %d\n", channelCount ));
-
-    pwfext->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-    pwfext->Format.nChannels = channelCount;
-    pwfext->Format.nSamplesPerSec = (int)sampleRate;
-    if(channelCount == 1)
-        pwfext->dwChannelMask = KSAUDIO_SPEAKER_DIRECTOUT;
-    else
-        pwfext->dwChannelMask = KSAUDIO_SPEAKER_STEREO;
-    if(sampleFormat == paFloat32)
-    {
-        pwfext->Format.nBlockAlign = channelCount * 4;
-        pwfext->Format.wBitsPerSample = 32;
-        pwfext->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX);
-        pwfext->Samples.wValidBitsPerSample = 32;
-        pwfext->SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-    }
-    else if(sampleFormat == paInt32)
-    {
-        pwfext->Format.nBlockAlign = channelCount * 4;
-        pwfext->Format.wBitsPerSample = 32;
-        pwfext->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX);
-        pwfext->Samples.wValidBitsPerSample = 32;
-        pwfext->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-    }
-    else if(sampleFormat == paInt24)
-    {
-        pwfext->Format.nBlockAlign = channelCount * 3;
-        pwfext->Format.wBitsPerSample = 24;
-        pwfext->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX);
-        pwfext->Samples.wValidBitsPerSample = 24;
-        pwfext->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-    }
-    else if(sampleFormat == paInt16)
-    {
-        pwfext->Format.nBlockAlign = channelCount * 2;
-        pwfext->Format.wBitsPerSample = 16;
-        pwfext->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX);
-        pwfext->Samples.wValidBitsPerSample = 16;
-        pwfext->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
-    }
-    pwfext->Format.nAvgBytesPerSec = pwfext->Format.nSamplesPerSec * pwfext->Format.nBlockAlign;
-
-    PA_LOGL_;
-}
-
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                                  const PaStreamParameters *inputParameters,
                                  const PaStreamParameters *outputParameters,
@@ -2502,6 +2492,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     PaWinWdmFilter* pFilter;
     int result = paFormatIsSupported;
     WAVEFORMATEXTENSIBLE wfx;
+    PaWinWaveFormatChannelMask channelMask;
 
     PA_LOGE_;
 
@@ -2542,18 +2533,17 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         /* Check that the input format is supported */
-        FillWFEXT(&wfx,paInt16,sampleRate,inputChannelCount);
+        channelMask = PaWin_DefaultChannelMask(inputChannelCount);
+        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, inputChannelCount, 
+            paInt16, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
 
         pFilter = wdmHostApi->filters[inputParameters->device];
         result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
-            wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-            wfx.Format.cbSize = 0;
-            wfx.Samples.wValidBitsPerSample = 0;
-            wfx.dwChannelMask = 0;
-            wfx.SubFormat = GUID_NULL;
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, inputChannelCount,
+                paInt16, WAVE_FORMAT_PCM, sampleRate);
             result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
@@ -2604,18 +2594,17 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         /* Check that the output format is supported */
-        FillWFEXT(&wfx,paInt16,sampleRate,outputChannelCount);
+        channelMask = PaWin_DefaultChannelMask(outputChannelCount);
+        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, outputChannelCount, 
+            paInt16, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
 
         pFilter = wdmHostApi->filters[outputParameters->device];
         result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
-            wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-            wfx.Format.cbSize = 0;
-            wfx.Samples.wValidBitsPerSample = 0;
-            wfx.dwChannelMask = 0;
-            wfx.SubFormat = GUID_NULL;
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, outputChannelCount, 
+                paInt16, WAVE_FORMAT_PCM, sampleRate);
             result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
@@ -2882,6 +2871,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if(userInputChannels > 0)
     {
         PaWinWdmFilter* pFilter;
+        PaWinWaveFormatChannelMask channelMask = PaWin_DefaultChannelMask( userInputChannels );
 
         result = paSampleFormatNotSupported;
         pFilter = wdmHostApi->filters[inputParameters->device];
@@ -2890,10 +2880,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if(((inputSampleFormat & ~paNonInterleaved) & pFilter->formats) != 0)
         {   /* inputSampleFormat is supported, so try to use it */
             hostInputSampleFormat = inputSampleFormat;
-            FillWFEXT(&wfx, hostInputSampleFormat, sampleRate, stream->userInputChannels);
+            PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
+                hostInputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
             stream->bytesPerInputFrame = wfx.Format.nBlockAlign;
             stream->capturePin = FilterCreateCapturePin(pFilter, (const WAVEFORMATEX*)&wfx, &result);
             stream->deviceInputChannels = stream->userInputChannels;
+
+            if( result != paNoError )
+            {
+                /* Try a WAVE_FORMAT_PCM instead */
+                PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
+                    hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
+                stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
+            }
         }
 
         if(result != paNoError)
@@ -2901,7 +2900,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             hostInputSampleFormat = paFloat32;
 
             do {
-                FillWFEXT(&wfx, hostInputSampleFormat, sampleRate, stream->userInputChannels);
+                PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
+                    hostInputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
                 stream->bytesPerInputFrame = wfx.Format.nBlockAlign;
                 stream->capturePin = FilterCreateCapturePin(pFilter, (const WAVEFORMATEX*)&wfx, &result);
                 stream->deviceInputChannels = stream->userInputChannels;
@@ -2920,11 +2920,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 PaUtil_SelectClosestAvailableFormat( pFilter->formats, inputSampleFormat );
 
             /* Try a WAVE_FORMAT_PCM instead */
-            wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-            wfx.Format.cbSize = 0;
-            wfx.Samples.wValidBitsPerSample = 0;
-            wfx.dwChannelMask = 0;
-            wfx.SubFormat = GUID_NULL;
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
+                hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
             stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
             if(stream->capturePin == NULL) result = paSampleFormatNotSupported;
         }
@@ -2938,7 +2935,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             **/
             if( stream->userInputChannels < pFilter->maxInputChannels )
             {
-                FillWFEXT(&wfx,hostInputSampleFormat,sampleRate,pFilter->maxInputChannels);
+                PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, pFilter->maxInputChannels, 
+                    hostInputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask);
                 stream->bytesPerInputFrame = wfx.Format.nBlockAlign;
                 stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 stream->deviceInputChannels = pFilter->maxInputChannels;
@@ -2946,11 +2944,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 if( result != paNoError )
                 {
                     /* Try a WAVE_FORMAT_PCM instead */
-                    wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-                    wfx.Format.cbSize = 0;
-                    wfx.Samples.wValidBitsPerSample = 0;
-                    wfx.dwChannelMask = 0;
-                    wfx.SubFormat = GUID_NULL;
+                    PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, pFilter->maxInputChannels, 
+                        hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                     stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 }
             }
@@ -2984,6 +2979,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if(userOutputChannels > 0)
     {
         PaWinWdmFilter* pFilter;
+        PaWinWaveFormatChannelMask channelMask = PaWin_DefaultChannelMask( userOutputChannels );
 
         result = paSampleFormatNotSupported;
         pFilter = wdmHostApi->filters[outputParameters->device];
@@ -2992,10 +2988,19 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if(((outputSampleFormat & ~paNonInterleaved) & pFilter->formats) != 0)
         {
             hostOutputSampleFormat = outputSampleFormat;
-            FillWFEXT(&wfx,hostOutputSampleFormat,sampleRate,stream->userOutputChannels);
+            PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, stream->userOutputChannels, 
+                hostOutputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
             stream->bytesPerOutputFrame = wfx.Format.nBlockAlign;
             stream->renderPin = FilterCreateRenderPin(pFilter,(WAVEFORMATEX*)&wfx,&result);
             stream->deviceOutputChannels = stream->userOutputChannels;
+
+            if( result != paNoError )
+            {
+                /* Try a WAVE_FORMAT_PCM instead */
+                PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userOutputChannels, 
+                    hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
+                stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
+            }
         }
 
         if(result != paNoError)
@@ -3003,7 +3008,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             hostOutputSampleFormat = paFloat32;
 
             do {
-                FillWFEXT(&wfx,hostOutputSampleFormat,sampleRate,stream->userOutputChannels);
+                PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, stream->userOutputChannels, 
+                    hostOutputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
                 stream->bytesPerOutputFrame = wfx.Format.nBlockAlign;
                 stream->renderPin = FilterCreateRenderPin(pFilter,(WAVEFORMATEX*)&wfx,&result);
                 stream->deviceOutputChannels = stream->userOutputChannels;
@@ -3020,11 +3026,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 PaUtil_SelectClosestAvailableFormat( pFilter->formats, outputSampleFormat );
 
             /* Try a WAVE_FORMAT_PCM instead */
-            wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-            wfx.Format.cbSize = 0;
-            wfx.Samples.wValidBitsPerSample = 0;
-            wfx.dwChannelMask = 0;
-            wfx.SubFormat = GUID_NULL;
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userOutputChannels, 
+                hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
             stream->renderPin = FilterCreateRenderPin(pFilter,(WAVEFORMATEX*)&wfx,&result);
             if(stream->renderPin == NULL) result = paSampleFormatNotSupported;
         }
@@ -3038,18 +3041,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             **/
             if( stream->userOutputChannels < pFilter->maxOutputChannels )
             {
-                FillWFEXT(&wfx,hostOutputSampleFormat,sampleRate,pFilter->maxOutputChannels);
+                PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, pFilter->maxOutputChannels, 
+                    hostOutputSampleFormat, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
                 stream->bytesPerOutputFrame = wfx.Format.nBlockAlign;
                 stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 stream->deviceOutputChannels = pFilter->maxOutputChannels;
                 if( result != paNoError )
                 {
                     /* Try a WAVE_FORMAT_PCM instead */
-                    wfx.Format.wFormatTag = WAVE_FORMAT_PCM;
-                    wfx.Format.cbSize = 0;
-                    wfx.Samples.wValidBitsPerSample = 0;
-                    wfx.dwChannelMask = 0;
-                    wfx.SubFormat = GUID_NULL;
+                    PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, pFilter->maxOutputChannels, 
+                        hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                     stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 }
             }
