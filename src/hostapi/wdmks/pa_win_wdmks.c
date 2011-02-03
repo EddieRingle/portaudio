@@ -3519,6 +3519,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->hostApiStreamInfo.output.streamingType = (stream->renderPin->parentFilter->isWaveRT ? Type_kWaveRT : Type_kWaveCyclic);
     }
     stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
+    stream->streamRepresentation.streamInfo.hostApiTypeId = paWDMKS;
 
     *s = (PaStream*)stream;
 
