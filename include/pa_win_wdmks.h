@@ -72,17 +72,17 @@ extern "C"
         unsigned long flags;
     } PaWinWDMKSInfo;
 
-    typedef enum PaWDMKSStreamingType
+    typedef enum PaWDMKSType
     {
         Type_kNotUsed,
         Type_kWaveCyclic,
         Type_kWaveRT,
         Type_kCnt,
-    } PaWDMKSStreamingType;
+    } PaWDMKSType;
 
     typedef struct PaWinWDMKSDeviceInfo {
         wchar_t deviceName[MAX_PATH];
-        PaWDMKSStreamingType streamingType;
+        PaWDMKSType streamingType;
     } PaWinWDMKSDeviceInfo;
 
     typedef struct PaWDMKSSpecificStreamInfo {

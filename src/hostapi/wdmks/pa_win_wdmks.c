@@ -232,7 +232,7 @@ struct __PaWinWdmPin
 struct __PaWinWdmFilter
 {
     HANDLE         handle;
-    int            isWaveRT;
+    PaWDMKSType    waveType;
     DWORD          deviceNode;
     int            pinCount;
     PaWinWdmPin**  pins;
@@ -418,11 +418,7 @@ static PaError PinGetAudioPositionDirect(PaWinWdmPin* pPin, ULONG* pPosition);
 static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition);
 
 /* Filter management functions */
-static PaWinWdmFilter* FilterNew(BOOL fRealtime,
-                                 DWORD devNode,
-                                 TCHAR* filterName,
-                                 TCHAR* friendlyName,
-                                 PaError* error);
+static PaWinWdmFilter* FilterNew(PaWDMKSType type, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error);
 static void FilterFree(PaWinWdmFilter* filter);
 static PaWinWdmPin* FilterCreateRenderPin(
     PaWinWdmFilter* filter,
@@ -843,7 +839,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     KSMULTIPLE_ITEM* item = NULL;
     KSIDENTIFIER* identifier;
     KSDATARANGE* dataRange;
-    const ULONG streamingId = parentFilter->isWaveRT ? KSINTERFACE_STANDARD_LOOPED_STREAMING : KSINTERFACE_STANDARD_STREAMING;
+    const ULONG streamingId = (parentFilter->waveType == Type_kWaveRT) ? KSINTERFACE_STANDARD_LOOPED_STREAMING : KSINTERFACE_STANDARD_STREAMING;
 
     PA_LOGE_;
     PA_DEBUG(("Creating pin %d:\n",pinId));
@@ -1218,36 +1214,51 @@ static PaError PinInstantiate(PaWinWdmPin* pin)
     {
         FilterRelease(pin->parentFilter);
         pin->handle = NULL;
-        return paInvalidDevice;
+        switch (createResult)
+        {
+        case ERROR_INVALID_PARAMETER:
+            /* First case when pin actually don't support the format */
+            return paSampleFormatNotSupported;
+        case ERROR_BAD_COMMAND:
+            /* Case when pin is occupied (by another application) */
+            return paDeviceUnavailable;
+        default:
+            /* All other cases */
+            return paInvalidDevice;
+        }
     }
 
-    result = WdmGetPropertySimple(
-        pin->handle,
-        &KSPROPSETID_Connection,
-        KSPROPERTY_CONNECTION_ALLOCATORFRAMING,
-        &ksaf,
-        sizeof(ksaf),
-        NULL,
-        0);
-
-    if( result != paNoError )
+    if (pin->parentFilter->waveType == Type_kWaveCyclic)
     {
+        /* Framing size query only valid for WaveCyclic devices */
         result = WdmGetPropertySimple(
             pin->handle,
             &KSPROPSETID_Connection,
-            KSPROPERTY_CONNECTION_ALLOCATORFRAMING_EX,
-            &ksafex,
-            sizeof(ksafex),
+            KSPROPERTY_CONNECTION_ALLOCATORFRAMING,
+            &ksaf,
+            sizeof(ksaf),
             NULL,
             0);
-        if( result == paNoError )
+
+        if( result != paNoError )
         {
-            pin->frameSize = ksafex.FramingItem[0].FramingRange.Range.MinFrameSize;
+            result = WdmGetPropertySimple(
+                pin->handle,
+                &KSPROPSETID_Connection,
+                KSPROPERTY_CONNECTION_ALLOCATORFRAMING_EX,
+                &ksafex,
+                sizeof(ksafex),
+                NULL,
+                0);
+            if( result == paNoError )
+            {
+                pin->frameSize = ksafex.FramingItem[0].FramingRange.Range.MinFrameSize;
+            }
         }
-    }
-    else
-    {
-        pin->frameSize = ksaf.FrameSize;
+        else
+        {
+            pin->frameSize = ksaf.FrameSize;
+        }
     }
 
     PA_LOGL_;
@@ -1596,7 +1607,7 @@ static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition)
 /**
 * Create a new filter object
 */
-static PaWinWdmFilter* FilterNew(BOOL fRealtime, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error)
+static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error )
 {
     PaWinWdmFilter* filter;
     PaError result;
@@ -1612,8 +1623,8 @@ static PaWinWdmFilter* FilterNew(BOOL fRealtime, DWORD devNode, TCHAR* filterNam
         goto error;
     }
 
-    /* Set flag for WaveRT */
-    filter->isWaveRT = fRealtime;
+    /* Set type flag */
+    filter->waveType = type;
 
     /* Store device node */
     filter->deviceNode = devNode;
@@ -1823,9 +1834,16 @@ static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
 
     while(1)
     {
-        pin = FilterFindViableRenderPin(filter, wfex, &result, &pinId);
+        PaError localResult = paNoError;
+        pin = FilterFindViableRenderPin(filter, wfex, &localResult, &pinId);
         if(!pin)
+        {
+            if (localResult != paNoError)
+            {
+                result = localResult;
+            }
             break;
+        }
         result = PinSetFormat(pin,wfex);
         if( result != paNoError )
         {
@@ -1856,7 +1874,8 @@ static PaWinWdmPin* FilterFindViableRenderPin(PaWinWdmFilter* filter,
 {
     int pinId = 0;
     PaWinWdmPin*  pin = NULL;
-    PaError result = paDeviceUnavailable;
+    /* It is not an error if we don't have any more pins... */
+    PaError result = paNoError;     
     *error = paNoError;
 
     assert( filter );
@@ -1923,9 +1942,16 @@ static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
 
     while(1)
     {
-        pin = FilterFindViableCapturePin(filter, wfex, &result, &pinId);
+        PaError localResult = paNoError;
+        pin = FilterFindViableCapturePin(filter, wfex, &localResult, &pinId);
         if(!pin)
+        {
+            if (localResult != paNoError)
+            {
+                result = localResult;
+            }
             break;
+        }
         result = PinSetFormat(pin,wfex);
         if( result != paNoError )
         {
@@ -1957,7 +1983,8 @@ static PaWinWdmPin* FilterFindViableCapturePin(PaWinWdmFilter* filter,
 {
     int pinId = 0;
     PaWinWdmPin*  pin = NULL;
-    PaError result = paDeviceUnavailable;
+    /* It is not an error if we don't have any more pins... */
+    PaError result = paNoError;     
     *error = paNoError;
 
     assert( filter );
@@ -2059,7 +2086,8 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
     GUID* alias_render = (GUID*)&KSCATEGORY_RENDER;
     GUID* alias_capture = (GUID*)&KSCATEGORY_CAPTURE;
     GUID* category_realtime = (GUID*)&KSCATEGORY_REALTIME;
-    DWORD hasAlias;
+    DWORD aliasFlags;
+    PaWDMKSType streamingType;
 
     PA_LOGE_;
 
@@ -2087,7 +2115,7 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
             break; /* No more devices */
 
         /* Check this one has the render or capture alias */
-        hasAlias = 0;
+        aliasFlags = 0;
         noError = SetupDiGetDeviceInterfaceAlias(handle,&interfaceData,alias_render,&aliasData);
         PA_DEBUG(("noError = %d\n",noError));
         if(noError)
@@ -2095,7 +2123,7 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
             if(aliasData.Flags && (!(aliasData.Flags & SPINT_REMOVED)))
             {
                 PA_DEBUG(("Device %d has render alias\n",device));
-                hasAlias |= Alias_kRender; /* Has render alias */
+                aliasFlags |= Alias_kRender; /* Has render alias */
             }
             else
             {
@@ -2108,14 +2136,14 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
             if(aliasData.Flags && (!(aliasData.Flags & SPINT_REMOVED)))
             {
                 PA_DEBUG(("Device %d has capture alias\n",device));
-                hasAlias |= Alias_kCapture; /* Has capture alias */
+                aliasFlags |= Alias_kCapture; /* Has capture alias */
             }
             else
             {
                 PA_DEBUG(("Device %d has no capture alias\n",device));
             }
         }
-        if(!hasAlias)
+        if(!aliasFlags)
             invalidDevices++; /* This was not a valid capture or render audio device */
     }
     /* Remember how many there are */
@@ -2142,20 +2170,21 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
         aliasData.Reserved = 0;
         devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
         devInfoData.Reserved = 0;
+        streamingType = Type_kWaveCyclic;
 
         noError = SetupDiEnumDeviceInterfaces(handle,NULL,category,device,&interfaceData);
         if( !noError )
             break; /* No more devices */
 
         /* Check this one has the render or capture alias */
-        hasAlias = 0;
+        aliasFlags = 0;
         noError = SetupDiGetDeviceInterfaceAlias(handle,&interfaceData,alias_render,&aliasData);
         if(noError)
         {
             if(aliasData.Flags && (!(aliasData.Flags & SPINT_REMOVED)))
             {
                 PA_DEBUG(("Device %d has render alias\n",device));
-                hasAlias |= Alias_kRender; /* Has render alias */
+                aliasFlags |= Alias_kRender; /* Has render alias */
             }
         }
         noError = SetupDiGetDeviceInterfaceAlias(handle,&interfaceData,alias_capture,&aliasData);
@@ -2164,10 +2193,10 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
             if(aliasData.Flags && (!(aliasData.Flags & SPINT_REMOVED)))
             {
                 PA_DEBUG(("Device %d has capture alias\n",device));
-                hasAlias |= Alias_kCapture; /* Has capture alias */
+                aliasFlags |= Alias_kCapture; /* Has capture alias */
             }
         }
-        if(!hasAlias)
+        if(!aliasFlags)
         {
             continue; /* This was not a valid capture or render audio device */
         }
@@ -2178,7 +2207,8 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
             if (noError)
             {
                 PA_DEBUG(("Device %d has realtime alias\n",device));
-                hasAlias |= Alias_kRealtime;
+                aliasFlags |= Alias_kRealtime;
+                streamingType = Type_kWaveRT;
             }
         }
 
@@ -2231,10 +2261,16 @@ static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi)
                     }
                 }
             }
-            newFilter = FilterNew(!!(hasAlias & Alias_kRealtime), devInfoData.DevInst, devInterfaceDetails->DevicePath, friendlyName, &result);
+            
+            newFilter = FilterNew(streamingType, 
+                devInfoData.DevInst,
+                devInterfaceDetails->DevicePath,
+                friendlyName,
+                &result);
+
             if( result == paNoError )
             {
-                PA_DEBUG(("Filter created %s\n", (newFilter->isWaveRT?"(WaveRT)":"(WaveCyclic)")));
+                PA_DEBUG(("Filter created %s\n", ((newFilter->waveType==Type_kWaveRT)?"(WaveRT)":"(WaveCyclic)")));
 
                 wdmHostApi->filters[slot] = newFilter;
 
@@ -2358,7 +2394,7 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             deviceInfo->structVersion = 2;
             deviceInfo->hostApi = hostApiIndex;
             deviceInfo->name = (char*)pFilter->friendlyName;
-            PA_DEBUG(("Device found name: %s (%s)\n",(char*)pFilter->friendlyName, pFilter->isWaveRT?"WaveRT":"WaveCyclic"));
+            PA_DEBUG(("Device found name: %s (%s)\n",(char*)pFilter->friendlyName, (pFilter->waveType==Type_kWaveRT)?"WaveRT":"WaveCyclic"));
             deviceInfo->maxInputChannels = pFilter->maxInputChannels;
             if(deviceInfo->maxInputChannels > 0)
             {
@@ -2390,21 +2426,26 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             *    a particular setting
             * So: we give 512x48000Hz frames as the default low input latency
             **/
-            if (pFilter->isWaveRT) {
-                deviceInfo->defaultLowInputLatency = 0.003;
-                deviceInfo->defaultLowOutputLatency = 0.003;
-                deviceInfo->defaultHighInputLatency = (512/48000.0);
-                deviceInfo->defaultHighOutputLatency = (512/48000.0);
-                deviceInfo->defaultSampleRate = (double)(pFilter->bestSampleRate);
-            }
-            else {
+            switch (pFilter->waveType)
+            {
+            case Type_kWaveCyclic:
                 deviceInfo->defaultLowInputLatency = 0.01;
                 deviceInfo->defaultLowOutputLatency = 0.01;
                 deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
                 deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                 deviceInfo->defaultSampleRate = (double)(pFilter->bestSampleRate);
+                break;
+            case Type_kWaveRT:
+                deviceInfo->defaultLowInputLatency = 0.003;
+                deviceInfo->defaultLowOutputLatency = 0.003;
+                deviceInfo->defaultHighInputLatency = (512/48000.0);
+                deviceInfo->defaultHighOutputLatency = (512/48000.0);
+                deviceInfo->defaultSampleRate = (double)(pFilter->bestSampleRate);
+                break;
+            default:
+                assert(0);
+                break;
             }
-
             (*hostApi)->deviceInfos[i] = deviceInfo;
         }
     }
@@ -2675,11 +2716,11 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
         stream->eventAbort = 0;
     }
     /* Unregister notification handles for WaveRT */
-    if (stream->capturePin && stream->capturePin->parentFilter->isWaveRT)
+    if (stream->capturePin && stream->capturePin->parentFilter->waveType == Type_kWaveRT)
     {
         PinUnregisterNotificationHandle(stream->capturePin, stream->eventsCapture[0]);
     }
-    if (stream->renderPin && stream->renderPin->parentFilter->isWaveRT)
+    if (stream->renderPin && stream->renderPin->parentFilter->waveType == Type_kWaveRT)
     {
         PinUnregisterNotificationHandle(stream->renderPin, stream->eventsRender[0]);
     }
@@ -2892,7 +2933,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
                     hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                 stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
+
             }
+
+            if (result == paDeviceUnavailable) goto occupied;
         }
 
         if(result != paNoError)
@@ -2905,6 +2949,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 stream->bytesPerInputFrame = wfx.Format.nBlockAlign;
                 stream->capturePin = FilterCreateCapturePin(pFilter, (const WAVEFORMATEX*)&wfx, &result);
                 stream->deviceInputChannels = stream->userInputChannels;
+
+                if (result == paDeviceUnavailable) goto occupied;
 
                 if(stream->capturePin == NULL) result = paSampleFormatNotSupported;
                 if(result != paNoError)    hostInputSampleFormat <<= 1;
@@ -2923,6 +2969,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userInputChannels, 
                 hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
             stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
+
+            if (result == paDeviceUnavailable) goto occupied;
+
             if(stream->capturePin == NULL) result = paSampleFormatNotSupported;
         }
 
@@ -2948,6 +2997,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         hostInputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                     stream->capturePin = FilterCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 }
+                if (result == paDeviceUnavailable) goto occupied;
             }
         }
 
@@ -3001,6 +3051,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                 stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
             }
+
+            if (result == paDeviceUnavailable) goto occupied;
         }
 
         if(result != paNoError)
@@ -3013,6 +3065,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 stream->bytesPerOutputFrame = wfx.Format.nBlockAlign;
                 stream->renderPin = FilterCreateRenderPin(pFilter,(WAVEFORMATEX*)&wfx,&result);
                 stream->deviceOutputChannels = stream->userOutputChannels;
+
+                if (result == paDeviceUnavailable) goto occupied;
 
                 if(stream->renderPin == NULL) result = paSampleFormatNotSupported;
                 if(result != paNoError)    hostOutputSampleFormat <<= 1;
@@ -3029,6 +3083,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, stream->userOutputChannels, 
                 hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
             stream->renderPin = FilterCreateRenderPin(pFilter,(WAVEFORMATEX*)&wfx,&result);
+
+            if (result == paDeviceUnavailable) goto occupied;
+
             if(stream->renderPin == NULL) result = paSampleFormatNotSupported;
         }
 
@@ -3046,6 +3103,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 stream->bytesPerOutputFrame = wfx.Format.nBlockAlign;
                 stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 stream->deviceOutputChannels = pFilter->maxOutputChannels;
+
                 if( result != paNoError )
                 {
                     /* Try a WAVE_FORMAT_PCM instead */
@@ -3053,6 +3111,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         hostOutputSampleFormat, WAVE_FORMAT_PCM, sampleRate);
                     stream->renderPin = FilterCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx,&result);
                 }
+
+                if (result == paDeviceUnavailable) goto occupied;
             }
         }
 
@@ -3187,63 +3247,74 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* Allocate/get all the buffers for host I/O */
     if (stream->userInputChannels > 0)
     {
-        if (!stream->capturePin->parentFilter->isWaveRT)
+        switch (stream->capturePin->parentFilter->waveType)
         {
-            unsigned size = 2 * stream->framesPerHostIBuffer * stream->bytesPerInputFrame;
-            /* Allocate input host buffer */
-            stream->hostInBuffer = (char*)PaUtil_AllocateMemory(size);
-            PA_DEBUG(("Input buffer allocated (size = %u)\n", size));
-            if( !stream->hostInBuffer )
+        case Type_kWaveCyclic:
             {
-                PA_DEBUG(("Cannot allocate host input buffer!\n"));
-                PaWindWDM_SetLastErrorInfo(paInsufficientMemory, "Failed to allocate input buffer");
-                result = paInsufficientMemory;
-                goto error;
-            }
-            PA_DEBUG(("Input buffer start = %p\n",stream->hostInBuffer));
-            stream->capturePin->fnEventHandler = PaPinCaptureEventHandler_WaveCyclic;
-            stream->capturePin->fnSubmitHandler = PaPinCaptureSubmitHandler_WaveCyclic;
-        }
-        else
-        {
-            const DWORD dwTotalSize = 2 * stream->framesPerHostIBuffer * stream->bytesPerInputFrame;
-            DWORD dwRequestedSize = dwTotalSize;
-            BOOL bCallMemoryBarrier = FALSE;
-            ULONG hwFifoLatency = 0;
-            ULONG dummy;
-            result = PinGetBufferWithNotification(stream->capturePin, (void**)&stream->hostInBuffer, &dwRequestedSize, &bCallMemoryBarrier);
-            if (!result) 
-            {
-                PA_DEBUG(("Input buffer start = %p, size = %u\n", stream->hostInBuffer, dwRequestedSize));
-                if (dwRequestedSize != dwTotalSize)
+                unsigned size = 2 * stream->framesPerHostIBuffer * stream->bytesPerInputFrame;
+                /* Allocate input host buffer */
+                stream->hostInBuffer = (char*)PaUtil_AllocateMemory(size);
+                PA_DEBUG(("Input buffer allocated (size = %u)\n", size));
+                if( !stream->hostInBuffer )
                 {
-                    PA_DEBUG(("Buffer length changed by driver from %u to %u !\n", dwTotalSize, dwRequestedSize));
-                    /* Recalculate to what the driver has given us */
-                    stream->framesPerHostIBuffer = dwRequestedSize / (2 * stream->bytesPerInputFrame);
+                    PA_DEBUG(("Cannot allocate host input buffer!\n"));
+                    PaWindWDM_SetLastErrorInfo(paInsufficientMemory, "Failed to allocate input buffer");
+                    result = paInsufficientMemory;
+                    goto error;
                 }
-                stream->capturePin->fnEventHandler = PaPinCaptureEventHandler_WaveRT;
-                stream->capturePin->fnSubmitHandler = PaPinCaptureSubmitHandler_WaveRT;
-                stream->capturePin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierRead : MemoryBarrierDummy;
+                PA_DEBUG(("Input buffer start = %p\n",stream->hostInBuffer));
+                stream->capturePin->fnEventHandler = PaPinCaptureEventHandler_WaveCyclic;
+                stream->capturePin->fnSubmitHandler = PaPinCaptureSubmitHandler_WaveCyclic;
             }
-            else 
+            break;
+        case Type_kWaveRT:
             {
-                PA_DEBUG(("Failed to get input buffer (with notification)\n"));
-                PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to get input buffer (with notification)");
-                result = paUnanticipatedHostError;
-                goto error;
-            }
+                const DWORD dwTotalSize = 2 * stream->framesPerHostIBuffer * stream->bytesPerInputFrame;
+                DWORD dwRequestedSize = dwTotalSize;
+                BOOL bCallMemoryBarrier = FALSE;
+                ULONG hwFifoLatency = 0;
+                ULONG dummy;
+                result = PinGetBufferWithNotification(stream->capturePin, (void**)&stream->hostInBuffer, &dwRequestedSize, &bCallMemoryBarrier);
+                if (!result) 
+                {
+                    PA_DEBUG(("Input buffer start = %p, size = %u\n", stream->hostInBuffer, dwRequestedSize));
+                    if (dwRequestedSize != dwTotalSize)
+                    {
+                        PA_DEBUG(("Buffer length changed by driver from %u to %u !\n", dwTotalSize, dwRequestedSize));
+                        /* Recalculate to what the driver has given us */
+                        stream->framesPerHostIBuffer = dwRequestedSize / (2 * stream->bytesPerInputFrame);
+                    }
+                    stream->capturePin->fnEventHandler = PaPinCaptureEventHandler_WaveRT;
+                    stream->capturePin->fnSubmitHandler = PaPinCaptureSubmitHandler_WaveRT;
+                    stream->capturePin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierRead : MemoryBarrierDummy;
+                }
+                else 
+                {
+                    PA_DEBUG(("Failed to get input buffer (with notification)\n"));
+                    PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to get input buffer (with notification)");
+                    result = paUnanticipatedHostError;
+                    goto error;
+                }
 
-            /* Get latency */
-            result = PinGetHwLatency(stream->capturePin, &hwFifoLatency, &dummy, &dummy);
-            if (!result)
-            {
-                stream->capturePin->hwLatency = hwFifoLatency;
+                /* Get latency */
+                result = PinGetHwLatency(stream->capturePin, &hwFifoLatency, &dummy, &dummy);
+                if (!result)
+                {
+                    stream->capturePin->hwLatency = hwFifoLatency;
+                }
+                else
+                {
+                    PA_DEBUG(("Failed to get size of FIFO hardware buffer (is set to zero)\n"));
+                    stream->capturePin->hwLatency = 0;
+                }
             }
-            else
-            {
-                PA_DEBUG(("Failed to get size of FIFO hardware buffer (is set to zero)\n"));
-                stream->capturePin->hwLatency = 0;
-            }
+            break;
+        default:
+            /* Undefined wave type!! */
+            assert(0);
+            result = paInternalError;
+            PaWindWDM_SetLastErrorInfo(result, "Wave type %u ??", stream->capturePin->parentFilter->waveType);
+            goto error;
         }
     }
     else 
@@ -3252,67 +3323,78 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     if (stream->userOutputChannels > 0)
     {
-        if (!stream->renderPin->parentFilter->isWaveRT)
+        switch (stream->renderPin->parentFilter->waveType)
         {
-            unsigned size = 2 * stream->framesPerHostOBuffer * stream->bytesPerOutputFrame;
-            /* Allocate output device buffer */
-            stream->hostOutBuffer = (char*)PaUtil_AllocateMemory(size);
-            PA_DEBUG(("Output buffer allocated (size = %u)\n", size));
-            if( !stream->hostOutBuffer )
+        case Type_kWaveCyclic:
             {
-                PA_DEBUG(("Cannot allocate host output buffer!\n"));
-                PaWindWDM_SetLastErrorInfo(paInsufficientMemory, "Failed to allocate output buffer");
-                result = paInsufficientMemory;
-                goto error;
-            }
-            PA_DEBUG(("Output buffer start = %p\n",stream->hostOutBuffer));
-
-            /* Allocate buffer used for silence */
-            stream->hostSilenceBuffer = (char*)PaUtil_AllocateMemory(size);
-
-            stream->renderPin->fnEventHandler = PaPinRenderEventHandler_WaveCyclic;
-            stream->renderPin->fnSubmitHandler = PaPinRenderSubmitHandler_WaveCyclic;
-        }
-        else
-        {
-            const DWORD dwTotalSize = 2 * stream->framesPerHostOBuffer * stream->bytesPerOutputFrame;
-            DWORD dwRequestedSize = dwTotalSize;
-            BOOL bCallMemoryBarrier = FALSE;
-            ULONG hwFifoLatency = 0;
-            ULONG dummy;
-            result = PinGetBufferWithNotification(stream->renderPin, (void**)&stream->hostOutBuffer, &dwRequestedSize, &bCallMemoryBarrier);
-            if (!result) 
-            {
-                PA_DEBUG(("Output buffer start = %p, size = %u\n", stream->hostOutBuffer, dwRequestedSize));
-                if (dwRequestedSize != dwTotalSize)
+                unsigned size = 2 * stream->framesPerHostOBuffer * stream->bytesPerOutputFrame;
+                /* Allocate output device buffer */
+                stream->hostOutBuffer = (char*)PaUtil_AllocateMemory(size);
+                PA_DEBUG(("Output buffer allocated (size = %u)\n", size));
+                if( !stream->hostOutBuffer )
                 {
-                    PA_DEBUG(("Buffer length changed by driver from %u to %u !\n", dwTotalSize, dwRequestedSize));
-                    /* Recalculate to what the driver has given us */
-                    stream->framesPerHostOBuffer = dwRequestedSize / (2 * stream->bytesPerOutputFrame);
+                    PA_DEBUG(("Cannot allocate host output buffer!\n"));
+                    PaWindWDM_SetLastErrorInfo(paInsufficientMemory, "Failed to allocate output buffer");
+                    result = paInsufficientMemory;
+                    goto error;
                 }
-                stream->renderPin->fnEventHandler = PaPinRenderEventHandler_WaveRT;
-                stream->renderPin->fnSubmitHandler = PaPinRenderSubmitHandler_WaveRT;
-                stream->renderPin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierWrite : MemoryBarrierDummy;
-            }
-            else 
-            {
-                PA_DEBUG(("Failed to get output buffer (with notification)\n"));
-                PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to get output buffer (with notification)");
-                result = paUnanticipatedHostError;
-                goto error;
-            }
+                PA_DEBUG(("Output buffer start = %p\n",stream->hostOutBuffer));
 
-            /* Get latency */
-            result = PinGetHwLatency(stream->renderPin, &hwFifoLatency, &dummy, &dummy);
-            if (!result)
-            {
-                stream->renderPin->hwLatency = hwFifoLatency;
+                /* Allocate buffer used for silence */
+                stream->hostSilenceBuffer = (char*)PaUtil_AllocateMemory(size);
+
+                stream->renderPin->fnEventHandler = PaPinRenderEventHandler_WaveCyclic;
+                stream->renderPin->fnSubmitHandler = PaPinRenderSubmitHandler_WaveCyclic;
             }
-            else
+            break;
+        case Type_kWaveRT:
             {
-                PA_DEBUG(("Failed to get size of FIFO hardware buffer (is set to zero)\n"));
-                stream->renderPin->hwLatency = 0;
+                const DWORD dwTotalSize = 2 * stream->framesPerHostOBuffer * stream->bytesPerOutputFrame;
+                DWORD dwRequestedSize = dwTotalSize;
+                BOOL bCallMemoryBarrier = FALSE;
+                ULONG hwFifoLatency = 0;
+                ULONG dummy;
+                result = PinGetBufferWithNotification(stream->renderPin, (void**)&stream->hostOutBuffer, &dwRequestedSize, &bCallMemoryBarrier);
+                if (!result) 
+                {
+                    PA_DEBUG(("Output buffer start = %p, size = %u\n", stream->hostOutBuffer, dwRequestedSize));
+                    if (dwRequestedSize != dwTotalSize)
+                    {
+                        PA_DEBUG(("Buffer length changed by driver from %u to %u !\n", dwTotalSize, dwRequestedSize));
+                        /* Recalculate to what the driver has given us */
+                        stream->framesPerHostOBuffer = dwRequestedSize / (2 * stream->bytesPerOutputFrame);
+                    }
+                    stream->renderPin->fnEventHandler = PaPinRenderEventHandler_WaveRT;
+                    stream->renderPin->fnSubmitHandler = PaPinRenderSubmitHandler_WaveRT;
+                    stream->renderPin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierWrite : MemoryBarrierDummy;
+                }
+                else 
+                {
+                    PA_DEBUG(("Failed to get output buffer (with notification)\n"));
+                    PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to get output buffer (with notification)");
+                    result = paUnanticipatedHostError;
+                    goto error;
+                }
+
+                /* Get latency */
+                result = PinGetHwLatency(stream->renderPin, &hwFifoLatency, &dummy, &dummy);
+                if (!result)
+                {
+                    stream->renderPin->hwLatency = hwFifoLatency;
+                }
+                else
+                {
+                    PA_DEBUG(("Failed to get size of FIFO hardware buffer (is set to zero)\n"));
+                    stream->renderPin->hwLatency = 0;
+                }
             }
+            break;
+        default:
+            /* Undefined wave type!! */
+            assert(0);
+            result = paInternalError;
+            PaWindWDM_SetLastErrorInfo(result, "Wave type %u ??", stream->capturePin->parentFilter->waveType);
+            goto error;
         }
     }
     else 
@@ -3325,143 +3407,166 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->eventAbort = CreateEvent(NULL, TRUE, FALSE, NULL);
     if(stream->userInputChannels > 0)
     {
-        if (!stream->capturePin->parentFilter->isWaveRT)
+        switch(stream->capturePin->parentFilter->waveType)
         {
-            /* WaveCyclic case */
-            unsigned i;
-            for (i = 0; i < 2; ++i) {
-                /* Set up the packets */
-                DATAPACKET *p = stream->packetsCapture + i;
+        case Type_kWaveCyclic:
+            {
+                /* WaveCyclic case */
+                unsigned i;
+                for (i = 0; i < 2; ++i) {
+                    /* Set up the packets */
+                    DATAPACKET *p = stream->packetsCapture + i;
 
-                /* Record event */
-                stream->eventsCapture[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
+                    /* Record event */
+                    stream->eventsCapture[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-                p->Signal.hEvent = stream->eventsCapture[i];
-                p->Header.Data = stream->hostInBuffer + (i*stream->framesPerHostIBuffer*stream->bytesPerInputFrame);
+                    p->Signal.hEvent = stream->eventsCapture[i];
+                    p->Header.Data = stream->hostInBuffer + (i*stream->framesPerHostIBuffer*stream->bytesPerInputFrame);
+                    p->Header.FrameExtent = stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
+                    p->Header.DataUsed = 0;
+                    p->Header.Size = sizeof(p->Header);
+                    p->Header.PresentationTime.Numerator = 1;
+                    p->Header.PresentationTime.Denominator = 1;
+                }
+            }
+            break;
+        case Type_kWaveRT:
+            {
+                /* Set up the "packets" */
+                DATAPACKET *p = stream->packetsCapture + 0;
+
+                /* Record event: WaveRT has a single event for 2 notification per buffer */
+                stream->eventsCapture[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+                p->Header.Data = stream->hostInBuffer;
                 p->Header.FrameExtent = stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
                 p->Header.DataUsed = 0;
                 p->Header.Size = sizeof(p->Header);
                 p->Header.PresentationTime.Numerator = 1;
                 p->Header.PresentationTime.Denominator = 1;
+
+                ++p;
+                p->Header.Data = stream->hostInBuffer + stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
+                p->Header.FrameExtent = stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
+                p->Header.DataUsed = 0;
+                p->Header.Size = sizeof(p->Header);
+                p->Header.PresentationTime.Numerator = 1;
+                p->Header.PresentationTime.Denominator = 1;
+
+                result = PinRegisterNotificationHandle(stream->capturePin, stream->eventsCapture[0]);
+
+                if (result != paNoError)
+                {
+                    PA_DEBUG(("Failed to register capture notification handle\n"));
+                    PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register capture notification handle");
+                    result = paUnanticipatedHostError;
+                    goto error;
+                }
+
+                result = PinRegisterPositionRegister(stream->capturePin);
+
+                if (result != paNoError)
+                {
+                    PA_DEBUG(("Failed to register capture position register, using PinGetAudioPositionViaIOCTL\n"));
+                    stream->capturePin->fnAudioPosition = PinGetAudioPositionViaIOCTL;
+                }
+                else
+                {
+                    stream->capturePin->fnAudioPosition = PinGetAudioPositionDirect;
+                }
             }
-        }
-        else {
-            /* Set up the "packets" */
-            DATAPACKET *p = stream->packetsCapture + 0;
-
-            /* Record event: WaveRT has a single event for 2 notification per buffer */
-            stream->eventsCapture[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
-
-            p->Header.Data = stream->hostInBuffer;
-            p->Header.FrameExtent = stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
-            p->Header.DataUsed = 0;
-            p->Header.Size = sizeof(p->Header);
-            p->Header.PresentationTime.Numerator = 1;
-            p->Header.PresentationTime.Denominator = 1;
-
-            ++p;
-            p->Header.Data = stream->hostInBuffer + stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
-            p->Header.FrameExtent = stream->framesPerHostIBuffer*stream->bytesPerInputFrame;
-            p->Header.DataUsed = 0;
-            p->Header.Size = sizeof(p->Header);
-            p->Header.PresentationTime.Numerator = 1;
-            p->Header.PresentationTime.Denominator = 1;
-
-            result = PinRegisterNotificationHandle(stream->capturePin, stream->eventsCapture[0]);
-
-            if (result != paNoError)
-            {
-                PA_DEBUG(("Failed to register capture notification handle\n"));
-                PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register capture notification handle");
-                result = paUnanticipatedHostError;
-                goto error;
-            }
-
-            result = PinRegisterPositionRegister(stream->capturePin);
-
-            if (result != paNoError)
-            {
-                PA_DEBUG(("Failed to register capture position register, using PinGetAudioPositionViaIOCTL\n"));
-                stream->capturePin->fnAudioPosition = PinGetAudioPositionViaIOCTL;
-            }
-            else
-            {
-                stream->capturePin->fnAudioPosition = PinGetAudioPositionDirect;
-            }
+            break;
+        default:
+            /* Undefined wave type!! */
+            assert(0);
+            result = paInternalError;
+            PaWindWDM_SetLastErrorInfo(result, "Wave type %u ??", stream->capturePin->parentFilter->waveType);
+            goto error;
         }
     }
     if(stream->userOutputChannels > 0)
     {
-        if (!stream->renderPin->parentFilter->isWaveRT)
+        switch(stream->renderPin->parentFilter->waveType)
         {
-            /* WaveCyclic case */
-            const unsigned frameBufferBytes = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            unsigned i;
-            for (i = 0; i < 2; ++i)
+        case Type_kWaveCyclic:
             {
-                /* Set up the packets */
-                DATAPACKET *p = stream->packetsRender + i;
+                /* WaveCyclic case */
+                const unsigned frameBufferBytes = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
+                unsigned i;
+                for (i = 0; i < 2; ++i)
+                {
+                    /* Set up the packets */
+                    DATAPACKET *p = stream->packetsRender + i;
 
-                /* Playback event */
-                stream->eventsRender[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
+                    /* Playback event */
+                    stream->eventsRender[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+                    /* In this case, we just use the packets as ptr to the device buffer */
+                    p->Signal.hEvent = stream->eventsRender[i];
+                    p->Header.Data = stream->hostOutBuffer + (i*frameBufferBytes);
+                    p->Header.FrameExtent = frameBufferBytes;
+                    p->Header.DataUsed = frameBufferBytes;
+                    p->Header.Size = sizeof(p->Header);
+                    p->Header.PresentationTime.Numerator = 1;
+                    p->Header.PresentationTime.Denominator = 1;
+                }
+            }
+            break;
+        case Type_kWaveRT:
+            {
+                /* WaveRT case */
+
+                /* Set up the "packets" */
+                DATAPACKET *p = stream->packetsRender;
+
+                /* The only playback event */
+                stream->eventsRender[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
 
                 /* In this case, we just use the packets as ptr to the device buffer */
-                p->Signal.hEvent = stream->eventsRender[i];
-                p->Header.Data = stream->hostOutBuffer + (i*frameBufferBytes);
-                p->Header.FrameExtent = frameBufferBytes;
-                p->Header.DataUsed = frameBufferBytes;
+                p->Header.Data = stream->hostOutBuffer;
+                p->Header.FrameExtent = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
+                p->Header.DataUsed = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
                 p->Header.Size = sizeof(p->Header);
                 p->Header.PresentationTime.Numerator = 1;
                 p->Header.PresentationTime.Denominator = 1;
+                
+                ++p;
+                p->Header.Data = stream->hostOutBuffer + stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
+                p->Header.FrameExtent = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
+                p->Header.DataUsed = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
+                p->Header.Size = sizeof(p->Header);
+                p->Header.PresentationTime.Numerator = 1;
+                p->Header.PresentationTime.Denominator = 1;
+
+                result = PinRegisterNotificationHandle(stream->renderPin, stream->eventsRender[0]);
+
+                if (result != paNoError)
+                {
+                    PA_DEBUG(("Failed to register rendering notification handle\n"));
+                    PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register rendering notification handle");
+                    result = paUnanticipatedHostError;
+                    goto error;
+                }
+
+                result = PinRegisterPositionRegister(stream->renderPin);
+
+                if (result != paNoError)
+                {
+                    PA_DEBUG(("Failed to register rendering position register, using PinGetAudioPositionViaIOCTL\n"));
+                    stream->renderPin->fnAudioPosition = PinGetAudioPositionViaIOCTL;
+                }
+                else
+                {
+                    stream->renderPin->fnAudioPosition = PinGetAudioPositionDirect;
+                }
             }
-        }
-        else
-        {
-            /* WaveRT case */
-
-            /* Set up the "packets" */
-            DATAPACKET *p = stream->packetsRender;
-
-            /* The only playback event */
-            stream->eventsRender[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
-
-            /* In this case, we just use the packets as ptr to the device buffer */
-            p->Header.Data = stream->hostOutBuffer;
-            p->Header.FrameExtent = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            p->Header.DataUsed = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            p->Header.Size = sizeof(p->Header);
-            p->Header.PresentationTime.Numerator = 1;
-            p->Header.PresentationTime.Denominator = 1;
-            
-            ++p;
-            p->Header.Data = stream->hostOutBuffer + stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            p->Header.FrameExtent = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            p->Header.DataUsed = stream->framesPerHostOBuffer*stream->bytesPerOutputFrame;
-            p->Header.Size = sizeof(p->Header);
-            p->Header.PresentationTime.Numerator = 1;
-            p->Header.PresentationTime.Denominator = 1;
-
-            result = PinRegisterNotificationHandle(stream->renderPin, stream->eventsRender[0]);
-
-            if (result != paNoError)
-            {
-                PA_DEBUG(("Failed to register rendering notification handle\n"));
-                PaWindWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register rendering notification handle");
-                result = paUnanticipatedHostError;
-                goto error;
-            }
-
-            result = PinRegisterPositionRegister(stream->renderPin);
-
-            if (result != paNoError)
-            {
-                PA_DEBUG(("Failed to register rendering position register, using PinGetAudioPositionViaIOCTL\n"));
-                stream->renderPin->fnAudioPosition = PinGetAudioPositionViaIOCTL;
-            }
-            else
-            {
-                stream->renderPin->fnAudioPosition = PinGetAudioPositionDirect;
-            }
+            break;
+        default:
+            /* Undefined wave type!! */
+            assert(0);
+            result = paInternalError;
+            PaWindWDM_SetLastErrorInfo(result, "Wave type %u ??", stream->capturePin->parentFilter->waveType);
+            goto error;
         }
     }
 
@@ -3511,12 +3616,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if (stream->userInputChannels)
     {
         mbstowcs(stream->hostApiStreamInfo.input.deviceName, stream->capturePin->parentFilter->filterName, MAX_PATH);
-        stream->hostApiStreamInfo.input.streamingType = (stream->capturePin->parentFilter->isWaveRT ? Type_kWaveRT : Type_kWaveCyclic);
+        stream->hostApiStreamInfo.input.streamingType = stream->capturePin->parentFilter->waveType;
     }
     if (stream->userOutputChannels)
     {
         mbstowcs(stream->hostApiStreamInfo.output.deviceName, stream->renderPin->parentFilter->filterName, MAX_PATH);
-        stream->hostApiStreamInfo.output.streamingType = (stream->renderPin->parentFilter->isWaveRT ? Type_kWaveRT : Type_kWaveCyclic);
+        stream->hostApiStreamInfo.output.streamingType = stream->renderPin->parentFilter->waveType;
     }
     stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
     stream->streamRepresentation.streamInfo.hostApiTypeId = paWDMKS;
@@ -3526,13 +3631,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PA_LOGL_;
     return result;
 
+occupied:
+    /* Ok, someone else is hogging the pin, bail out */
+    assert (result == paDeviceUnavailable);
+    PaWindWDM_SetLastErrorInfo(result, "Device is occupied");
+
 error:
     CloseStreamEvents(stream);
     
-    if(stream->hostInBuffer && !stream->capturePin->parentFilter->isWaveRT)
+    if(stream->hostInBuffer && stream->capturePin->parentFilter->waveType == Type_kWaveCyclic)
         PaUtil_FreeMemory( stream->hostInBuffer );
 
-    if(stream->hostOutBuffer && !stream->renderPin->parentFilter->isWaveRT)
+    if(stream->hostOutBuffer && stream->renderPin->parentFilter->waveType == Type_kWaveCyclic)
         PaUtil_FreeMemory( stream->hostOutBuffer );
 
     if(stream->renderPin)
@@ -3566,10 +3676,10 @@ static PaError CloseStream( PaStream* s )
 
     CloseStreamEvents(stream);
 
-    if(stream->hostInBuffer && !stream->capturePin->parentFilter->isWaveRT)
+    if(stream->hostInBuffer && stream->capturePin->parentFilter->waveType == Type_kWaveCyclic)
         PaUtil_FreeMemory( stream->hostInBuffer );
 
-    if(stream->hostOutBuffer && !stream->renderPin->parentFilter->isWaveRT)
+    if(stream->hostOutBuffer && stream->renderPin->parentFilter->waveType == Type_kWaveCyclic)
         PaUtil_FreeMemory( stream->hostOutBuffer );
 
     if(stream->renderPin)
@@ -3795,7 +3905,7 @@ static PaError StartPins(PaProcessThreadInfo* pInfo)
     /* Submit buffers */
     if(pInfo->stream->capturePin)
     {
-        if (!pInfo->stream->capturePin->parentFilter->isWaveRT)
+        if (pInfo->stream->capturePin->parentFilter->waveType == Type_kWaveCyclic)
         {
             PinRead(pInfo->stream->capturePin->handle, pInfo->stream->packetsCapture + 0);
             PinRead(pInfo->stream->capturePin->handle, pInfo->stream->packetsCapture + 1);
@@ -3808,7 +3918,7 @@ static PaError StartPins(PaProcessThreadInfo* pInfo)
         pInfo->priming += 2;
         ++pInfo->pending;
         SetEvent(pInfo->stream->eventsRender[0]);
-        if (!pInfo->stream->renderPin->parentFilter->isWaveRT) 
+        if (pInfo->stream->renderPin->parentFilter->waveType == Type_kWaveCyclic) 
         {
             SetEvent(pInfo->stream->eventsRender[1]);
             ++pInfo->pending;
@@ -4000,7 +4110,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     /* Setup handle array for WFMO */
     if (info.stream->capturePin != 0) {
         handles[noOfHandles++] = info.stream->eventsCapture[0];
-        if (!info.stream->capturePin->parentFilter->isWaveRT)
+        if (info.stream->capturePin->parentFilter->waveType == Type_kWaveCyclic)
         {
             handles[noOfHandles++] = info.stream->eventsCapture[1];
         }
@@ -4011,7 +4121,8 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
     if (info.stream->renderPin != 0) {
         handles[noOfHandles++] = info.stream->eventsRender[0];
-        if (!info.stream->renderPin->parentFilter->isWaveRT) {
+        if (!info.stream->renderPin->parentFilter->waveType == Type_kWaveCyclic)
+        {
             handles[noOfHandles++] = info.stream->eventsRender[1];
         }
         renderEvents = noOfHandles;
