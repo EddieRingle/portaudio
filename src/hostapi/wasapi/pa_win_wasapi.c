@@ -450,6 +450,7 @@ typedef struct PaWasapiStream
 {
 	/* IMPLEMENT ME: rename this */
     PaUtilStreamRepresentation streamRepresentation;
+    PaWASAPISpecificStreamInfo streamInfo;
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
 
@@ -3014,6 +3015,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 	// Set SR
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
+    stream->streamRepresentation.streamInfo.hostApiTypeId = paWASAPI;
+    stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->streamInfo;
+
+    // Update WASAPI specific stream info
+    if (stream->captureClientParent != 0)
+    {
+        wcsncpy(stream->streamInfo.inputDeviceId, stream->in.params.device_info->szDeviceID, 63);
+    }
+    if (stream->renderClientParent != 0)
+    {
+        wcsncpy(stream->streamInfo.outputDeviceId, stream->out.params.device_info->szDeviceID, 63);
+    }
 
     (*s) = (PaStream *)stream;
     return result;
@@ -3362,7 +3375,14 @@ void _StreamFinish(PaWasapiStream *stream)
 	// Issue command to thread to stop processing and wait for thread exit
 	if (!stream->bBlocking)
 	{
-		SignalObjectAndWait(stream->hCloseRequest, stream->hThreadExit, INFINITE, FALSE);
+        DWORD dwExit;
+        if (GetExitCodeThread(stream->hThread, &dwExit) && dwExit == STILL_ACTIVE)
+        {
+            if (SignalObjectAndWait(stream->hCloseRequest, stream->hThread, 1000, FALSE) == WAIT_TIMEOUT)
+            {
+                TerminateThread(stream->hThread, -1);
+            }
+        }
 	}
 	else
 	// Blocking mode does not own thread

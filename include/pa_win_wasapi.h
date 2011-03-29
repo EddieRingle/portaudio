@@ -384,6 +384,11 @@ PaError PaWasapi_GetJackDescription(PaDeviceIndex nDevice, int jindex, PaWasapiJ
         PaStreamParameters::hostApiSpecificStreamInfo structure.
 */
 
+typedef struct PaWASAPISpecificStreamInfo {
+    wchar_t inputDeviceId[64];
+    wchar_t outputDeviceId[64];
+} PaWASAPISpecificStreamInfo;
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
