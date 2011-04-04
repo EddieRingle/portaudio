@@ -81,7 +81,7 @@ extern "C"
     } PaWDMKSType;
 
     typedef struct PaWinWDMKSDeviceInfo {
-        wchar_t deviceName[MAX_PATH];
+        wchar_t deviceName[MAX_PATH];   /**< Device path in Unicode! */
         PaWDMKSType streamingType;
     } PaWinWDMKSDeviceInfo;
 
