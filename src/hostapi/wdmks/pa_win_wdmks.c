@@ -279,6 +279,7 @@ typedef struct __PaWinWdmIOInfo
     unsigned            hostBufferSize;
     unsigned            framesPerBuffer;
     unsigned            bytesPerFrame;
+    unsigned            bytesPerSample;
     HANDLE              events[2];  /* 2 (WaveCyclic) 1 (WaveRT) */
     DATAPACKET          packets[2]; /* 2 packets */
     /* WaveRT polled mode */
@@ -321,8 +322,6 @@ typedef struct __PaWinWdmStream
     int                         deviceInputChannels;
     int                         userOutputChannels;
     int                         deviceOutputChannels;
-    int                         inputSampleSize;
-    int                         outputSampleSize;
 };
 
 /* Gather all processing variables in a struct */
@@ -3081,14 +3080,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             goto error;
         }
 
-        switch(hostInputSampleFormat)
-        {
-        case paInt16: stream->inputSampleSize = 2; break;
-        case paInt24: stream->inputSampleSize = 3; break;
-        case paInt32:
-        case paFloat32:    stream->inputSampleSize = 4; break;
-        }
-
+        stream->capture.bytesPerSample = stream->capture.bytesPerFrame / stream->deviceInputChannels;
         stream->capture.pPin->frameSize /= stream->capture.bytesPerFrame;
         PA_DEBUG(("Capture pin frames: %d\n",stream->capture.pPin->frameSize));
     }
@@ -3182,14 +3174,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             goto error;
         }
 
-        switch(hostOutputSampleFormat)
-        {
-        case paInt16: stream->outputSampleSize = 2; break;
-        case paInt24: stream->outputSampleSize = 3; break;
-        case paInt32:
-        case paFloat32: stream->outputSampleSize = 4; break;
-        }
-
+        stream->render.bytesPerSample = stream->render.bytesPerFrame / stream->deviceOutputChannels;
         stream->render.pPin->frameSize /= stream->render.bytesPerFrame;
         PA_DEBUG(("Render pin frames: %d\n",stream->render.pPin->frameSize));
     }
@@ -4079,7 +4064,7 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                     /* Only write the user output channels. Leave the rest blank */
                     PaUtil_SetOutputChannel(&pInfo->stream->bufferProcessor,
                         i,
-                        ((unsigned char*)(packet->Header.Data))+(i*pInfo->stream->outputSampleSize),
+                        ((unsigned char*)(packet->Header.Data))+(i*pInfo->stream->render.bytesPerSample),
                         pInfo->stream->deviceOutputChannels);
                 }
             }
@@ -4087,8 +4072,14 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 
         if (inputFramesAvailable && (!pInfo->stream->userOutputChannels || inputFramesAvailable >= (int)pInfo->stream->render.framesPerBuffer))
         {
-            void* data[2] = {0,0};
+            unsigned wrapCntr = 0;
+            char* data[2] = {0,0};
             ring_buffer_size_t size[2] = {0,0};
+            typedef void (*TSetInputFrameCount)(PaUtilBufferProcessor*, unsigned long);
+            typedef void (*TSetInputChannel)(PaUtilBufferProcessor*, unsigned int, void *, unsigned int);
+            TSetInputFrameCount fnSetInputFrameCount[2] = { PaUtil_SetInputFrameCount, PaUtil_Set2ndInputFrameCount };
+            TSetInputChannel fnSetInputChannel[2] = { PaUtil_SetInputChannel, PaUtil_Set2ndInputChannel };
+
 
             /* If full-duplex, we just extract output buffer number of frames */
             if (pInfo->stream->userOutputChannels)
@@ -4103,6 +4094,8 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                 &data[1],
                 &size[1]);
 
+
+#if 0
             PaUtil_SetInputFrameCount(&pInfo->stream->bufferProcessor, size[0]);
 
             PaUtil_SetInterleavedInputChannels(&pInfo->stream->bufferProcessor, 
@@ -4119,7 +4112,23 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                     data[1], 
                     pInfo->stream->deviceInputChannels);
             }
+#else
+            for (wrapCntr = 0; wrapCntr < 2; ++wrapCntr)
+            {
+                if (size[wrapCntr] == 0)
+                    break;
 
+                fnSetInputFrameCount[wrapCntr](&pInfo->stream->bufferProcessor, size[wrapCntr]);
+                for(i=0;i<pInfo->stream->userInputChannels;i++)
+                {
+                    /* Only read as many channels as the user wants */
+                    fnSetInputChannel[wrapCntr](&pInfo->stream->bufferProcessor,
+                        i,
+                        ((unsigned char*)(data[wrapCntr]))+(i*pInfo->stream->capture.bytesPerSample),
+                        pInfo->stream->deviceInputChannels);
+                }
+            }
+#endif
             if (pInfo->stream->userOutputChannels && pInfo->stream->capture.framesPerBuffer <= pInfo->stream->render.framesPerBuffer)
             {
                 ring_buffer_size_t n = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
@@ -4135,7 +4144,7 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
             /* We haven't consumed anything from the ring buffer... */
             inputFramesAvailable = 0;
             /* If we have full-duplex, this is at startup, so mark no-input! */
-            if (pInfo->stream->userOutputChannels>0)
+            if (pInfo->stream->userOutputChannels>0 && pInfo->stream->userInputChannels>0)
             {
                 PA_HP_TRACE((pInfo->stream->hLog, "Input startup, marking no input."));
                 PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
@@ -4161,11 +4170,6 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
         }
         else 
         {
-            if(pInfo->priming)
-            {
-                PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
-            }
-
             framesProcessed = PaUtil_EndBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->cbResult);
         }
         
@@ -4175,7 +4179,7 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
         {
             DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
             /* Copy the first output channel to the other channels */
-            switch (pInfo->stream->outputSampleSize)
+            switch (pInfo->stream->render.bytesPerSample)
             {
             case 2:
                 DuplicateFirstChannelInt16(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->render.framesPerBuffer);
