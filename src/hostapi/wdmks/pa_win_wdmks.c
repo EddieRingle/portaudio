@@ -61,14 +61,6 @@ of a device for the duration of active stream using those devices
 #define PA_LOGE_
 #define PA_LOGL_
 
-/* The __PA_DEBUG macro is used in RT parts, so it can be switched off without affecting
-   the rest of the debug tracing */
-#if 0
-#define __PA_DEBUG PA_DEBUG
-#else
-#define __PA_DEBUG(x)
-#endif
-
 #ifdef __GNUC__
 #include <initguid.h>
 #define _WIN32_WINNT 0x0501
@@ -88,6 +80,7 @@ of a device for the duration of active stream using those devices
 #include "pa_debugprint.h"
 #include "pa_memorybarrier.h"
 #include "pa_ringbuffer.h"
+#include "pa_trace.h"
 #include "pa_win_waveformat.h"
 
 #include "pa_win_wdmks.h"
@@ -97,6 +90,15 @@ of a device for the duration of active stream using those devices
 #include <process.h>
 
 #include <math.h>
+
+/* The PA_HP_TRACE macro is used in RT parts, so it can be switched off without affecting
+the rest of the debug tracing */
+#if 1
+#define PA_HP_TRACE(x)  PaUtil_AddHighPerformanceLogMessage x ;
+#else
+#define PA_HP_TRACE(x)
+#endif
+
 
 #ifdef __GNUC__
 #undef PA_LOGE_
@@ -196,7 +198,7 @@ typedef void (*FunctionMemoryBarrier)(void);
 struct __PaProcessThreadInfo;
 typedef struct __PaProcessThreadInfo PaProcessThreadInfo;
 
-typedef void (*FunctionPinHandler)(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+typedef PaError (*FunctionPinHandler)(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
 /* The Pin structure
 * A pin is an input or output node, e.g. for audio flow */
@@ -291,6 +293,10 @@ typedef struct __PaWinWdmStream
     PaWDMKSSpecificStreamInfo   hostApiStreamInfo;
     PaUtilCpuLoadMeasurer       cpuLoadMeasurer;
     PaUtilBufferProcessor       bufferProcessor;
+
+#if PA_TRACE_REALTIME_EVENTS
+    LogHandle                   hLog;
+#endif
 
     PaUtilAllocationGroup*      allocGroup;
     PaWinWdmIOInfo              capture;
@@ -500,21 +506,21 @@ static void DuplicateFirstChannelInt24(void* buffer, int channels, int samples);
 PA_THREAD_FUNC ProcessingThread(void*);
 
 /* Pin handler functions */
-static void PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
-static void PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
-static void PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinCaptureSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinCaptureSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinCaptureSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
-static void PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
-static void PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex);
+static PaError PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
 /* Function bodies */
 
@@ -3463,7 +3469,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if(stream->userInputChannels > 0)
     {
         const unsigned bufferSizeInBytes = stream->capture.framesPerBuffer * stream->capture.bytesPerFrame;
-        const unsigned ringBufferFrameSize = NextPowerOf2( 2 * max(stream->capture.framesPerBuffer, stream->render.framesPerBuffer) );
+        const unsigned ringBufferFrameSize = NextPowerOf2( 1024 + 2 * max(stream->capture.framesPerBuffer, stream->render.framesPerBuffer) );
 
         switch(stream->capture.pPin->parentFilter->waveType)
         {
@@ -4028,18 +4034,19 @@ static PaError StopPins(PaProcessThreadInfo* pInfo)
     return result;
 }
 
-static void PaDoProcessing(PaProcessThreadInfo* pInfo)
+static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 {
+    PaError result = paNoError;
     int i, framesProcessed = 0, doChannelCopy = 0;
-    ring_buffer_size_t inputFramesAvailable = 0;
-    
-    inputFramesAvailable = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
+    ring_buffer_size_t inputFramesAvailable = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
 
     /* Do necessary buffer processing (which will invoke user callback if necessary) */
     if (pInfo->cbResult == paContinue &&
         (pInfo->renderHead != pInfo->renderTail || inputFramesAvailable))
     {
-        __PA_DEBUG(("DoProcessing: InputFrames=%u\n", inputFramesAvailable));
+        unsigned processFullDuplex = pInfo->stream->capture.pPin && pInfo->stream->render.pPin && (!pInfo->priming);
+
+        PA_HP_TRACE((pInfo->stream->hLog, "DoProcessing: InputFrames=%u", inputFramesAvailable));
 
         PaUtil_BeginCpuLoadMeasurement( &pInfo->stream->cpuLoadMeasurer );
         PaUtil_BeginBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->ti, pInfo->underover);
@@ -4083,6 +4090,7 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
             void* data[2] = {0,0};
             ring_buffer_size_t size[2] = {0,0};
 
+            /* If full-duplex, we just extract output buffer number of frames */
             if (pInfo->stream->userOutputChannels)
             {
                 inputFramesAvailable = min(inputFramesAvailable, (int)pInfo->stream->render.framesPerBuffer);
@@ -4111,15 +4119,32 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
                     data[1], 
                     pInfo->stream->deviceInputChannels);
             }
+
+            if (pInfo->stream->userOutputChannels && pInfo->stream->capture.framesPerBuffer <= pInfo->stream->render.framesPerBuffer)
+            {
+                ring_buffer_size_t n = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
+                if (n - inputFramesAvailable > 0)
+                {
+                    PA_HP_TRACE((pInfo->stream->hLog, "Synchronizing input buffer (to minimize input->output latency)"));
+                    PaUtil_AdvanceRingBufferReadIndex(&pInfo->stream->ringBuffer, n - inputFramesAvailable);
+                }
+            }
         }
         else
         {
             /* We haven't consumed anything from the ring buffer... */
             inputFramesAvailable = 0;
+            /* If we have full-duplex, this is at startup, so mark no-input! */
+            if (pInfo->stream->userOutputChannels>0)
+            {
+                PA_HP_TRACE((pInfo->stream->hLog, "Input startup, marking no input."));
+                PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
+                processFullDuplex = 0;
+            }
         }
 
 
-        if (pInfo->stream->capture.pPin && pInfo->stream->render.pPin && (!pInfo->priming)) /* full duplex */
+        if (processFullDuplex) /* full duplex */
         {
             /* Only call the EndBufferProcessing function when the total input frames == total output frames */
             const unsigned long totalInputFrameCount = pInfo->stream->bufferProcessor.hostInputFrameCount[0] + pInfo->stream->bufferProcessor.hostInputFrameCount[1];
@@ -4136,10 +4161,15 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
         }
         else 
         {
+            if(pInfo->priming)
+            {
+                PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
+            }
+
             framesProcessed = PaUtil_EndBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->cbResult);
         }
         
-        __PA_DEBUG(("Frames processed: %u %s\n", framesProcessed, (pInfo->priming ? "(priming)":"")));
+        PA_HP_TRACE((pInfo->stream->hLog, "Frames processed: %u %s", framesProcessed, (pInfo->priming ? "(priming)":"")));
 
         if( doChannelCopy )
         {
@@ -4163,15 +4193,6 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
         }
         PaUtil_EndCpuLoadMeasurement( &pInfo->stream->cpuLoadMeasurer, framesProcessed );
 
-        if (pInfo->captureTail != pInfo->captureHead)
-        {
-            if (!pInfo->stream->streamStop)
-            {
-                pInfo->stream->capture.pPin->fnSubmitHandler(pInfo, pInfo->captureTail);
-            }
-            pInfo->captureTail++;
-        }
-
         if (inputFramesAvailable)
         {
             PaUtil_AdvanceRingBufferReadIndex(&pInfo->stream->ringBuffer, inputFramesAvailable);
@@ -4187,12 +4208,16 @@ static void PaDoProcessing(PaProcessThreadInfo* pInfo)
             if (!pInfo->pinsStarted && pInfo->priming == 0)
             {
                 /* We start the pins here to allow "prime time" */
-                StartPins(pInfo);
-                pInfo->pinsStarted = 1;
+                if ((result = StartPins(pInfo)) == paNoError)
+                {
+                    PA_HP_TRACE((pInfo->stream->hLog, "Starting pins!"));
+                    pInfo->pinsStarted = 1;
+                }
             }
         }
-
     }
+
+    return result;
 }
 
 static VOID CALLBACK TimerCallbackWaveRTPolledMode(
@@ -4228,6 +4253,11 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     info.ti.inputBufferAdcTime = 0.0;
     info.ti.currentTime = 0.0;
     info.ti.outputBufferDacTime = 0.0;
+
+    if (PaUtil_InitializeHighPerformanceLog(&info.stream->hLog, 1000000) != paNoError)
+    {
+        goto error;
+    }
     
     PA_DEBUG(("In  buffer len: %.3f ms\n",(2000*info.stream->capture.framesPerBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
     PA_DEBUG(("Out buffer len: %.3f ms\n",(2000*info.stream->render.framesPerBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
@@ -4269,6 +4299,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         goto error;
     }
 
+    /* If not priming (i.e. input only) we start the pins immediately */
     if (!info.priming)
     {
         if ((result = StartPins(&info)) != paNoError)
@@ -4279,7 +4310,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         info.pinsStarted = 1;
     }
 
-    // Handle timer for WaveRT polled mode
+    /* Handle timer for WaveRT polled mode */
     {
         const unsigned fs = (unsigned)info.stream->streamRepresentation.streamInfo.sampleRate;
         unsigned timerPeriod = (unsigned)-1;
@@ -4308,18 +4339,19 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             {
                 PA_DEBUG(("CreateTimerQueue failed!\n"));
                 result = paUnanticipatedHostError;
+                PaWindWDM_SetLastErrorInfo(result, "CreateTimerQueue failed", timerPeriod);
                 goto error;
             }
 
             timerPeriod=max(timerPeriod/5,1);
 
-            PA_DEBUG(("Timer event handles=0x%04X,0x%04X period=%u ms\n", timerEventHandles[0], timerEventHandles[1], timerPeriod));
+            PA_HP_TRACE((info.stream->hLog, "Timer event handles=0x%04X,0x%04X period=%u ms", timerEventHandles[0], timerEventHandles[1], timerPeriod));
 
-            /* As fast as possible */
             if (!CreateTimerQueueTimer(&timerQueueTimer, timerQueue, TimerCallbackWaveRTPolledMode, timerEventHandles, timerPeriod, timerPeriod, WT_EXECUTEINPERSISTENTTHREAD))
             {
                 PA_DEBUG(("CreateTimerQueueTimer failed!? (period=%u)\n", timerPeriod));
                 result = paUnanticipatedHostError;
+                PaWindWDM_SetLastErrorInfo(result, "CreateTimerQueueTimer failed (period=%u)", timerPeriod);
                 goto error;
             }
         }
@@ -4330,9 +4362,9 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
     while(!info.stream->streamAbort)
     {
-        unsigned eventSignalled;
-        unsigned long wait = WaitForMultipleObjects(noOfHandles, handles, FALSE, 0);
-        eventSignalled = wait - WAIT_OBJECT_0;
+        unsigned doProcessing = 1;
+        unsigned wait = WaitForMultipleObjects(noOfHandles, handles, FALSE, 0);
+        unsigned eventSignalled = wait - WAIT_OBJECT_0;
 
         if (wait == WAIT_FAILED) 
         {
@@ -4351,20 +4383,20 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             {
                 if (PaUtil_GetRingBufferWriteAvailable(&info.stream->ringBuffer) == 0)
                 {
-                    PA_DEBUG(("Input overflow!\n"));
+                    PA_HP_TRACE((info.stream->hLog, "!!!!! Input overflow !!!!!"));
                     info.underover |= paInputOverflow;
                 }
             }
             else if (eventSignalled < renderEvents) {
                 if (!info.priming && info.renderHead - info.renderTail > 1)
                 {
-                    PA_DEBUG(("Output underflow!\n"));
+                    PA_HP_TRACE((info.stream->hLog, "!!!!! Output underflow !!!!!"));
                     info.underover |= paOutputUnderflow;
                 }
             }
-            
+
         }
-        
+
         if (wait == WAIT_TIMEOUT)
         {
             continue;
@@ -4373,6 +4405,17 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         if (eventSignalled < captureEvents)
         {
             info.stream->capture.pPin->fnEventHandler(&info, eventSignalled);
+            /* Since we use the ring buffer, we can submit the buffers directly */
+            if (!info.stream->streamStop)
+            {
+                info.stream->capture.pPin->fnSubmitHandler(&info, info.captureTail);
+            }
+            info.captureTail++;
+            /* If full-duplex, let _only_ render event trigger processing */
+            if (info.stream->userOutputChannels > 0)
+            {
+                doProcessing = 0;
+            }
         }
         else if (eventSignalled < renderEvents)
         {
@@ -4386,7 +4429,11 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         }
 
         /* Handle processing */
-        PaDoProcessing(&info);
+        if (doProcessing && (PaDoProcessing(&info) != paNoError))
+        {
+            PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
+            goto bailout;
+        }
 
         if(info.stream->streamStop && info.cbResult != paComplete)
         {
@@ -4408,10 +4455,11 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     goto noerror;
 
 error:
-    /* Set the "error" event */
+    /* Set the "error" event together with result */
     info.stream->threadResult = result;
     SetEvent(info.stream->eventStreamStart[1]);
 
+bailout:
 noerror:
     if (timerQueue != NULL)
     {
@@ -4421,11 +4469,22 @@ noerror:
 
     PA_DEBUG(("Finished processing loop\n"));
 
-    StopPins(&info);
+    if (info.pinsStarted)
+    {
+        StopPins(&info);
+    }
 
     /* Lower prio here */
     DropThreadPriority(hAVRT);
 
+#if PA_TRACE_REALTIME_EVENTS
+    if (info.stream->hLog)
+    {
+        PaUtil_DumpHighPerformanceLog(info.stream->hLog, "hp_trace.log");
+        PaUtil_DiscardHighPerformanceLog(info.stream->hLog);
+        info.stream->hLog = 0;
+    }
+#endif
     info.stream->streamActive = 0;
 
     if((!info.stream->streamStop)&&(!info.stream->streamAbort))
@@ -4510,7 +4569,7 @@ static PaError StopStream( PaStream *s )
     {
         doCb = 1;
         stream->streamStop = 1;
-        if (WaitForSingleObject(stream->streamThread, 1000) != WAIT_OBJECT_0)
+        if (WaitForSingleObject(stream->streamThread, INFINITE) != WAIT_OBJECT_0)
         {
             PA_DEBUG(("StopStream: stream thread terminated\n"));
             TerminateThread(stream->streamThread, -1);
@@ -4703,7 +4762,7 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 /* Event and submit handlers for WaveCyclic                                            */
 /***************************************************************************************/
 
-static void PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     ring_buffer_size_t frameCount;
     DATAPACKET* packet = pInfo->stream->capture.packets + eventIndex;
@@ -4712,52 +4771,58 @@ static void PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsi
 
     frameCount = PaUtil_WriteRingBuffer(&pInfo->stream->ringBuffer, packet->Header.Data, pInfo->stream->capture.framesPerBuffer);
 
-    __PA_DEBUG(("Capture event: idx=%u (frames=%u)\n", eventIndex, frameCount));
+    PA_HP_TRACE((pInfo->stream->hLog, ">>> Capture event: idx=%u (frames=%u)", eventIndex, frameCount));
     ++pInfo->captureHead;
     --pInfo->pending;
+    return paNoError;
 }
 
-static void PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
+    PaError result = paNoError;
     DATAPACKET* packet = pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask];
     pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
     assert(packet != 0);
-    __PA_DEBUG(("Capture submit: %u\n", eventIndex));
+    PA_HP_TRACE((pInfo->stream->hLog, "Capture submit: %u", eventIndex));
     packet->Header.DataUsed = 0; /* Reset for reuse */
-    PinRead(pInfo->stream->capture.pPin->handle, packet);
+    result = PinRead(pInfo->stream->capture.pPin->handle, packet);
     ++pInfo->pending;
+    return result;
 }
 
-static void PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     assert( eventIndex < 2 );
 
     pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + eventIndex;
-    __PA_DEBUG(("Render event : idx=%u head=%u\n", eventIndex, pInfo->renderHead));
+    PA_HP_TRACE((pInfo->stream->hLog, "<<< Render event : idx=%u head=%u", eventIndex, pInfo->renderHead));
     ++pInfo->renderHead;
     --pInfo->pending;
+    return paNoError;
 }
 
-static void PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
+    PaError result = paNoError;
     DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
     pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
     assert(packet != 0);
 
-    __PA_DEBUG(("Render submit : %u idx=%u\n", pInfo->renderTail, (unsigned)(packet - pInfo->stream->render.packets)));
-    PinWrite(pInfo->stream->render.pPin->handle, packet);
+    PA_HP_TRACE((pInfo->stream->hLog, "Render submit : %u idx=%u", pInfo->renderTail, (unsigned)(packet - pInfo->stream->render.packets)));
+    result = PinWrite(pInfo->stream->render.pPin->handle, packet);
     ++pInfo->pending;
     if (pInfo->priming)
     {
         --pInfo->priming;
     }
+    return result;
 }
 
 /***************************************************************************************/
 /* Event and submit handlers for WaveRT                                                */
 /***************************************************************************************/
 
-static void PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     unsigned long pos;
     unsigned realInBuf;
@@ -4786,13 +4851,15 @@ static void PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned
 
     pInfo->capturePackets[pInfo->captureHead & cPacketsArrayMask] = packet;
 
-    __PA_DEBUG(("Capture event (WaveRT): idx=%u head=%u (pos = %4.1lf%%, frames=%u)\n", realInBuf, pInfo->captureHead, (pos * 100.0 / pCapture->hostBufferSize), frameCount));
+    PA_HP_TRACE((pInfo->stream->hLog, "Capture event (WaveRT): idx=%u head=%u (pos = %4.1lf%%, frames=%u)", realInBuf, pInfo->captureHead, (pos * 100.0 / pCapture->hostBufferSize), frameCount));
 
     ++pInfo->captureHead;
     --pInfo->pending;
+
+    return paNoError;
 }
 
-static void PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     unsigned long pos;
     unsigned bytesToRead;
@@ -4823,25 +4890,28 @@ static void PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, un
 
         pCapture->lastPosition = (pCapture->lastPosition + frameCount * pCapture->bytesPerFrame) % pCapture->hostBufferSize;
 
-        __PA_DEBUG(("Capture event (WaveRTPolled): pos = %4.1lf%%, framesRead=%u\n", (pos * 100.0 / pCapture->hostBufferSize), frameCount));
+        PA_HP_TRACE((pInfo->stream->hLog, "Capture event (WaveRTPolled): pos = %4.1lf%%, framesRead=%u", (pos * 100.0 / pCapture->hostBufferSize), frameCount));
         ++pInfo->captureHead;
         --pInfo->pending;
     }
+    return paNoError;
 }
 
-static void PaPinCaptureSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
     ++pInfo->pending;
+    return paNoError;
 }
 
-static void PaPinCaptureSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinCaptureSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
     ++pInfo->pending;
+    return paNoError;
 }
 
-static void PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     unsigned long pos;
     unsigned realOutBuf;
@@ -4864,13 +4934,14 @@ static void PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned 
     }
     pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + realOutBuf;
 
-    __PA_DEBUG(("Render event (WaveRT) : idx=%u head=%u (pos = %4.1lf%%)\n", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize) ));
+    PA_HP_TRACE((pInfo->stream->hLog, "Render event (WaveRT) : idx=%u head=%u (pos = %4.1lf%%)", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize) ));
 
     ++pInfo->renderHead;
     --pInfo->pending;
+    return paNoError;
 }
 
-static void PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     unsigned long pos;
     unsigned realOutBuf;
@@ -4905,46 +4976,49 @@ static void PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, uns
             pRender->lastPosition = realOutBuf ? 0U : halfOutputBuffer;
             ++pInfo->renderHead;
             --pInfo->pending;
-            __PA_DEBUG(("Render event (WaveRTPolled) : idx=%u head=%u (pos = %4.1lf%%, cnt=%u)\n", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize), pRender->pollCntr));
+            PA_HP_TRACE((pInfo->stream->hLog, "Render event (WaveRTPolled) : idx=%u head=%u (pos = %4.1lf%%, cnt=%u)", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize), pRender->pollCntr));
             pRender->pollCntr = 0;
         }
     }
+    return paNoError;
 }
 
-static void PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
     pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
     /* Call barrier (if needed) */
     pin->fnMemBarrier();
-    __PA_DEBUG(("Render submit (WaveRT) : submit=%u\n", pInfo->renderTail));
+    PA_HP_TRACE((pInfo->stream->hLog, "Render submit (WaveRT) : submit=%u", pInfo->renderTail));
     ++pInfo->pending;
     if (pInfo->priming)
     {
         --pInfo->priming;
         if (pInfo->priming)
         {
-            __PA_DEBUG(("Setting WaveRT event for priming (2)\n"));
+            PA_HP_TRACE((pInfo->stream->hLog, "Setting WaveRT event for priming (2)"));
             SetEvent(pInfo->stream->render.events[0]);
         }
     }
+    return paNoError;
 }
 
-static void PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
+static PaError PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
     pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
     /* Call barrier (if needed) */
     pin->fnMemBarrier();
-    __PA_DEBUG(("Render submit (WaveRTPolled) : submit=%u\n", pInfo->renderTail));
+    PA_HP_TRACE((pInfo->stream->hLog, "Render submit (WaveRTPolled) : submit=%u", pInfo->renderTail));
     ++pInfo->pending;
     if (pInfo->priming)
     {
         --pInfo->priming;
         if (pInfo->priming)
         {
-            __PA_DEBUG(("Setting WaveRT event for priming (2)\n"));
+            PA_HP_TRACE((pInfo->stream->hLog, "Setting WaveRT event for priming (2)"));
             SetEvent(pInfo->stream->render.events[0]);
         }
     }
+    return paNoError;
 }

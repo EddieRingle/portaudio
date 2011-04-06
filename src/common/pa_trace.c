@@ -46,12 +46,16 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
+#include <assert.h>
 #include "pa_trace.h"
+#include "pa_util.h"
+#include "pa_debugprint.h"
 
 #if PA_TRACE_REALTIME_EVENTS
 
-static char *traceTextArray[PA_MAX_TRACE_RECORDS];
+static char const *traceTextArray[PA_MAX_TRACE_RECORDS];
 static int traceIntArray[PA_MAX_TRACE_RECORDS];
 static int traceIndex = 0;
 static int traceBlock = 0;
@@ -92,6 +96,114 @@ void PaUtil_AddTraceMessage( const char *msg, int data )
         traceIntArray[traceIndex] = data;
         traceIndex++;
     }
+}
+
+/************************************************************************/
+/* High performance log alternative                                     */
+/************************************************************************/
+
+typedef struct __PaHighPerformanceLog
+{
+    unsigned    magik;
+    int         writePtr;
+    int         readPtr;
+    int         size;
+    unsigned    refTime;
+    char*       data;
+} PaHighPerformanceLog;
+
+static const unsigned kMagik = 0xdeadbeef;
+
+#define USEC_PER_SEC    (1000*1000)
+
+static unsigned GetMicroSecondsSince(unsigned refTime)
+{
+    return (unsigned)(PaUtil_GetTime()*USEC_PER_SEC) - refTime;
+}
+
+int PaUtil_InitializeHighPerformanceLog( LogHandle* phLog, unsigned maxSizeInBytes )
+{
+    PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)PaUtil_AllocateMemory(sizeof(PaHighPerformanceLog));
+    if (pLog == 0)
+    {
+        return paInsufficientMemory;
+    }
+    assert(phLog != 0);
+    *phLog = pLog;
+
+    pLog->data = (char*)PaUtil_AllocateMemory(maxSizeInBytes);
+    if (pLog->data == 0)
+    {
+        PaUtil_FreeMemory(pLog);
+        return paInsufficientMemory;
+    }
+    pLog->magik = kMagik;
+    pLog->size = maxSizeInBytes;
+    pLog->refTime = GetMicroSecondsSince(0);
+    return paNoError;
+}
+
+typedef struct __PaLogEntryHeader
+{
+    int    size;
+    unsigned    timeStamp;
+} PaLogEntryHeader;
+
+int PaUtil_AddHighPerformanceLogMessage( LogHandle hLog, const char* fmt, ... )
+{
+    va_list l;
+    int n = 0;
+    PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
+    assert(pLog->magik == kMagik);
+    if (pLog != 0)
+    {
+        PaLogEntryHeader* pHeader = (PaLogEntryHeader*)( pLog->data + pLog->writePtr );
+        char* p = (char*)( pHeader + 1 );
+        const int maxN = pLog->size - pLog->writePtr - 2 * sizeof(PaLogEntryHeader);
+        pHeader->timeStamp = GetMicroSecondsSince(pLog->refTime);
+        if (maxN > 0)
+        {
+            va_start(l, fmt);
+            n = _vsnprintf(p, min(1024, maxN), fmt, l);
+            va_end(l);
+            n = ((n + sizeof(unsigned)) & ~(sizeof(unsigned)-1)) + sizeof(PaLogEntryHeader);
+            pHeader->size = n;
+#if 0
+            PaUtil_DebugPrint("%05u.%03u: %s\n", pHeader->timeStamp/1000, pHeader->timeStamp%1000, p);
+#endif
+            pLog->writePtr += n;
+        }
+    }
+    return n;
+}
+
+void PaUtil_DumpHighPerformanceLog( LogHandle hLog, const char* fileName )
+{
+    FILE* f = fileName != NULL ? fopen(fileName, "w") : stderr;
+    unsigned localWritePtr;
+    PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
+    assert(pLog->magik == kMagik);
+    localWritePtr = pLog->writePtr;
+    while (pLog->readPtr != localWritePtr)
+    {
+        const PaLogEntryHeader* pHeader = (const PaLogEntryHeader*)( pLog->data + pLog->readPtr );
+        const char* p = (const char*)( pHeader + 1 );
+        assert(pHeader->size < (1024+sizeof(unsigned)+sizeof(PaLogEntryHeader)));
+        fprintf(f, "%05u.%03u: %s\n", pHeader->timeStamp/1000, pHeader->timeStamp%1000, p);
+        pLog->readPtr += pHeader->size;
+    }
+    if (f != stderr)
+    {
+        fclose(f);
+    }
+}
+
+void PaUtil_DiscardHighPerformanceLog( LogHandle hLog )
+{
+    PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
+    assert(pLog->magik == kMagik);
+    PaUtil_FreeMemory(pLog->data);
+    PaUtil_FreeMemory(pLog);
 }
 
 #endif /* TRACE_REALTIME_EVENTS */

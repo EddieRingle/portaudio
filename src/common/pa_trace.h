@@ -66,7 +66,7 @@
 */
 
 #ifndef PA_TRACE_REALTIME_EVENTS
-#define PA_TRACE_REALTIME_EVENTS     (0)   /**< Set to 1 to enable logging using the trace functions defined below */
+#define PA_TRACE_REALTIME_EVENTS     (1)   /**< Set to 1 to enable logging using the trace functions defined below */
 #endif
 
 #ifndef PA_MAX_TRACE_RECORDS
@@ -84,12 +84,26 @@ extern "C"
 void PaUtil_ResetTraceMessages();
 void PaUtil_AddTraceMessage( const char *msg, int data );
 void PaUtil_DumpTraceMessages();
-    
+
+/* Alternative interface */
+
+typedef void* LogHandle;
+
+int PaUtil_InitializeHighPerformanceLog(LogHandle* phLog, unsigned maxSizeInBytes);
+int PaUtil_AddHighPerformanceLogMessage(LogHandle hLog, const char* fmt, ...);
+void PaUtil_DumpHighPerformanceLog(LogHandle hLog, const char* fileName);
+void PaUtil_DiscardHighPerformanceLog(LogHandle hLog);
+
 #else
 
 #define PaUtil_ResetTraceMessages() /* noop */
 #define PaUtil_AddTraceMessage(msg,data) /* noop */
 #define PaUtil_DumpTraceMessages() /* noop */
+
+#define PaUtil_InitializeHighPerformanceLog(phLog, maxSizeInBytes)  (0)
+#define PaUtil_AddHighPerformanceLogMessage(...)   (0)
+#define PaUtil_DumpHighPerformanceLog(hLog, fileName)
+#define PaUtil_DiscardHighPerformanceLog(hLog)
 
 #endif
 
