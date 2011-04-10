@@ -175,7 +175,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="ksuser.lib"
+				AdditionalDependencies="setupapi.lib"
 				OutputFile="$(PlatformName)\$(ConfigurationName)\portaudio_x64.dll"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
