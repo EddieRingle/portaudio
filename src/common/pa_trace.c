@@ -102,26 +102,28 @@ void PaUtil_AddTraceMessage( const char *msg, int data )
 /* High performance log alternative                                     */
 /************************************************************************/
 
+typedef unsigned long long  PaUint64;
+
 typedef struct __PaHighPerformanceLog
 {
     unsigned    magik;
     int         writePtr;
     int         readPtr;
     int         size;
-    unsigned    refTime;
+    PaUint64    refTime;
     char*       data;
 } PaHighPerformanceLog;
 
-static const unsigned kMagik = 0xdeadbeef;
+static const unsigned kMagik = 0xcafebabe;
 
-#define USEC_PER_SEC    (1000*1000)
+#define USEC_PER_SEC    (1000000ULL)
 
-static unsigned GetMicroSecondsSince(unsigned refTime)
+static PaUint64 GetMicroSecondsSince(PaUint64 refTime)
 {
-    return (unsigned)(PaUtil_GetTime()*USEC_PER_SEC) - refTime;
+    return (PaUint64)(PaUtil_GetTime()*USEC_PER_SEC) - refTime;
 }
 
-int PaUtil_InitializeHighPerformanceLog( LogHandle* phLog, unsigned maxSizeInBytes )
+int PaUtil_InitializeHighSpeedLog( LogHandle* phLog, unsigned maxSizeInBytes )
 {
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)PaUtil_AllocateMemory(sizeof(PaHighPerformanceLog));
     if (pLog == 0)
@@ -146,10 +148,10 @@ int PaUtil_InitializeHighPerformanceLog( LogHandle* phLog, unsigned maxSizeInByt
 typedef struct __PaLogEntryHeader
 {
     int    size;
-    unsigned    timeStamp;
+    PaUint64 timeStamp;
 } PaLogEntryHeader;
 
-int PaUtil_AddHighPerformanceLogMessage( LogHandle hLog, const char* fmt, ... )
+int PaUtil_AddHighSpeedLogMessage( LogHandle hLog, const char* fmt, ... )
 {
     va_list l;
     int n = 0;
@@ -160,12 +162,19 @@ int PaUtil_AddHighPerformanceLogMessage( LogHandle hLog, const char* fmt, ... )
         PaLogEntryHeader* pHeader = (PaLogEntryHeader*)( pLog->data + pLog->writePtr );
         char* p = (char*)( pHeader + 1 );
         const int maxN = pLog->size - pLog->writePtr - 2 * sizeof(PaLogEntryHeader);
+
         pHeader->timeStamp = GetMicroSecondsSince(pLog->refTime);
         if (maxN > 0)
         {
-            va_start(l, fmt);
-            n = _vsnprintf(p, min(1024, maxN), fmt, l);
-            va_end(l);
+            if (maxN > 32)
+            {
+                va_start(l, fmt);
+                n = _vsnprintf(p, min(1024, maxN), fmt, l);
+                va_end(l);
+            }
+            else {
+                n = sprintf(p, "End of log...");
+            }
             n = ((n + sizeof(unsigned)) & ~(sizeof(unsigned)-1)) + sizeof(PaLogEntryHeader);
             pHeader->size = n;
 #if 0
@@ -177,9 +186,9 @@ int PaUtil_AddHighPerformanceLogMessage( LogHandle hLog, const char* fmt, ... )
     return n;
 }
 
-void PaUtil_DumpHighPerformanceLog( LogHandle hLog, const char* fileName )
+void PaUtil_DumpHighSpeedLog( LogHandle hLog, const char* fileName )
 {
-    FILE* f = fileName != NULL ? fopen(fileName, "w") : stderr;
+    FILE* f = fileName != NULL ? fopen(fileName, "w") : stdout;
     unsigned localWritePtr;
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
     assert(pLog->magik == kMagik);
@@ -189,16 +198,16 @@ void PaUtil_DumpHighPerformanceLog( LogHandle hLog, const char* fileName )
         const PaLogEntryHeader* pHeader = (const PaLogEntryHeader*)( pLog->data + pLog->readPtr );
         const char* p = (const char*)( pHeader + 1 );
         assert(pHeader->size < (1024+sizeof(unsigned)+sizeof(PaLogEntryHeader)));
-        fprintf(f, "%05u.%03u: %s\n", pHeader->timeStamp/1000, pHeader->timeStamp%1000, p);
+        fprintf(f, "%05u.%03u: %s\n", (unsigned)(pHeader->timeStamp/1000), (unsigned)(pHeader->timeStamp%1000), p);
         pLog->readPtr += pHeader->size;
     }
-    if (f != stderr)
+    if (f != stdout)
     {
         fclose(f);
     }
 }
 
-void PaUtil_DiscardHighPerformanceLog( LogHandle hLog )
+void PaUtil_DiscardHighSpeedLog( LogHandle hLog )
 {
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
     assert(pLog->magik == kMagik);

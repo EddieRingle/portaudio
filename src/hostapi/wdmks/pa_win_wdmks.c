@@ -94,7 +94,7 @@ of a device for the duration of active stream using those devices
 /* The PA_HP_TRACE macro is used in RT parts, so it can be switched off without affecting
 the rest of the debug tracing */
 #if 1
-#define PA_HP_TRACE(x)  PaUtil_AddHighPerformanceLogMessage x ;
+#define PA_HP_TRACE(x)  PaUtil_AddHighSpeedLogMessage x ;
 #else
 #define PA_HP_TRACE(x)
 #endif
@@ -200,6 +200,13 @@ typedef struct __PaProcessThreadInfo PaProcessThreadInfo;
 
 typedef PaError (*FunctionPinHandler)(PaProcessThreadInfo* pInfo, unsigned eventIndex);
 
+typedef enum __PaStreamStartEnum
+{
+    StreamStart_kOk,
+    StreamStart_kFailed,
+    StreamStart_kCnt
+} PaStreamStartEnum;
+
 /* The Pin structure
 * A pin is an input or output node, e.g. for audio flow */
 struct __PaWinWdmPin
@@ -233,7 +240,7 @@ struct __PaWinWdmFilter
 {
     HANDLE         handle;
     PaWDMKSType    waveType;
-    unsigned       polledMode;      /* WaveRT polled mode flag */
+    PaWDMKSSubType waveSubType;
     DWORD          deviceNode;
     int            pinCount;
     PaWinWdmPin**  pins;
@@ -272,6 +279,13 @@ typedef struct __DATAPACKET
     OVERLAPPED       Signal;
 } DATAPACKET;
 
+typedef struct __PaIOPacket
+{
+    DATAPACKET*     packet;
+    unsigned        startByte;
+    unsigned        lengthBytes;
+} PaIOPacket;
+
 typedef struct __PaWinWdmIOInfo
 {
     PaWinWdmPin*        pPin;
@@ -309,7 +323,7 @@ typedef struct __PaWinWdmStream
     int                         oldProcessPriority;
     HANDLE                      streamThread;
     HANDLE                      eventAbort;
-    HANDLE                      eventStreamStart[2];        /* 0 = OK, 1 = Failed */
+    HANDLE                      eventStreamStart[StreamStart_kCnt];        /* 0 = OK, 1 = Failed */
     PaError                     threadResult;
     PaStreamFlags               streamFlags;
     /* Capture ring buffer */
@@ -339,8 +353,8 @@ struct __PaProcessThreadInfo
     unsigned                    captureTail;
     unsigned                    renderHead;
     unsigned                    renderTail;
-    DATAPACKET*                 capturePackets[4];
-    DATAPACKET*                 renderPackets[4];
+    PaIOPacket                  capturePackets[4];
+    PaIOPacket                  renderPackets[4];
 };
 
 static const unsigned cPacketsArrayMask = 3;
@@ -2520,13 +2534,11 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         GetStreamTime, GetStreamCpuLoad,
         PaUtil_DummyRead, PaUtil_DummyWrite,
         PaUtil_DummyGetReadAvailable, PaUtil_DummyGetWriteAvailable);
-        /*GetStreamInfo);*/
 
     PaUtil_InitializeStreamInterface( &wdmHostApi->blockingStreamInterface, CloseStream, StartStream,
         StopStream, AbortStream, IsStreamStopped, IsStreamActive,
         GetStreamTime, PaUtil_DummyGetCpuLoad,
         ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable);
-        /*GetStreamInfo);*/
 
     PA_LOGL_;
     return result;
@@ -2634,20 +2646,28 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         /* Check that the input format is supported */
         channelMask = PaWin_DefaultChannelMask(inputChannelCount);
-        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, inputChannelCount, 
-            paInt16, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
+        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
+            inputChannelCount, 
+            paInt16,
+            PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+            sampleRate,
+            channelMask );
 
         pFilter = wdmHostApi->filters[inputParameters->device];
         result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
-            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, inputChannelCount,
-                paInt16, WAVE_FORMAT_PCM, sampleRate);
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx,
+                inputChannelCount, 
+                paInt16,
+                PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+                sampleRate);
+
             result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWindWDM_SetLastErrorInfo(result, "FilterCanCreatecapture.pPin failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWindWDM_SetLastErrorInfo(result, "FilterCanCreateCapturePin failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -2695,20 +2715,27 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         /* Check that the output format is supported */
         channelMask = PaWin_DefaultChannelMask(outputChannelCount);
-        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx, outputChannelCount, 
-            paInt16, WAVE_FORMAT_EXTENSIBLE, sampleRate, channelMask );
+        PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
+            outputChannelCount, 
+            paInt16,
+            PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+            sampleRate,
+            channelMask );
 
         pFilter = wdmHostApi->filters[outputParameters->device];
         result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
-            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx, outputChannelCount, 
-                paInt16, WAVE_FORMAT_PCM, sampleRate);
+            PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx,
+                outputChannelCount, 
+                paInt16,
+                PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+                sampleRate);
             result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWindWDM_SetLastErrorInfo(result, "FilterCanCreateRenderPin(OUT) failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWindWDM_SetLastErrorInfo(result, "FilterCanCreateRenderPin failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -2784,11 +2811,13 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
     }
 
     /* Unregister notification handles for WaveRT */
-    if (stream->capture.pPin && stream->capture.pPin->parentFilter->waveType == Type_kWaveRT && !stream->capture.pPin->parentFilter->polledMode)
+    if (stream->capture.pPin && stream->capture.pPin->parentFilter->waveType == Type_kWaveRT &&
+        stream->capture.pPin->parentFilter->waveSubType == SubType_kNotification)
     {
         PinUnregisterNotificationHandle(stream->capture.pPin, stream->capture.events[0]);
     }
-    if (stream->render.pPin && stream->render.pPin->parentFilter->waveType == Type_kWaveRT && !stream->render.pPin->parentFilter->polledMode)
+    if (stream->render.pPin && stream->render.pPin->parentFilter->waveType == Type_kWaveRT && 
+        stream->render.pPin->parentFilter->waveSubType == SubType_kNotification)
     {
         PinUnregisterNotificationHandle(stream->render.pPin, stream->render.events[0]);
     }
@@ -3265,13 +3294,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 BOOL bCallMemoryBarrier = FALSE;
                 ULONG hwFifoLatency = 0;
                 ULONG dummy;
+                stream->capture.pPin->parentFilter->waveSubType = SubType_kNotification;
                 result = PinGetBufferWithNotification(stream->capture.pPin, (void**)&stream->capture.hostBuffer, &dwRequestedSize, &bCallMemoryBarrier);
                 if (result != paNoError)
                 {
                     result = PinGetBufferWithoutNotification(stream->capture.pPin, (void**)&stream->capture.hostBuffer, &dwRequestedSize, &bCallMemoryBarrier);
                     if (result==paNoError)
                     {
-                        stream->capture.pPin->parentFilter->polledMode = 1;
+                        stream->capture.pPin->parentFilter->waveSubType = SubType_kPolled;
                     }
                 }
                 if (!result) 
@@ -3285,10 +3315,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     }
                     stream->capture.hostBufferSize = dwRequestedSize;
 
-                    stream->capture.pPin->fnEventHandler = stream->capture.pPin->parentFilter->polledMode ?
+                    stream->capture.pPin->fnEventHandler = stream->capture.pPin->parentFilter->waveSubType == SubType_kPolled ?
                         PaPinCaptureEventHandler_WaveRTPolled : PaPinCaptureEventHandler_WaveRT;
 
-                    stream->capture.pPin->fnSubmitHandler = stream->capture.pPin->parentFilter->polledMode ?
+                    stream->capture.pPin->fnSubmitHandler = stream->capture.pPin->parentFilter->waveSubType == SubType_kPolled ?
                         PaPinCaptureSubmitHandler_WaveRTPolled : PaPinCaptureSubmitHandler_WaveRT;
 
                     stream->capture.pPin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierRead : MemoryBarrierDummy;
@@ -3358,13 +3388,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 BOOL bCallMemoryBarrier = FALSE;
                 ULONG hwFifoLatency = 0;
                 ULONG dummy;
+                stream->render.pPin->parentFilter->waveSubType = SubType_kNotification;
                 result = PinGetBufferWithNotification(stream->render.pPin, (void**)&stream->render.hostBuffer, &dwRequestedSize, &bCallMemoryBarrier);
                 if (result != paNoError)
                 {
                     result = PinGetBufferWithoutNotification(stream->render.pPin, (void**)&stream->render.hostBuffer, &dwRequestedSize, &bCallMemoryBarrier);
                     if (result==paNoError)
                     {
-                        stream->render.pPin->parentFilter->polledMode = 1;
+                        stream->render.pPin->parentFilter->waveSubType = SubType_kPolled;
                     }
                 }
                 if (!result) 
@@ -3378,10 +3409,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     }
                     stream->render.hostBufferSize = dwRequestedSize;
 
-                    stream->render.pPin->fnEventHandler = stream->render.pPin->parentFilter->polledMode ?
+                    stream->render.pPin->fnEventHandler = stream->render.pPin->parentFilter->waveSubType == SubType_kPolled ?
                         PaPinRenderEventHandler_WaveRTPolled : PaPinRenderEventHandler_WaveRT;
 
-                    stream->render.pPin->fnSubmitHandler = stream->render.pPin->parentFilter->polledMode ?
+                    stream->render.pPin->fnSubmitHandler = stream->render.pPin->parentFilter->waveSubType == SubType_kPolled ?
                         PaPinRenderSubmitHandler_WaveRTPolled : PaPinRenderSubmitHandler_WaveRT;
 
                     stream->render.pPin->fnMemBarrier = bCallMemoryBarrier ? MemoryBarrierWrite : MemoryBarrierDummy;
@@ -3502,7 +3533,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 p->Header.PresentationTime.Numerator = 1;
                 p->Header.PresentationTime.Denominator = 1;
 
-                if (!stream->capture.pPin->parentFilter->polledMode)
+                if (stream->capture.pPin->parentFilter->waveSubType == SubType_kNotification)
                 {
                     result = PinRegisterNotificationHandle(stream->capture.pPin, stream->capture.events[0]);
 
@@ -3599,7 +3630,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 p->Header.PresentationTime.Numerator = 1;
                 p->Header.PresentationTime.Denominator = 1;
 
-                if (!stream->render.pPin->parentFilter->polledMode)
+                if (stream->render.pPin->parentFilter->waveSubType == SubType_kNotification)
                 {
                     result = PinRegisterNotificationHandle(stream->render.pPin, stream->render.events[0]);
 
@@ -3646,11 +3677,13 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         mbstowcs(stream->hostApiStreamInfo.input.deviceName, stream->capture.pPin->parentFilter->filterName, MAX_PATH);
         stream->hostApiStreamInfo.input.streamingType = stream->capture.pPin->parentFilter->waveType;
+        stream->hostApiStreamInfo.input.streamingSubType = stream->capture.pPin->parentFilter->waveSubType;
     }
     if (stream->userOutputChannels)
     {
         mbstowcs(stream->hostApiStreamInfo.output.deviceName, stream->render.pPin->parentFilter->filterName, MAX_PATH);
         stream->hostApiStreamInfo.output.streamingType = stream->render.pPin->parentFilter->waveType;
+        stream->hostApiStreamInfo.output.streamingSubType = stream->render.pPin->parentFilter->waveSubType;
     }
     stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
     stream->streamRepresentation.streamInfo.hostApiTypeId = paWDMKS;
@@ -4019,6 +4052,11 @@ static PaError StopPins(PaProcessThreadInfo* pInfo)
     return result;
 }
 
+typedef void (*TSetInputFrameCount)(PaUtilBufferProcessor*, unsigned long);
+typedef void (*TSetInputChannel)(PaUtilBufferProcessor*, unsigned int, void *, unsigned int);
+static const TSetInputFrameCount fnSetInputFrameCount[2] = { PaUtil_SetInputFrameCount, PaUtil_Set2ndInputFrameCount };
+static const TSetInputChannel fnSetInputChannel[2] = { PaUtil_SetInputChannel, PaUtil_Set2ndInputChannel };
+
 static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 {
     PaError result = paNoError;
@@ -4040,34 +4078,24 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 
         if (pInfo->renderTail != pInfo->renderHead)
         {
-            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
+            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet;
 
             assert(packet != 0);
             assert(packet->Header.Data != 0);
 
             PaUtil_SetOutputFrameCount(&pInfo->stream->bufferProcessor, pInfo->stream->render.framesPerBuffer);
 
-            if( pInfo->stream->userOutputChannels == 1 )
+            for(i=0;i<pInfo->stream->userOutputChannels;i++)
             {
-                /* Write the single user channel to the first interleaved block */
-                PaUtil_SetOutputChannel(&pInfo->stream->bufferProcessor, 
-                    0, 
-                    packet->Header.Data, 
+                /* Only write the user output channels. Leave the rest blank */
+                PaUtil_SetOutputChannel(&pInfo->stream->bufferProcessor,
+                    i,
+                    ((unsigned char*)(packet->Header.Data))+(i*pInfo->stream->render.bytesPerSample),
                     pInfo->stream->deviceOutputChannels);
-                /* We will do a copy to the other channels after the data has been written */
-                doChannelCopy = 1;
             }
-            else
-            {
-                for(i=0;i<pInfo->stream->userOutputChannels;i++)
-                {
-                    /* Only write the user output channels. Leave the rest blank */
-                    PaUtil_SetOutputChannel(&pInfo->stream->bufferProcessor,
-                        i,
-                        ((unsigned char*)(packet->Header.Data))+(i*pInfo->stream->render.bytesPerSample),
-                        pInfo->stream->deviceOutputChannels);
-                }
-            }
+
+            /* We will do a copy to the other channels after the data has been written */
+            doChannelCopy = ( pInfo->stream->userOutputChannels == 1 );
         }
 
         if (inputFramesAvailable && (!pInfo->stream->userOutputChannels || inputFramesAvailable >= (int)pInfo->stream->render.framesPerBuffer))
@@ -4075,11 +4103,6 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
             unsigned wrapCntr = 0;
             char* data[2] = {0,0};
             ring_buffer_size_t size[2] = {0,0};
-            typedef void (*TSetInputFrameCount)(PaUtilBufferProcessor*, unsigned long);
-            typedef void (*TSetInputChannel)(PaUtilBufferProcessor*, unsigned int, void *, unsigned int);
-            TSetInputFrameCount fnSetInputFrameCount[2] = { PaUtil_SetInputFrameCount, PaUtil_Set2ndInputFrameCount };
-            TSetInputChannel fnSetInputChannel[2] = { PaUtil_SetInputChannel, PaUtil_Set2ndInputChannel };
-
 
             /* If full-duplex, we just extract output buffer number of frames */
             if (pInfo->stream->userOutputChannels)
@@ -4094,25 +4117,6 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                 &data[1],
                 &size[1]);
 
-
-#if 0
-            PaUtil_SetInputFrameCount(&pInfo->stream->bufferProcessor, size[0]);
-
-            PaUtil_SetInterleavedInputChannels(&pInfo->stream->bufferProcessor, 
-                0, 
-                data[0], 
-                pInfo->stream->deviceInputChannels);
-
-            if (data[1] != 0)
-            {
-                PaUtil_Set2ndInputFrameCount(&pInfo->stream->bufferProcessor, size[1]);
-
-                PaUtil_Set2ndInterleavedInputChannels(&pInfo->stream->bufferProcessor, 
-                    0, 
-                    data[1], 
-                    pInfo->stream->deviceInputChannels);
-            }
-#else
             for (wrapCntr = 0; wrapCntr < 2; ++wrapCntr)
             {
                 if (size[wrapCntr] == 0)
@@ -4128,16 +4132,17 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                         pInfo->stream->deviceInputChannels);
                 }
             }
-#endif
+#if 0
             if (pInfo->stream->userOutputChannels && pInfo->stream->capture.framesPerBuffer <= pInfo->stream->render.framesPerBuffer)
             {
                 ring_buffer_size_t n = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
                 if (n - inputFramesAvailable > 0)
                 {
-                    PA_HP_TRACE((pInfo->stream->hLog, "Synchronizing input buffer (to minimize input->output latency)"));
+                    PA_HP_TRACE((pInfo->stream->hLog, "Synchronizing input buffer (read advance = %d) ", n - inputFramesAvailable));
                     PaUtil_AdvanceRingBufferReadIndex(&pInfo->stream->ringBuffer, n - inputFramesAvailable);
                 }
             }
+#endif
         }
         else
         {
@@ -4151,7 +4156,6 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                 processFullDuplex = 0;
             }
         }
-
 
         if (processFullDuplex) /* full duplex */
         {
@@ -4177,7 +4181,7 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 
         if( doChannelCopy )
         {
-            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
+            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet;
             /* Copy the first output channel to the other channels */
             switch (pInfo->stream->render.bytesPerSample)
             {
@@ -4258,11 +4262,6 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     info.ti.currentTime = 0.0;
     info.ti.outputBufferDacTime = 0.0;
 
-    if (PaUtil_InitializeHighPerformanceLog(&info.stream->hLog, 1000000) != paNoError)
-    {
-        goto error;
-    }
-    
     PA_DEBUG(("In  buffer len: %.3f ms\n",(2000*info.stream->capture.framesPerBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
     PA_DEBUG(("Out buffer len: %.3f ms\n",(2000*info.stream->render.framesPerBuffer) / info.stream->streamRepresentation.streamInfo.sampleRate));
     info.timeout = (DWORD)max(
@@ -4293,15 +4292,22 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     handles[noOfHandles++] = info.stream->eventAbort;
     assert(noOfHandles <= ARRAYSIZE(handles));
 
-    /* Heighten priority here */
-    hAVRT = BumpThreadPriority();
-
     /* Prepare render and capture pins */
     if ((result = PreparePinsForStart(&info)) != paNoError) 
     {
         PA_DEBUG(("Failed to prepare device(s)!\n"));
         goto error;
     }
+
+    /* Init high speed logger */
+    if (PaUtil_InitializeHighSpeedLog(&info.stream->hLog, 1000000) != paNoError)
+    {
+        PA_DEBUG(("Failed to init high speed logger!\n"));
+        goto error;
+    }
+
+    /* Heighten priority here */
+    hAVRT = BumpThreadPriority();
 
     /* If not priming (i.e. input only) we start the pins immediately */
     if (!info.priming)
@@ -4318,7 +4324,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     {
         const unsigned fs = (unsigned)info.stream->streamRepresentation.streamInfo.sampleRate;
         unsigned timerPeriod = (unsigned)-1;
-        if (info.stream->capture.pPin != 0 && info.stream->capture.pPin->parentFilter->polledMode)
+        if (info.stream->capture.pPin != 0 && info.stream->capture.pPin->parentFilter->waveSubType == SubType_kPolled)
         {
             timerEventHandles[0] = info.stream->capture.events[0];
             timerPeriod = min(timerPeriod, (1000*info.stream->capture.framesPerBuffer)/fs);
@@ -4327,7 +4333,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         {
             timerEventHandles[0] = 0;
         }
-        if (info.stream->render.pPin != 0 && info.stream->render.pPin->parentFilter->polledMode)
+        if (info.stream->render.pPin != 0 && info.stream->render.pPin->parentFilter->waveSubType == SubType_kPolled)
         {
             timerEventHandles[1] = info.stream->render.events[0];
             timerPeriod = min(timerPeriod, (1000*info.stream->render.framesPerBuffer)/fs);
@@ -4362,7 +4368,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     }
 
     /* Up and running... */
-    SetEvent(info.stream->eventStreamStart[0]);
+    SetEvent(info.stream->eventStreamStart[StreamStart_kOk]);
 
     while(!info.stream->streamAbort)
     {
@@ -4372,7 +4378,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
         if (wait == WAIT_FAILED) 
         {
-            PA_DEBUG(("Wait failed = %ld! \n",wait));
+            PA_HP_TRACE((info.stream->hLog, "Wait failed = %ld! \n",wait));
             break;
         }
 
@@ -4415,7 +4421,8 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
                 info.stream->capture.pPin->fnSubmitHandler(&info, info.captureTail);
             }
             info.captureTail++;
-            /* If full-duplex, let _only_ render event trigger processing */
+            /* If full-duplex, let _only_ render event trigger processing. We still need the stream stop
+               handling working, so let that be processed anyways... */
             if (info.stream->userOutputChannels > 0)
             {
                 doProcessing = 0;
@@ -4428,7 +4435,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         }
         else {
             assert(info.stream->streamAbort);
-            PA_DEBUG(("Stream abort!"));
+            PA_HP_TRACE((info.stream->hLog, "Stream abort!"));
             continue;
         }
 
@@ -4436,35 +4443,35 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         if (doProcessing && (PaDoProcessing(&info) != paNoError))
         {
             PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
-            goto bailout;
+            break;
         }
 
         if(info.stream->streamStop && info.cbResult != paComplete)
         {
-            PA_DEBUG(("Stream stop! pending=%d\n",info.pending));
+            PA_HP_TRACE((info.stream->hLog, "Stream stop! pending=%d",info.pending));
             info.cbResult = paComplete; /* Stop, but play remaining buffers */
         }
 
         if(info.pending<=0)
         {
-            PA_DEBUG(("pending==0 finished...;\n"));
+            PA_HP_TRACE((info.stream->hLog, "pending==0 finished..."));
             break;
         }
         if((!info.stream->render.pPin)&&(info.cbResult!=paContinue))
         {
-            PA_DEBUG(("record only cbResult=%d...;\n",info.cbResult));
+            PA_HP_TRACE((info.stream->hLog, "record only cbResult=%d...",info.cbResult));
             break;
         }
     }
-    goto noerror;
+    goto bailout;
 
 error:
+    PA_DEBUG(("Error starting processing thread\n"));
     /* Set the "error" event together with result */
     info.stream->threadResult = result;
-    SetEvent(info.stream->eventStreamStart[1]);
+    SetEvent(info.stream->eventStreamStart[StreamStart_kFailed]);
 
 bailout:
-noerror:
     if (timerQueue != NULL)
     {
         DeleteTimerQueue(timerQueue);
@@ -4484,8 +4491,8 @@ noerror:
 #if PA_TRACE_REALTIME_EVENTS
     if (info.stream->hLog)
     {
-        PaUtil_DumpHighPerformanceLog(info.stream->hLog, "hp_trace.log");
-        PaUtil_DiscardHighPerformanceLog(info.stream->hLog);
+        PaUtil_DumpHighSpeedLog(info.stream->hLog, "hp_trace.log");
+        PaUtil_DiscardHighSpeedLog(info.stream->hLog);
         info.stream->hLog = 0;
     }
 #endif
@@ -4538,13 +4545,13 @@ static PaError StartStream( PaStream *s )
 
     switch (WaitForMultipleObjects(2, stream->eventStreamStart, FALSE, 5000))
     {
-    case WAIT_OBJECT_0:
+    case WAIT_OBJECT_0 + StreamStart_kOk:
         PA_DEBUG(("Processing thread started!\n"));
         result = paNoError;
         stream->streamStarted = 1;
         stream->streamActive = 1;
         break;
-    case WAIT_OBJECT_0+1:
+    case WAIT_OBJECT_0 + StreamStart_kFailed:
         PA_DEBUG(("Processing thread start failed! (result=%d)\n", stream->threadResult));
         result = stream->threadResult;
         break;
@@ -4771,7 +4778,7 @@ static PaError PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, u
     ring_buffer_size_t frameCount;
     DATAPACKET* packet = pInfo->stream->capture.packets + eventIndex;
 
-    pInfo->capturePackets[pInfo->captureHead & cPacketsArrayMask] = packet;
+    pInfo->capturePackets[pInfo->captureHead & cPacketsArrayMask].packet = packet;
 
     frameCount = PaUtil_WriteRingBuffer(&pInfo->stream->ringBuffer, packet->Header.Data, pInfo->stream->capture.framesPerBuffer);
 
@@ -4784,8 +4791,8 @@ static PaError PaPinCaptureEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, u
 static PaError PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaError result = paNoError;
-    DATAPACKET* packet = pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask];
-    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
+    DATAPACKET* packet = pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask].packet;
+    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask].packet = 0;
     assert(packet != 0);
     PA_HP_TRACE((pInfo->stream->hLog, "Capture submit: %u", eventIndex));
     packet->Header.DataUsed = 0; /* Reset for reuse */
@@ -4798,7 +4805,7 @@ static PaError PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, un
 {
     assert( eventIndex < 2 );
 
-    pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + eventIndex;
+    pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask].packet = pInfo->stream->render.packets + eventIndex;
     PA_HP_TRACE((pInfo->stream->hLog, "<<< Render event : idx=%u head=%u", eventIndex, pInfo->renderHead));
     ++pInfo->renderHead;
     --pInfo->pending;
@@ -4808,8 +4815,8 @@ static PaError PaPinRenderEventHandler_WaveCyclic(PaProcessThreadInfo* pInfo, un
 static PaError PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaError result = paNoError;
-    DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask];
-    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
+    DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet;
+    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet = 0;
     assert(packet != 0);
 
     PA_HP_TRACE((pInfo->stream->hLog, "Render submit : %u idx=%u", pInfo->renderTail, (unsigned)(packet - pInfo->stream->render.packets)));
@@ -4853,7 +4860,7 @@ static PaError PaPinCaptureEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsig
     /* Put it in queue */
     frameCount = PaUtil_WriteRingBuffer(&pInfo->stream->ringBuffer, packet->Header.Data, pCapture->framesPerBuffer);
 
-    pInfo->capturePackets[pInfo->captureHead & cPacketsArrayMask] = packet;
+    pInfo->capturePackets[pInfo->captureHead & cPacketsArrayMask].packet = packet;
 
     PA_HP_TRACE((pInfo->stream->hLog, "Capture event (WaveRT): idx=%u head=%u (pos = %4.1lf%%, frames=%u)", realInBuf, pInfo->captureHead, (pos * 100.0 / pCapture->hostBufferSize), frameCount));
 
@@ -4903,14 +4910,14 @@ static PaError PaPinCaptureEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo,
 
 static PaError PaPinCaptureSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
-    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
+    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask].packet = 0;
     ++pInfo->pending;
     return paNoError;
 }
 
 static PaError PaPinCaptureSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
-    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask] = 0;
+    pInfo->capturePackets[pInfo->captureTail & cPacketsArrayMask].packet = 0;
     ++pInfo->pending;
     return paNoError;
 }
@@ -4922,6 +4929,7 @@ static PaError PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsign
     PaWinWdmIOInfo* pRender = &pInfo->stream->render;
     const unsigned halfOutputBuffer = pRender->hostBufferSize >> 1;
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
+    PaIOPacket* ioPacket = &pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask];
 
     /* Get hold of current DAC position */
     pin->fnAudioPosition(pin, &pos);
@@ -4936,7 +4944,9 @@ static PaError PaPinRenderEventHandler_WaveRT(PaProcessThreadInfo* pInfo, unsign
     {
         realOutBuf = pInfo->renderHead & 0x1;
     }
-    pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + realOutBuf;
+    ioPacket->packet = pInfo->stream->render.packets + realOutBuf;
+    ioPacket->startByte = realOutBuf * halfOutputBuffer;
+    ioPacket->lengthBytes = halfOutputBuffer;
 
     PA_HP_TRACE((pInfo->stream->hLog, "Render event (WaveRT) : idx=%u head=%u (pos = %4.1lf%%)", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize) ));
 
@@ -4954,6 +4964,7 @@ static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, 
     PaWinWdmIOInfo* pRender = &pInfo->stream->render;
     const unsigned halfOutputBuffer = pRender->hostBufferSize >> 1;
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
+    PaIOPacket* ioPacket = &pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask];
 
     /* Get hold of current DAC position */
     pin->fnAudioPosition(pin, &pos);
@@ -4965,7 +4976,9 @@ static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, 
     if (pInfo->priming)
     {
         realOutBuf = pInfo->renderHead & 0x1;
-        pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + realOutBuf;
+        ioPacket->packet = pInfo->stream->render.packets + realOutBuf;
+        ioPacket->startByte = realOutBuf * halfOutputBuffer;
+        ioPacket->lengthBytes = halfOutputBuffer;
         ++pInfo->renderHead;
         --pInfo->pending;
     }
@@ -4976,8 +4989,10 @@ static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, 
         if (bytesToWrite >= halfOutputBuffer)
         {
             realOutBuf = (pos < halfOutputBuffer) ? 1U : 0U;
-            pInfo->renderPackets[pInfo->renderHead & cPacketsArrayMask] = pInfo->stream->render.packets + realOutBuf;
+            ioPacket->packet = pInfo->stream->render.packets + realOutBuf;
             pRender->lastPosition = realOutBuf ? 0U : halfOutputBuffer;
+            ioPacket->startByte = realOutBuf * halfOutputBuffer;
+            ioPacket->lengthBytes = halfOutputBuffer;
             ++pInfo->renderHead;
             --pInfo->pending;
             PA_HP_TRACE((pInfo->stream->hLog, "Render event (WaveRTPolled) : idx=%u head=%u (pos = %4.1lf%%, cnt=%u)", realOutBuf, pInfo->renderHead, (pos * 100.0 / pRender->hostBufferSize), pRender->pollCntr));
@@ -4990,7 +5005,7 @@ static PaError PaPinRenderEventHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, 
 static PaError PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
-    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
+    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet = 0;
     /* Call barrier (if needed) */
     pin->fnMemBarrier();
     PA_HP_TRACE((pInfo->stream->hLog, "Render submit (WaveRT) : submit=%u", pInfo->renderTail));
@@ -5010,7 +5025,7 @@ static PaError PaPinRenderSubmitHandler_WaveRT(PaProcessThreadInfo* pInfo, unsig
 static PaError PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo, unsigned eventIndex)
 {
     PaWinWdmPin* pin = pInfo->stream->render.pPin;
-    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask] = 0;
+    pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet = 0;
     /* Call barrier (if needed) */
     pin->fnMemBarrier();
     PA_HP_TRACE((pInfo->stream->hLog, "Render submit (WaveRTPolled) : submit=%u", pInfo->renderTail));
