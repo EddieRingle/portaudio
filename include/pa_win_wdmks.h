@@ -80,9 +80,18 @@ extern "C"
         Type_kCnt,
     } PaWDMKSType;
 
+    typedef enum PaWDMKSSubType
+    {
+        SubType_kNone,
+        SubType_kNotification,
+        SubType_kPolled,
+        SubType_kCnt,
+    } PaWDMKSSubType;
+
     typedef struct PaWinWDMKSDeviceInfo {
         wchar_t deviceName[MAX_PATH];   /**< Device path in Unicode! */
         PaWDMKSType streamingType;
+        PaWDMKSSubType streamingSubType;
     } PaWinWDMKSDeviceInfo;
 
     typedef struct PaWDMKSSpecificStreamInfo {
