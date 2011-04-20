@@ -57,11 +57,8 @@ extern "C"
     typedef enum PaWinWDMKSFlags
     {
         /* Makes WDMKS use the supplied latency figures instead of relying on the frame size reported
-           by the WaveCyclic device */
+           by the WaveCyclic device. Use at own risk! */
         paWinWDMKSOverrideFramesize         = (1 << 0),
-        /* Forces WDMKS full duplex with different devices. Might otherwise be a problem with
-           samplerate drift */
-        paWinWDMKSEnforceFullDuplex         = (1 << 1),
 
     } PaWinWDMKSFlags;
 
@@ -89,9 +86,15 @@ extern "C"
     } PaWDMKSSubType;
 
     typedef struct PaWinWDMKSDeviceInfo {
-        wchar_t deviceName[MAX_PATH];   /**< Device path in Unicode! */
+        wchar_t filterName[MAX_PATH];     /**< KS filter path in Unicode! */
+        wchar_t topologyName[MAX_PATH];   /**< Topology filter path in Unicode! */
         PaWDMKSType streamingType;
         PaWDMKSSubType streamingSubType;
+        int endpointPinId;                /**< Endpoint pin ID (on topology filter 
+                                               if topologyName is not empty) */
+        int muxNodeId;                    /**< Mux node on topology filter (or -1 if 
+                                               not used) */
+        unsigned channels;                /**< No of channels the device is opened with */
     } PaWinWDMKSDeviceInfo;
 
     typedef struct PaWDMKSSpecificStreamInfo {
