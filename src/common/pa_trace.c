@@ -145,6 +145,13 @@ int PaUtil_InitializeHighSpeedLog( LogHandle* phLog, unsigned maxSizeInBytes )
     return paNoError;
 }
 
+void PaUtil_ResetHighSpeedLogTimeRef( LogHandle hLog )
+{
+    PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
+    assert(pLog->magik == kMagik);
+    pLog->refTime = GetMicroSecondsSince(0);
+}
+
 typedef struct __PaLogEntryHeader
 {
     int    size;
@@ -156,12 +163,15 @@ int PaUtil_AddHighSpeedLogMessage( LogHandle hLog, const char* fmt, ... )
     va_list l;
     int n = 0;
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
-    assert(pLog->magik == kMagik);
     if (pLog != 0)
     {
-        PaLogEntryHeader* pHeader = (PaLogEntryHeader*)( pLog->data + pLog->writePtr );
-        char* p = (char*)( pHeader + 1 );
-        const int maxN = pLog->size - pLog->writePtr - 2 * sizeof(PaLogEntryHeader);
+        PaLogEntryHeader* pHeader;
+        char* p;
+        int maxN;
+        assert(pLog->magik == kMagik);
+        pHeader = (PaLogEntryHeader*)( pLog->data + pLog->writePtr );
+        p = (char*)( pHeader + 1 );
+        maxN = pLog->size - pLog->writePtr - 2 * sizeof(PaLogEntryHeader);
 
         pHeader->timeStamp = GetMicroSecondsSince(pLog->refTime);
         if (maxN > 0)
@@ -188,7 +198,7 @@ int PaUtil_AddHighSpeedLogMessage( LogHandle hLog, const char* fmt, ... )
 
 void PaUtil_DumpHighSpeedLog( LogHandle hLog, const char* fileName )
 {
-    FILE* f = fileName != NULL ? fopen(fileName, "w") : stdout;
+    FILE* f = (fileName != NULL) ? fopen(fileName, "w") : stdout;
     unsigned localWritePtr;
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
     assert(pLog->magik == kMagik);

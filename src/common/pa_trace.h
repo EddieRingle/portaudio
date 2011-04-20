@@ -66,7 +66,7 @@
 */
 
 #ifndef PA_TRACE_REALTIME_EVENTS
-#define PA_TRACE_REALTIME_EVENTS     (0)   /**< Set to 1 to enable logging using the trace functions defined below */
+#define PA_TRACE_REALTIME_EVENTS     (1)   /**< Set to 1 to enable logging using the trace functions defined below */
 #endif
 
 #ifndef PA_MAX_TRACE_RECORDS
@@ -90,6 +90,7 @@ void PaUtil_DumpTraceMessages();
 typedef void* LogHandle;
 
 int PaUtil_InitializeHighSpeedLog(LogHandle* phLog, unsigned maxSizeInBytes);
+void PaUtil_ResetHighSpeedLogTimeRef(LogHandle hLog);
 int PaUtil_AddHighSpeedLogMessage(LogHandle hLog, const char* fmt, ...);
 void PaUtil_DumpHighSpeedLog(LogHandle hLog, const char* fileName);
 void PaUtil_DiscardHighSpeedLog(LogHandle hLog);
