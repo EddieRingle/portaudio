@@ -1466,8 +1466,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                             {
                                 result = GetNameFromCategory(&category, (pin->dataFlow == KSPIN_DATAFLOW_OUT), pin->friendlyName, MAX_PATH);
 
-    if( result != paNoError )
-                                    {
+                                if( result != paNoError )
+                                {
                                     wchar_t buffer[MAX_PATH];
                                     /* Ok, try pin name instead */
                                     result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
@@ -1557,7 +1557,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                 {
                                     FilterRelease(pin->parentFilter->topologyFilter);
                                     result = paInsufficientMemory;
-        goto error;
+                                    goto error;
                                 }
                                 pin->inputCount = muxCount;
 
