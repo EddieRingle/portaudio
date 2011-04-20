@@ -1354,7 +1354,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
             if (result != paNoError)
             {
                 /* No physical connection -> there is no topology filter! So we get the name of the pin! */
-                wchar_t buffer[MAX_PATH];
+                wchar_t buffer[MAX_PATH] = {0};
                 result = WdmGetPinPropertySimple(parentFilter->handle,
                     topoPinId,
                     &KSPROPSETID_Pin,
@@ -1362,7 +1362,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                     buffer,
                     MAX_PATH,
                     NULL);
-                if (result == paNoError)
+                if (result == paNoError && wcslen(buffer) > 0)
                 {
                     wcstombs(pin->friendlyName, buffer, MAX_PATH);
                 }
