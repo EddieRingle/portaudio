@@ -2847,10 +2847,10 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     wdmDeviceInfo = &deviceInfoArray[idxDevice];
                     deviceInfo = &wdmDeviceInfo->inheritedDeviceInfo;
 
-            wdmDeviceInfo->filter = pFilter;
+                    wdmDeviceInfo->filter = pFilter;
 
-            deviceInfo->structVersion = 2;
-            deviceInfo->hostApi = hostApiIndex;
+                    deviceInfo->structVersion = 2;
+                    deviceInfo->hostApi = hostApiIndex;
                     deviceInfo->name = wdmDeviceInfo->compositeName;
 
                     wdmDeviceInfo->pin = pin->pinId;
@@ -2867,15 +2867,15 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     {
                         PaWinWdmMuxedInput* input = pin->inputs[m];
                         /* Check if there are more inputs with same name (which might very well be the case), if there
-                           are, the name will be postfixed with an index. Note that current implementation only deals with
-                           reoccurence of one name, not N this and M that... ;) */
+                        are, the name will be postfixed with an index. Note that current implementation only deals with
+                        reoccurence of one name, not N this and M that... ;) */
                         if (nameIndex == 0)
                         {
                             unsigned j = m + 1;
                             for (; j < pin->inputCount; ++j)
                             {
                                 if (cmpstring(pin->inputs[j]->friendlyName, input->friendlyName) == 0)
-            {
+                                {
                                     nameIndex = 1;
                                     nameIndexHash = GetHash(input->friendlyName);
                                     break;
@@ -2884,72 +2884,81 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         }
                         n = _snprintf(wdmDeviceInfo->compositeName, MAX_PATH, "%s", input->friendlyName);
                         if (nameIndex > 0 && (nameIndexHash == GetHash(input->friendlyName)))
-                {
+                        {
                             n += _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " %u", nameIndex);
                             ++nameIndex;
-                }
+                        }
                         _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " (%s)", pFilter->friendlyName);
                         wdmDeviceInfo->muxPosition = (int)m;
                         wdmDeviceInfo->endpointPinId = input->endpointPinId;
-            }
+                    }
 
                     if (pin->dataFlow == KSPIN_DATAFLOW_IN)
-            {
+                    {
                         /* OUTPUT ! */
                         deviceInfo->maxInputChannels  = 0;
                         deviceInfo->maxOutputChannels = pin->maxChannels;
+                        if ((*hostApi)->info.defaultOutputDevice == paNoDevice)
+                        {
+                            (*hostApi)->info.defaultOutputDevice = idxDevice;
+                        }
+
                     }
                     else
-                {
+                    {
                         /* INPUT ! */
                         deviceInfo->maxInputChannels  = pin->maxChannels;
                         deviceInfo->maxOutputChannels = 0;
-                }
+                        if ((*hostApi)->info.defaultInputDevice == paNoDevice)
+                        {
+                            (*hostApi)->info.defaultInputDevice = idxDevice;
+                        }
+                    }
 
-            /* These low values are not very useful because
-            * a) The lowest latency we end up with can depend on many factors such
-            *    as the device buffer sizes/granularities, sample rate, channels and format
-            * b) We cannot know the device buffer sizes until we try to open/use it at
-            *    a particular setting
-            * So: we give 512x48000Hz frames as the default low input latency
-            **/
-            switch (pFilter->waveType)
-            {
-            case Type_kWaveCyclic:
+                    /* These low values are not very useful because
+                    * a) The lowest latency we end up with can depend on many factors such
+                    *    as the device buffer sizes/granularities, sample rate, channels and format
+                    * b) We cannot know the device buffer sizes until we try to open/use it at
+                    *    a particular setting
+                    * So: we give 512x48000Hz frames as the default low input latency
+                    **/
+                    switch (pFilter->waveType)
+                    {
+                    case Type_kWaveCyclic:
                         if (IsEarlierThanVista())
                         {
                             /* XP doesn't tolerate low latency, unless the Process Priority Class is set to REALTIME_PRIORITY_CLASS 
-                               through SetPriorityClass, then 10 ms is quite feasible. However, one should then bear in mind that ALL of
-                               the process is running in REALTIME_PRIORITY_CLASS, which might not be appropriate for an application with
-                               a GUI . In this case it is advisable to separate the audio engine in another process and use IPC to communicate
-                               with it. */
+                            through SetPriorityClass, then 10 ms is quite feasible. However, one should then bear in mind that ALL of
+                            the process is running in REALTIME_PRIORITY_CLASS, which might not be appropriate for an application with
+                            a GUI . In this case it is advisable to separate the audio engine in another process and use IPC to communicate
+                            with it. */
                             deviceInfo->defaultLowInputLatency = 0.02;
                             deviceInfo->defaultLowOutputLatency = 0.02;
                         }
                         else
                         {
                             /* This is a conservative estimate. Most WaveCyclic drivers will limit the available latency, but f.i. my Edirol
-                               PCR-A30 can reach 3 ms latency easily... */
-                deviceInfo->defaultLowInputLatency = 0.01;
-                deviceInfo->defaultLowOutputLatency = 0.01;
+                            PCR-A30 can reach 3 ms latency easily... */
+                            deviceInfo->defaultLowInputLatency = 0.01;
+                            deviceInfo->defaultLowOutputLatency = 0.01;
                         }
-                deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
-                deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
+                        deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
+                        deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                         deviceInfo->defaultSampleRate = (double)(pin->bestSampleRate);
-                break;
-            case Type_kWaveRT:
+                        break;
+                    case Type_kWaveRT:
                         /* This is also a conservative estimate, based on WaveRT polled mode. In polled mode, the latency will be dictated
-                           by the buffer size given by the driver. */
+                        by the buffer size given by the driver. */
                         deviceInfo->defaultLowInputLatency = 0.005;
                         deviceInfo->defaultLowOutputLatency = 0.005;
-                deviceInfo->defaultHighInputLatency = (512/48000.0);
-                deviceInfo->defaultHighOutputLatency = (512/48000.0);
+                        deviceInfo->defaultHighInputLatency = (512/48000.0);
+                        deviceInfo->defaultHighOutputLatency = (512/48000.0);
                         deviceInfo->defaultSampleRate = (double)(pin->bestSampleRate);
-                break;
-            default:
-                assert(0);
-                break;
-            }
+                        break;
+                    default:
+                        assert(0);
+                        break;
+                    }
                     assert(idxDevice < totalDeviceCount);
                     (*hostApi)->deviceInfos[idxDevice] = deviceInfo;
                     ++idxDevice;
