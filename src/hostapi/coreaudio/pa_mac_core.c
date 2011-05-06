@@ -1732,10 +1732,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 		AudioDeviceAddPropertyListener( stream->outputDevice, 0, /* isInput = */ FALSE, kAudioDevicePropertyLatency, 
 									   AudioDevicePropertyOutputLatencySamplesListenerProc, stream );
 		
+        /* Set stream specific info */
+        stream->streamSpecificInfo.output.deviceId = stream->outputDevice;
+        stream->streamSpecificInfo.output.channels = stream->userOutChan;
+        
 	}else{
 		stream->recipricalOfActualOutputSampleRate = 1.;
 		stream->recipricalOfActualOutputSampleRate_ioProcCopy = 0.;
 		stream->deviceOutputLatencySamples_ioProcCopy = 0;
+        stream->streamSpecificInfo.output.deviceId = kAudioDeviceUnknown;
+        stream->streamSpecificInfo.output.channels = 0;
 	}
 	
 	if( stream->inputUnit ) {
@@ -1744,10 +1750,21 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 		
 		AudioDeviceAddPropertyListener( stream->inputDevice, 0, /* isInput = */ TRUE, kAudioDevicePropertyLatency, 
 									   AudioDevicePropertyInputLatencySamplesListenerProc, stream );
-	}else{
+        /* Set stream specific info */
+        stream->streamSpecificInfo.input.deviceId = stream->inputDevice;
+        stream->streamSpecificInfo.input.channels = stream->userInChan;
+
+	}
+    else
+    {
 		stream->deviceInputLatencySamples = 0;
 		stream->deviceInputLatencySamples_ioProcCopy = 0;
+        stream->streamSpecificInfo.input.deviceId = kAudioDeviceUnknown;
+        stream->streamSpecificInfo.input.channels = 0;
 	}
+    
+    stream->streamRepresentation.streamInfo.hostApiTypeId = paCoreAudio;
+    stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->streamSpecificInfo;
 	
     stream->state = STOPPED;
     stream->xrunFlags = 0;
@@ -2132,7 +2149,7 @@ static OSStatus AudioIOProc( void *inRefCon,
       } while( err == -10874 && inNumberFrames > 1 );
       /* FEEDBACK: I'm not sure what to do when this call fails */
       ERR( err );
-      assert( !err );
+      //assert( !err );
       if( stream->inputSRConverter || stream->outputUnit )
       {
          /* If this is duplex or we use a converter, put the data

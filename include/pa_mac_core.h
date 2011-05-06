@@ -88,6 +88,18 @@ void PaMacCore_SetupStreamInfo( PaMacCoreStreamInfo *data, unsigned long flags )
  */
 void PaMacCore_SetupChannelMap( PaMacCoreStreamInfo *data, const SInt32 * const channelMap, unsigned long channelMapSize );
 
+typedef struct
+{
+    AudioDeviceID 	deviceId;
+    unsigned		channels;
+} PaCoreAudioDeviceInfo;
+    
+typedef struct
+{
+    PaCoreAudioDeviceInfo	input;
+    PaCoreAudioDeviceInfo	output;
+} PaCoreAudioSpecificStreamInfo;
+    
 /*
  * Retrieve the AudioDeviceID of the input device assigned to an open stream
  *

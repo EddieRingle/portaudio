@@ -158,6 +158,12 @@ typedef struct __PaLogEntryHeader
     PaUint64 timeStamp;
 } PaLogEntryHeader;
 
+#ifdef __APPLE__
+#define _vsnprintf vsnprintf
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
+
+
 int PaUtil_AddHighSpeedLogMessage( LogHandle hLog, const char* fmt, ... )
 {
     va_list l;

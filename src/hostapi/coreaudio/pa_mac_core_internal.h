@@ -76,6 +76,7 @@
 #include "pa_ringbuffer.h"
 
 #include "pa_mac_core_blocking.h"
+#include "pa_mac_core.h"	
 
 /* function prototypes */
 
@@ -121,6 +122,7 @@ typedef struct PaMacCoreStream
     PaUtilStreamRepresentation streamRepresentation;
     PaUtilCpuLoadMeasurer cpuLoadMeasurer;
     PaUtilBufferProcessor bufferProcessor;
+    PaCoreAudioSpecificStreamInfo streamSpecificInfo;
 
     /* implementation specific data goes here */
     bool bufferProcessorIsInitialized;
