@@ -1043,8 +1043,9 @@ static int PaUsbTerminalGUIDToNameCmp(const void* lhs, const void* rhs)
 static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, unsigned length)
 {
     PaError result = paUnanticipatedHostError;
-    const USHORT usbTerminalGUID = (USHORT)(pGUID->Data1 - 0xDFF219E0);
-    if (usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x713)
+    USHORT usbTerminalGUID = (USHORT)(pGUID->Data1 - 0xDFF219E0);
+
+    while (usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x713)
     {
         PaUsbTerminalGUIDToName s = { usbTerminalGUID };
         const PaUsbTerminalGUIDToName* ptr = bsearch(
@@ -1056,6 +1057,19 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
             );
         if (ptr != 0)
         {
+            if (input && usbTerminalGUID >= 0x301 && usbTerminalGUID < 0x400)
+            {
+                /* Output terminal name for an input !? Set it to Microphone! */
+                usbTerminalGUID = 0x201;
+                continue;
+            }
+            if (!input && usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x300)
+            {
+                /* Input terminal name for an output !? Set it to Speakers! */
+                usbTerminalGUID = 0x301;
+                continue;
+            }
+
             if (name != NULL && length > 0)
             {
                 int n = formatstring(name, length, TEXT("%s"), ptr->name);
@@ -1064,8 +1078,10 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
                     formatstring(name + n, length - n, TEXT(" %s"), (input ? TEXT("In"):TEXT("Out")));
                 }
             }
+
             result = paNoError;
         }
+        break;
     }
 
     return result;
@@ -1395,7 +1411,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
                     if (result == paNoError)
                     {
-                        result = GetNameFromCategory(&category, TRUE, pin->friendlyName, MAX_PATH);
+                        result = GetNameFromCategory(&category, (pin->dataFlow == KSPIN_DATAFLOW_OUT), pin->friendlyName, MAX_PATH);
                     }
                 }
 
