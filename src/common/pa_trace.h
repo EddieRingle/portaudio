@@ -102,6 +102,7 @@ void PaUtil_DiscardHighSpeedLog(LogHandle hLog);
 #define PaUtil_DumpTraceMessages() /* noop */
 
 #define PaUtil_InitializeHighSpeedLog(phLog, maxSizeInBytes)  (0)
+#define PaUtil_ResetHighSpeedLogTimeRef(hLog)
 #define PaUtil_AddHighSpeedLogMessage(...)   (0)
 #define PaUtil_DumpHighSpeedLog(hLog, fileName)
 #define PaUtil_DiscardHighSpeedLog(hLog)

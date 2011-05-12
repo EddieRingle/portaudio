@@ -104,11 +104,13 @@ the rest of the debug tracing */
 #define copytowidestring  wcsncpy
 #define formatstring      _snwprintf
 #define cmpstring         wcscmp
+#define cmpstringnocase   wcsicmp
 #else
 #define copywidestring    wcstombs
 #define copytowidestring  mbstowcs
 #define formatstring      _snprintf
 #define cmpstring         strcmp
+#define cmpstringnocase   _stricmp
 #endif
 
 #ifdef __GNUC__
@@ -477,6 +479,7 @@ static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition);
 
 /* Filter management functions */
 static PaWinWdmFilter* FilterNew(PaWDMKSType type, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error);
+static PaError FilterInitializePins(PaWinWdmFilter* filter);
 static void FilterFree(PaWinWdmFilter* filter);
 static PaWinWdmPin* FilterCreateRenderPin(
     PaWinWdmFilter* filter,
@@ -492,6 +495,10 @@ static PaError FilterUse(
                          PaWinWdmFilter* filter);
 static void FilterRelease(
                           PaWinWdmFilter* filter);
+
+/* Hot plug functions */
+static BOOL IsDeviceTheSame(const PaWinWdmDeviceInfo* pDev1,
+                            const PaWinWdmDeviceInfo* pDev2);
 
 /* Interface functions */
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
@@ -531,7 +538,7 @@ static signed long GetStreamWriteAvailable( PaStream* stream );
 
 /* Utility functions */
 static unsigned long GetWfexSize(const WAVEFORMATEX* wfex);
-static PaError BuildFilterList(PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaDevices);
+static PaWinWdmFilter** BuildFilterList(int* filterCount, int* noOfPaDevices, PaError* result);
 static BOOL PinWrite(HANDLE h, DATAPACKET* p);
 static BOOL PinRead(HANDLE h, DATAPACKET* p);
 static void DuplicateFirstChannelInt16(void* buffer, int channels, int samples);
@@ -577,6 +584,21 @@ static void PaWinWdmDebugPrintf(const char* fmt, ...)
 #define PA_DEBUG(x)    PaWinWdmDebugPrintf x ;
 #endif
 #endif
+
+static BOOL IsDeviceTheSame(const PaWinWdmDeviceInfo* pDev1,
+                            const PaWinWdmDeviceInfo* pDev2)
+{
+    if (pDev1 == NULL || pDev2 == NULL)
+        return FALSE;
+
+    if (pDev1 == pDev2)
+        return TRUE;
+
+    if (strcmp(pDev1->compositeName, pDev2->compositeName) == 0)
+        return TRUE;
+
+    return FALSE;
+}
 
 static BOOL IsEarlierThanVista()
 {
@@ -966,8 +988,7 @@ static ULONG GetConnectedPin(ULONG startPin, BOOL forward, PaWinWdmFilter* filte
     while (1)
     {
         const KSTOPOLOGY_CONNECTION * conn = fnGetConnection(pFrom, filter, -1);
-        if ((forward && conn->ToNode == KSFILTER_NODE) ||
-            (!forward && conn->FromNode == KSFILTER_NODE))
+        if (forward ? conn->ToNode == KSFILTER_NODE : conn->FromNode == KSFILTER_NODE)
         {
             return forward ? conn->ToNodePin : conn->FromNodePin;
         }
@@ -1008,6 +1029,7 @@ typedef struct __PaUsbTerminalGUIDToName
 
 static const PaUsbTerminalGUIDToName kNames[] =
 {
+    /* Types copied from: http://msdn.microsoft.com/en-us/library/ff537742(v=vs.85).aspx */
     /* Input terminal types */
     { 0x0201, TEXT("Microphone") },
     { 0x0202, TEXT("Desktop Microphone") },
@@ -1045,7 +1067,17 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
     PaError result = paUnanticipatedHostError;
     USHORT usbTerminalGUID = (USHORT)(pGUID->Data1 - 0xDFF219E0);
 
-    while (usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x713)
+    if (input && usbTerminalGUID >= 0x301 && usbTerminalGUID < 0x400)
+    {
+        /* Output terminal name for an input !? Set it to Line! */
+        usbTerminalGUID = 0x603;
+    }
+    if (!input && usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x300)
+    {
+        /* Input terminal name for an output !? Set it to Line! */
+        usbTerminalGUID = 0x603;
+    }
+    if (usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x713)
     {
         PaUsbTerminalGUIDToName s = { usbTerminalGUID };
         const PaUsbTerminalGUIDToName* ptr = bsearch(
@@ -1057,19 +1089,6 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
             );
         if (ptr != 0)
         {
-            if (input && usbTerminalGUID >= 0x301 && usbTerminalGUID < 0x400)
-            {
-                /* Output terminal name for an input !? Set it to Microphone! */
-                usbTerminalGUID = 0x201;
-                continue;
-            }
-            if (!input && usbTerminalGUID >= 0x201 && usbTerminalGUID < 0x300)
-            {
-                /* Input terminal name for an output !? Set it to Speakers! */
-                usbTerminalGUID = 0x301;
-                continue;
-            }
-
             if (name != NULL && length > 0)
             {
                 int n = formatstring(name, length, TEXT("%s"), ptr->name);
@@ -1078,12 +1097,9 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
                     formatstring(name + n, length - n, TEXT(" %s"), (input ? TEXT("In"):TEXT("Out")));
                 }
             }
-
             result = paNoError;
         }
-        break;
     }
-
     return result;
 }
 
@@ -1480,31 +1496,30 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
                             if (result == paNoError)
                             {
-                                result = GetNameFromCategory(&category, (pin->dataFlow == KSPIN_DATAFLOW_OUT), pin->friendlyName, MAX_PATH);
+                                wchar_t pinName[MAX_PATH];
 
-                                if( result != paNoError )
-                                {
-                                    wchar_t buffer[MAX_PATH];
-                                    /* Ok, try pin name instead */
+                                /* Ok, try pin name also, and favor that if available */
                                     result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
                                         endpointPinId,
                                         &KSPROPSETID_Pin,
                                         KSPROPERTY_PIN_NAME,
-                                        buffer,
+                                    pinName,
                                         MAX_PATH,
                                         NULL);
 
-                                    if (result == paNoError)
+                                if (result == paNoError && wcslen(pinName)>0)
                                     {
-                                        copywidestring(pin->friendlyName, buffer, MAX_PATH);
+                                    copywidestring(pin->friendlyName, pinName, MAX_PATH);
                                     }
                                     else
                                     {
-                                        /* Just give it a name... */
+                                    result = GetNameFromCategory(&category, (pin->dataFlow == KSPIN_DATAFLOW_OUT), pin->friendlyName, MAX_PATH);
+
+                                    if (result != paNoError)
+                                    {
                                         copywidestring(pin->friendlyName, L"Output", MAX_PATH);
                                     }
                                 }
-
                             }
 
                             /* Set endpoint pin ID */
@@ -1514,8 +1529,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                         {
                             unsigned muxCount = 0;
                             int muxPos = 0;
-                            /* Max 16 multiplexer inputs... sanity check :) */
-                            for (i = 0; i < 16; ++i)
+                            /* Max 64 multiplexer inputs... sanity check :) */
+                            for (i = 0; i < 64; ++i)
                             {
                                 ULONG muxNodeIdTest = (unsigned)-1;
                                 endpointPinId = GetConnectedPin(pc->Pin,
@@ -1544,7 +1559,30 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                         if (muxNodeIdTest == (unsigned)-1)
                                         {
                                             /* The case where there is no MUX in the path */
+                                            wchar_t pinName[MAX_PATH];
+
+                                            /* Ok, try pin name, and favor that if available */
+                                            result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
+                                                endpointPinId,
+                                                &KSPROPSETID_Pin,
+                                                KSPROPERTY_PIN_NAME,
+                                                pinName,
+                                                MAX_PATH,
+                                                NULL);
+
+                                            if (result == paNoError && wcslen(pinName)>0)
+                                            {
+                                                copywidestring(pin->friendlyName, pinName, MAX_PATH);
+                                            }
+                                            else
+                                            {
                                             result = GetNameFromCategory(&category, TRUE, pin->friendlyName, MAX_PATH);
+
+                                                if (result != paNoError)
+                                                {
+                                                    copywidestring(pin->friendlyName, L"Input", MAX_PATH);
+                                                }
+                                            }
                                             break;
                                         }
                                         else
@@ -1567,7 +1605,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
                             if (muxCount > 0)
                             {
-                                /* Now we redo the operation once with know how many multiplexer positions we have */
+                                /* Now we redo the operation once known how many multiplexer positions there are */
                                 pin->inputs = (PaWinWdmMuxedInput**)PaUtil_AllocateMemory(muxCount * sizeof(PaWinWdmMuxedInput*));
                                 if (pin->inputs == NULL)
                                 {
@@ -1619,10 +1657,25 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                             result = GetNameFromCategory(&category, TRUE, pin->inputs[i]->friendlyName, MAX_PATH);
                                             if (result == paNoError)
                                             {
+                                                wchar_t pinName[MAX_PATH];
+
+                                                /* Try pin name also, and if that is defined, use that instead */
+                                                result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
+                                                    endpointPinId,
+                                                    &KSPROPSETID_Pin,
+                                                    KSPROPERTY_PIN_NAME,
+                                                    pinName,
+                                                    MAX_PATH,
+                                                    NULL);
+
+                                                if (result == paNoError && wcslen(pinName) > 0)
+                                                {
+                                                    copywidestring(pin->inputs[i]->friendlyName, pinName, MAX_PATH);
+                                                }
+
                                                 ++i;
                                             }
                                         }
-
                                     }
                                     else
                                     {
@@ -2177,15 +2230,14 @@ static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition)
 /***********************************************************************************************/
 
 /**
-* Create a new filter object
+* Create a new filter object. If initPins is TRUE, the pins will be instantiated aswell. Why would you not want this, you
+* may ask ? Well, in a hot plug/unplug situation, you might want to init a filter object without pins, since the latter will
+* fail if the device is in use, but you don't want that as an indication that the filter creation failed.
 */
 static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error )
 {
     PaWinWdmFilter* filter = 0;
     PaError result;
-    int pinId;
-    int valid;
-
 
     /* Allocate the new filter object */
     filter = (PaWinWdmFilter*)PaUtil_AllocateMemory( sizeof(PaWinWdmFilter) );
@@ -2259,38 +2311,13 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
     /* This section is not executed for topology filters */
     if (type != Type_kNotUsed)
     {
-    /* Allocate pointer array to hold the pins */
-    filter->pins = (PaWinWdmPin**)PaUtil_AllocateMemory( sizeof(PaWinWdmPin*) * filter->pinCount );
-    if( !filter->pins )
-    {
-        result = paInsufficientMemory;
-        goto error;
-    }
+        /* Initialize the pins */
+        result = FilterInitializePins(filter);
 
-    /* Create all the pins we can */
-    valid = 0;
-    for(pinId = 0; pinId < filter->pinCount; pinId++)
-    {
-        /* Create the pin with this Id */
-        PaWinWdmPin* newPin;
-        newPin = PinNew(filter, pinId, &result);
-        if( result == paInsufficientMemory )
-            goto error;
-        if( newPin != NULL )
+        if( result != paNoError )
         {
-            filter->pins[pinId] = newPin;
-            valid = 1;
-
-                ++filter->validPinCount;
-            }
-            }
-
-    if( !valid )
-    {
-        /* No valid pin was found on this filter so we destroy it */
-        result = paDeviceUnavailable;
-        goto error;
-    }
+            goto error;
+        }
     }
 
     /* Close the filter handle for now
@@ -2311,6 +2338,72 @@ error:
 }
 
 /**
+* Initialize the pins of the filter. This is separated from FilterNew because this might fail if there is another
+* process using the pin(s).
+*/
+PaError FilterInitializePins( PaWinWdmFilter* filter )
+{
+    PaError result = paNoError;
+    int pinId;
+
+    if (filter->waveType == Type_kNotUsed)
+        return paNoError;
+
+    if (filter->pins != NULL)
+        return paNoError;   
+
+    /* Allocate pointer array to hold the pins */
+    filter->pins = (PaWinWdmPin**)PaUtil_AllocateMemory( sizeof(PaWinWdmPin*) * filter->pinCount );
+    if( !filter->pins )
+    {
+        result = paInsufficientMemory;
+        goto error;
+    }
+
+    /* Create all the pins we can */
+    for(pinId = 0; pinId < filter->pinCount; pinId++)
+    {
+        /* Create the pin with this Id */
+        PaWinWdmPin* newPin;
+        newPin = PinNew(filter, pinId, &result);
+        if( result == paInsufficientMemory )
+            goto error;
+        if( newPin != NULL )
+        {
+            filter->pins[pinId] = newPin;
+                ++filter->validPinCount;
+            }
+            }
+
+    if (filter->validPinCount == 0)
+    {
+        result = paDeviceUnavailable;
+        goto error;
+    }
+
+    return paNoError;
+
+error:
+
+    if (filter->pins)
+    {
+        for (pinId = 0; pinId < filter->pinCount; ++pinId)
+        {
+            if (filter->pins[pinId])
+            {
+                PaUtil_FreeMemory(filter->pins[pinId]);
+                filter->pins[pinId] = 0;
+            }
+        }
+        PaUtil_FreeMemory(filter->pins);
+        filter->pins = 0;
+    }
+
+    return result;
+}
+
+
+/**
 * Free a previously created filter
 */
 static void FilterFree(PaWinWdmFilter* filter)
@@ -2324,7 +2417,7 @@ static void FilterFree(PaWinWdmFilter* filter)
             FilterFree(filter->topologyFilter);
             filter->topologyFilter = 0;
         }
-        if (filter->waveType != Type_kNotUsed)
+        if ( filter->pins )
         {
         for( pinId = 0; pinId < filter->pinCount; pinId++ )
             PinFree(filter->pins[pinId]);
@@ -2495,9 +2588,10 @@ typedef enum _tag_EAlias
 *
 * Vista and later: Also check KSCATEGORY_REALTIME for WaveRT devices.
 */
-PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaDevices )
+//PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaDevices )
+PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaError* pResult )
 {
-    PaError result = paNoError;
+    PaWinWdmFilter** ppFilters = NULL;
     HDEVINFO handle = NULL;
     int device;
     int invalidDevices;
@@ -2520,17 +2614,25 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
     GUID* category_realtime = (GUID*)&KSCATEGORY_REALTIME;
     DWORD aliasFlags;
     PaWDMKSType streamingType;
+    int filterCount = 0;
+    int noOfPaDevices = 0;
 
     PA_LOGE_;
 
+    assert(pFilterCount != NULL);
+    assert(pNoOfPaDevices != NULL);
+    assert(pResult != NULL);
+
     devInterfaceDetails->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-    *noOfPaDevices = 0;
+    *pFilterCount = 0;
+    *pNoOfPaDevices = 0;
 
     /* Open a handle to search for devices (filters) */
     handle = SetupDiGetClassDevs(category,NULL,NULL,DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if( handle == INVALID_HANDLE_VALUE )
     {
-        return paUnanticipatedHostError;
+        *pResult = paUnanticipatedHostError;
+        return NULL;
     }
     PA_DEBUG(("Setup called\n"));
 
@@ -2580,17 +2682,18 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
             invalidDevices++; /* This was not a valid capture or render audio device */
     }
     /* Remember how many there are */
-    wdmHostApi->filterCount = device-invalidDevices;
+    filterCount = device-invalidDevices;
 
     PA_DEBUG(("Interfaces found: %d\n",device-invalidDevices));
 
     /* Now allocate the list of pointers to devices */
-    wdmHostApi->filters  = (PaWinWdmFilter**)PaUtil_AllocateMemory( sizeof(PaWinWdmFilter*) * device );
-    if( !wdmHostApi->filters )
+    ppFilters  = (PaWinWdmFilter**)PaUtil_AllocateMemory( sizeof(PaWinWdmFilter*) * filterCount);
+    if( ppFilters == 0 )
     {
         if(handle != NULL)
             SetupDiDestroyDeviceInfoList(handle);
-        return paInsufficientMemory;
+        *pResult = paInsufficientMemory;
+        return NULL;
     }
 
     /* Now create filter objects for each interface found */
@@ -2648,6 +2751,7 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
         noError = SetupDiGetDeviceInterfaceDetail(handle,&interfaceData,devInterfaceDetails,sizeInterface,NULL,&devInfoData);
         if( noError )
         {
+            PaError result = paNoError;
             /* Try to get the "friendly name" for this interface */
             sizeFriendlyName = sizeof(friendlyName);
             friendlyName[0] = 0;
@@ -2726,11 +2830,13 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
                     filterIOs += max(1, pPin->inputCount);
                 }
 
-                *noOfPaDevices += filterIOs;
+                noOfPaDevices += filterIOs;
 
                 PA_DEBUG(("Filter (%s) created with %d valid pins (total I/Os: %u)\n", ((newFilter->waveType==Type_kWaveRT)?"WaveRT":"WaveCyclic"), newFilter->validPinCount, filterIOs));
 
-                wdmHostApi->filters[slot] = newFilter;
+                assert(slot < filterCount);
+
+                ppFilters[slot] = newFilter;
 
                 slot++;
             }
@@ -2739,7 +2845,7 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
                 PA_DEBUG(("Filter NOT created\n"));
                 /* As there are now less filters than we initially thought
                 * we must reduce the count by one */
-                wdmHostApi->filterCount--;
+                filterCount--;
             }
         }
     }
@@ -2748,7 +2854,10 @@ PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaD
     if(handle != NULL)
         SetupDiDestroyDeviceInfoList(handle);
 
-    return paNoError;
+    *pFilterCount = filterCount;
+    *pNoOfPaDevices = noOfPaDevices;
+
+    return ppFilters;
 }
 
 PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
@@ -2805,7 +2914,7 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         goto error;
     }
 
-    result = BuildFilterList( wdmHostApi, &totalDeviceCount );
+    wdmHostApi->filters = BuildFilterList( &wdmHostApi->filterCount, &totalDeviceCount, &result );
     if( result != paNoError )
     {
         goto error;
@@ -2884,7 +2993,7 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         PaWinWdmMuxedInput* input = pin->inputs[m];
                         /* Check if there are more inputs with same name (which might very well be the case), if there
                         are, the name will be postfixed with an index. Note that current implementation only deals with
-                        reoccurence of one name, not N this and M that... ;) */
+                        recurrence of one name, not N this and M that... ;) */
                         if (nameIndex == 0)
                         {
                             unsigned j = m + 1;
@@ -4418,22 +4527,22 @@ static HANDLE BumpThreadPriority()
     if (FunctionAvSetMmThreadCharacteristics != NULL) 
     {
         hAVRT = FunctionAvSetMmThreadCharacteristics("Pro Audio", &dwTask);
-        if (hAVRT != NULL) 
+        if (hAVRT != NULL && hAVRT != INVALID_HANDLE_VALUE) 
         {
             BOOL bret = FunctionAvSetMmThreadPriority(hAVRT, PA_AVRT_PRIORITY_CRITICAL);
             if (!bret)
             {
                 PA_DEBUG(("Set mm thread prio to critical failed!\n"));
             }
+            return hAVRT;
         }
         else
         {
-            PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed!\n"));
+            PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed, reverting to SetThreadPriority\n"));
         }
     }
-    else
-    {
-        /* For XP and earlier */
+
+    /* For XP and earlier, or if AvSetMmThreadCharacteristics fails (MMCSS disabled ?) */
         if (timeBeginPeriod(1) != TIMERR_NOERROR) {
             PA_DEBUG(("timeBeginPeriod(1) failed!\n"));
         }
@@ -4442,8 +4551,7 @@ static HANDLE BumpThreadPriority()
             PA_DEBUG(("SetThreadPriority failed!\n"));
         }
 
-    }
-    return hAVRT;
+    return NULL;
 }
 
 /*
@@ -4601,8 +4709,10 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
         PA_HP_TRACE((pInfo->stream->hLog, "DoProcessing: InputFrames=%u", inputFramesAvailable));
 
         PaUtil_BeginCpuLoadMeasurement( &pInfo->stream->cpuLoadMeasurer );
-        PaUtil_BeginBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->ti, pInfo->underover);
 
+        pInfo->ti.currentTime = PaUtil_GetTime();
+
+        PaUtil_BeginBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->ti, pInfo->underover);
         pInfo->underover = 0; /* Reset the (under|over)flow status */
 
         if (pInfo->renderTail != pInfo->renderHead)
@@ -4682,7 +4792,6 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
             {
                 PA_HP_TRACE((pInfo->stream->hLog, "Input startup, marking no input."));
                 PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
-                processFullDuplex = 0;
             }
         }
 
@@ -4739,7 +4848,12 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
         {
             if (!pInfo->stream->streamStop)
             {
-                pInfo->stream->render.pPin->fnSubmitHandler(pInfo, pInfo->renderTail);
+                result = pInfo->stream->render.pPin->fnSubmitHandler(pInfo, pInfo->renderTail);
+                if (result != paNoError)
+                {
+                    PA_HP_TRACE((pInfo->stream->hLog, "Capture submit handler failed with result %d", result));
+                    return result;
+                }
             }
             pInfo->renderTail++;
             if (!pInfo->pinsStarted && pInfo->priming == 0)
@@ -4796,11 +4910,12 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     info.timeout = (DWORD)max(
         (2000*info.stream->render.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5),
         (2000*info.stream->capture.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5));
-    info.timeout = max(info.timeout+1,1);
+    info.timeout = 2 * max(info.timeout+1,1);
     PA_DEBUG(("Timeout = %ld ms\n",info.timeout));
 
     /* Setup handle array for WFMO */
-    if (info.stream->capture.pPin != 0) {
+    if (info.stream->capture.pPin != 0)
+    {
         handles[noOfHandles++] = info.stream->capture.events[0];
         if (info.stream->capture.pPin->parentFilter->waveType == Type_kWaveCyclic)
         {
@@ -4810,7 +4925,8 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         renderEvents = noOfHandles;
     }
 
-    if (info.stream->render.pPin != 0) {
+    if (info.stream->render.pPin != 0)
+    {
         handles[noOfHandles++] = info.stream->render.events[0];
         if (info.stream->render.pPin->parentFilter->waveType == Type_kWaveCyclic)
         {
@@ -4838,8 +4954,8 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     /* Heighten priority here */
     hAVRT = BumpThreadPriority();
 
-    /* If not priming (i.e. input only) we start the pins immediately */
-    if (!info.priming)
+    /* If input only, we start the pins immediately */
+    if (info.stream->render.pPin == 0)
     {
         if ((result = StartPins(&info)) != paNoError)
         {
@@ -4886,7 +5002,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
             PA_HP_TRACE((info.stream->hLog, "Timer event handles=0x%04X,0x%04X period=%u ms", timerEventHandles[0], timerEventHandles[1], timerPeriod));
 
-            if (!CreateTimerQueueTimer(&timerQueueTimer, timerQueue, TimerCallbackWaveRTPolledMode, timerEventHandles, timerPeriod, timerPeriod, WT_EXECUTEINPERSISTENTTHREAD))
+            if (!CreateTimerQueueTimer(&timerQueueTimer, timerQueue, TimerCallbackWaveRTPolledMode, timerEventHandles, timerPeriod, timerPeriod, WT_EXECUTEINTIMERTHREAD /* WT_EXECUTEINPERSISTENTTHREAD*/))
             {
                 PA_DEBUG(("CreateTimerQueueTimer failed!? (period=%u)\n", timerPeriod));
                 result = paUnanticipatedHostError;
@@ -4938,7 +5054,10 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
         if (wait == WAIT_TIMEOUT)
         {
-            continue;
+            PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u)", info.timeout));
+            result = paUnanticipatedHostError;
+            PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
+            break;
         }
 
         if (eventSignalled < captureEvents)
@@ -4947,7 +5066,12 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             /* Since we use the ring buffer, we can submit the buffers directly */
             if (!info.stream->streamStop)
             {
-                info.stream->capture.pPin->fnSubmitHandler(&info, info.captureTail);
+                result = info.stream->capture.pPin->fnSubmitHandler(&info, info.captureTail);
+                if (result != paNoError)
+                {
+                    PA_HP_TRACE((info.stream->hLog, "Capture submit handler failed with result %d", result));
+                    break;
+                }
             }
             info.captureTail++;
             /* If full-duplex, let _only_ render event trigger processing. We still need the stream stop
@@ -5570,3 +5694,4 @@ static PaError PaPinRenderSubmitHandler_WaveRTPolled(PaProcessThreadInfo* pInfo,
     }
     return paNoError;
 }
+
