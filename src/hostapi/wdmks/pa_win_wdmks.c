@@ -2867,7 +2867,9 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
 PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
-    int idxFilter, idxDevice, totalDeviceCount;
+    int idxFilter = 0;
+    int idxDevice = 0;
+    int totalDeviceCount = 0;
     PaWinWdmHostApiRepresentation *wdmHostApi;
     PaWinWdmDeviceInfo *deviceInfoArray;
 
@@ -2976,10 +2978,10 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     wdmDeviceInfo = &deviceInfoArray[idxDevice];
                     deviceInfo = &wdmDeviceInfo->inheritedDeviceInfo;
 
-            wdmDeviceInfo->filter = pFilter;
+                    wdmDeviceInfo->filter = pFilter;
 
-            deviceInfo->structVersion = 2;
-            deviceInfo->hostApi = hostApiIndex;
+                    deviceInfo->structVersion = 2;
+                    deviceInfo->hostApi = hostApiIndex;
                     deviceInfo->name = wdmDeviceInfo->compositeName;
 
                     wdmDeviceInfo->pin = pin->pinId;
@@ -3004,7 +3006,7 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                             for (; j < pin->inputCount; ++j)
                             {
                                 if (cmpstring(pin->inputs[j]->friendlyName, input->friendlyName) == 0)
-            {
+                                {
                                     nameIndex = 1;
                                     nameIndexHash = GetHash(input->friendlyName);
                                     break;
@@ -3013,22 +3015,22 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         }
                         n = _snprintf(wdmDeviceInfo->compositeName, MAX_PATH, "%s", input->friendlyName);
                         if (nameIndex > 0 && (nameIndexHash == GetHash(input->friendlyName)))
-                {
+                        {
                             n += _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " %u", nameIndex);
                             ++nameIndex;
-                }
+                        }
                         _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " (%s)", pFilter->friendlyName);
                         wdmDeviceInfo->muxPosition = (int)m;
                         wdmDeviceInfo->endpointPinId = input->endpointPinId;
-            }
+                    }
 
                     if (pin->dataFlow == KSPIN_DATAFLOW_IN)
-            {
+                    {
                         /* OUTPUT ! */
                         deviceInfo->maxInputChannels  = 0;
                         deviceInfo->maxOutputChannels = pin->maxChannels;
-                if((*hostApi)->info.defaultOutputDevice == paNoDevice)
-                {
+                        if((*hostApi)->info.defaultOutputDevice == paNoDevice)
+                        {
                             (*hostApi)->info.defaultOutputDevice = idxDevice;
                         }
 
@@ -3041,16 +3043,16 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         if ((*hostApi)->info.defaultInputDevice == paNoDevice)
                         {
                             (*hostApi)->info.defaultInputDevice = idxDevice;
-                }
-            }
+                        }
+                    }
 
-            /* These low values are not very useful because
-             * a) The lowest latency we end up with can depend on many factors such
-             *    as the device buffer sizes/granularities, sample rate, channels and format
-             * b) We cannot know the device buffer sizes until we try to open/use it at
-             *    a particular setting
-             * So: we give 512x48000Hz frames as the default low input latency
-             **/
+                    /* These low values are not very useful because
+                    * a) The lowest latency we end up with can depend on many factors such
+                    *    as the device buffer sizes/granularities, sample rate, channels and format
+                    * b) We cannot know the device buffer sizes until we try to open/use it at
+                    *    a particular setting
+                    * So: we give 512x48000Hz frames as the default low input latency
+                    **/
                     switch (pFilter->waveType)
                     {
                     case Type_kWaveCyclic:
@@ -3071,8 +3073,8 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                             deviceInfo->defaultLowInputLatency = 0.01;
                             deviceInfo->defaultLowOutputLatency = 0.01;
                         }
-            deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
-            deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
+                        deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
+                        deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                         deviceInfo->defaultSampleRate = (double)(pin->bestSampleRate);
                         break;
                     case Type_kWaveRT:
