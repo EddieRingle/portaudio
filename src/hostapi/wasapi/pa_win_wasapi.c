@@ -75,6 +75,8 @@
 #include "pa_debugprint.h"
 #include "pa_ringbuffer.h"
 
+#include "pa_win_coinitialize.h"
+
 #ifndef NTDDI_VERSION
  
     #undef WINVER
@@ -370,6 +372,8 @@ typedef struct
 
     /* implementation specific data goes here */
 
+    PaWinUtilComInitializationResult comInitializationResult;
+
     //in case we later need the synch
     IMMDeviceEnumerator *enumerator;
 
@@ -513,8 +517,6 @@ void *PaWasapi_ReallocateMemory(void *ptr, size_t size);
 void PaWasapi_FreeMemory(void *ptr);
 
 // Local statics
-static volatile BOOL  g_WasapiCOMInit    = FALSE;
-static volatile DWORD g_WasapiInitThread = 0;
 
 // ------------------------------------------------------------------------------------------
 #define LogHostError(HRES) __LogHostError(HRES, __FUNCTION__, __FILE__, __LINE__)
@@ -1058,30 +1060,16 @@ PaError PaWasapi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         return paNoError;
     }
 
-    /*
-        If COM is already initialized CoInitialize will either return
-        FALSE, or RPC_E_CHANGED_MODE if it was initialised in a different
-        threading mode. In either case we shouldn't consider it an error
-        but we need to be careful to not call CoUninitialize() if
-        RPC_E_CHANGED_MODE was returned.
-    */
-    hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    if (FAILED(hr) && (hr != RPC_E_CHANGED_MODE))
-	{
-		PRINT(("WASAPI: failed CoInitialize"));
-        return paUnanticipatedHostError;
-	}
-    if (hr != RPC_E_CHANGED_MODE)
-        g_WasapiCOMInit = TRUE;
-
-	// Memorize calling thread id and report warning on Uninitialize if calling thread is different
-	// as CoInitialize must match CoUninitialize in the same thread.
-	g_WasapiInitThread = GetCurrentThreadId();
-
     paWasapi = (PaWasapiHostApiRepresentation *)PaUtil_AllocateMemory( sizeof(PaWasapiHostApiRepresentation) );
     if (paWasapi == NULL)
 	{
         result = paInsufficientMemory;
+        goto error;
+    }
+
+    result = PaWinUtil_CoInitialize( paWASAPI, &paWasapi->comInitializationResult );
+    if( result != paNoError )
+    {
         goto error;
     }
 
@@ -1455,26 +1443,12 @@ static void Terminate( PaUtilHostApiRepresentation *hostApi )
         PaUtil_DestroyAllocationGroup(paWasapi->allocations);
     }
 
+    PaWinUtil_CoUninitialize( paWASAPI, &paWasapi->comInitializationResult );
+
     PaUtil_FreeMemory(paWasapi);
 
 	// Close AVRT
 	CloseAVRT();
-
-	// Uninit COM (checking calling thread we won't unitialize user's COM if one is calling
-	//             Pa_Unitialize by mistake from not initializing thread)
-    if (g_WasapiCOMInit)
-	{
-		DWORD calling_thread_id = GetCurrentThreadId();
-		if (g_WasapiInitThread != calling_thread_id)
-		{
-			PRINT(("WASAPI: failed CoUninitializes calling thread[%d] does not match initializing thread[%d]\n",
-				calling_thread_id, g_WasapiInitThread));
-		}
-		else
-		{
-			CoUninitialize();
-		}
-	}
 }
 
 // ------------------------------------------------------------------------------------------
@@ -3005,12 +2979,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
 	// Set Input latency
     stream->streamRepresentation.streamInfo.inputLatency =
-            ((double)PaUtil_GetBufferProcessorInputLatency(&stream->bufferProcessor) / sampleRate)
+            ((double)PaUtil_GetBufferProcessorInputLatencyFrames(&stream->bufferProcessor) / sampleRate)
 			+ ((inputParameters)?stream->in.latencySeconds : 0);
 
 	// Set Output latency
     stream->streamRepresentation.streamInfo.outputLatency =
-            ((double)PaUtil_GetBufferProcessorOutputLatency(&stream->bufferProcessor) / sampleRate)
+            ((double)PaUtil_GetBufferProcessorOutputLatencyFrames(&stream->bufferProcessor) / sampleRate)
 			+ ((outputParameters)?stream->out.latencySeconds : 0);
 
 	// Set SR
@@ -3501,7 +3475,7 @@ static PaError ReadStream( PaStream* s, void *_buffer, unsigned long frames )
 	// Findout if there are tail frames, flush them all before reading hardware
 	if ((available = PaUtil_GetRingBufferReadAvailable(stream->in.tailBuffer)) != 0)
 	{
-		UINT32 buf1_size = 0, buf2_size = 0, read, desired;
+		ring_buffer_size_t buf1_size = 0, buf2_size = 0, read, desired;
 		void *buf1 = NULL, *buf2 = NULL;
 
 		// Limit desired to amount of requested frames
@@ -4753,9 +4727,17 @@ PA_THREAD_FUNC ProcThreadPoll(void *param)
 				if (stream->bufferMode == paUtilFixedHostBufferSize)
 				{
 					if (frames >= stream->out.framesPerBuffer)
+					{
 						frames = stream->out.framesPerBuffer;
-				}
 
+						if ((hr = ProcessOutputBuffer(stream, processor, frames)) != S_OK)
+						{
+							LogHostError(hr); // not fatal, just log
+						}
+					}
+				}
+				else
+				{
                 if (frames != 0)
                 {
                     if ((hr = ProcessOutputBuffer(stream, processor, frames)) != S_OK)
@@ -4763,6 +4745,7 @@ PA_THREAD_FUNC ProcThreadPoll(void *param)
                         LogHostError(hr); // not fatal, just log
                     }
                 }
+            }
             }
             else
 			{

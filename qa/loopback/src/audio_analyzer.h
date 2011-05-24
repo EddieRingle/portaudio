@@ -41,7 +41,7 @@
 
 #include "biquad_filter.h"
 
-#define MATH_PI  (3.14159265)
+#define MATH_PI  (3.141592653589793238462643)
 #define MATH_TWO_PI  (2.0 * MATH_PI)
 
 typedef struct PaQaSineGenerator_s
@@ -75,6 +75,7 @@ typedef struct PaQaTestTone_s
 typedef struct PaQaAnalysisResult_s
 {
 	int       valid;
+	/** Latency in samples from output to input. */
 	double    latency;
 	double    amplitudeRatio;
 	double    popAmplitude;
@@ -115,10 +116,15 @@ double PaQa_ComputePhaseDifference( double phase1, double phase2 );
 double PaQa_MeasureArea( float *buffer, int numFrames, int stride  );
 
 /**
+ * Measure slope of the positive zero crossings.
+ */
+double PaQa_MeasureCrossingSlope( float *buffer, int numFrames );
+
+
+/**
  * Prepare an oscillator that can generate a sine tone for testing.
  */
 void PaQa_SetupSineGenerator( PaQaSineGenerator *generator, double frequency, double amplitude, double frameRate );
-
 
 /*================================================================*/
 /*================= Recordings ===================================*/
@@ -155,6 +161,16 @@ double PaQa_CorrelateSine( PaQaRecording *recording, double frequency, double fr
 						  int startFrame, int numSamples, double *phasePtr );
 
 double PaQa_FindFirstMatch( PaQaRecording *recording, float *buffer, int numSamples, double tolerance  );
+
+/** 
+ * Estimate the original amplitude of a clipped sine wave by measuring
+ * its average slope at the zero crossings.
+ */
+double PaQa_MeasureSineAmplitudeBySlope( PaQaRecording *recording,
+										double frequency, double frameRate,
+										int startFrame, int numFrames );
+
+double PaQa_MeasureRootMeanSquare( float *buffer, int numFrames );
 
 /**
  * Compare the amplitudes of these two signals.

@@ -1,53 +1,53 @@
 /*
-* $Id$
-* PortAudio Windows WDM-KS interface
-*
+ * $Id$
+ * PortAudio Windows WDM-KS interface
+ *
 * Author: Andrew Baldwin, Robert Bielik (WaveRT)
-* Based on the Open Source API proposed by Ross Bencina
-* Copyright (c) 1999-2004 Andrew Baldwin, Ross Bencina, Phil Burk
-*
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files
-* (the "Software"), to deal in the Software without restriction,
-* including without limitation the rights to use, copy, modify, merge,
-* publish, distribute, sublicense, and/or sell copies of the Software,
-* and to permit persons to whom the Software is furnished to do so,
-* subject to the following conditions:
-*
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
-* ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
-* CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ * Based on the Open Source API proposed by Ross Bencina
+ * Copyright (c) 1999-2004 Andrew Baldwin, Ross Bencina, Phil Burk
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files
+ * (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+ * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 
 /*
-* The text above constitutes the entire PortAudio license; however, 
-* the PortAudio community also makes the following non-binding requests:
-*
-* Any person wishing to distribute modifications to the Software is
-* requested to send the modifications to the original developer so that
-* they can be incorporated into the canonical version. It is also 
-* requested that these non-binding requests be included along with the 
-* license above.
-*/
+ * The text above constitutes the entire PortAudio license; however, 
+ * the PortAudio community also makes the following non-binding requests:
+ *
+ * Any person wishing to distribute modifications to the Software is
+ * requested to send the modifications to the original developer so that
+ * they can be incorporated into the canonical version. It is also 
+ * requested that these non-binding requests be included along with the 
+ * license above.
+ */
 
 /** @file
-@ingroup hostapi_src
-@brief Portaudio WDM-KS host API.
+ @ingroup hostapi_src
+ @brief Portaudio WDM-KS host API.
 
-@note This is the implementation of the Portaudio host API using the
-Windows WDM/Kernel Streaming API in order to enable very low latency
+ @note This is the implementation of the Portaudio host API using the
+ Windows WDM/Kernel Streaming API in order to enable very low latency
 playback and recording on all modern Windows platforms (e.g. 2K, XP, Vista, Win7)
-Note: This API accesses the device drivers below the usual KMIXER
-component which is normally used to enable multi-client mixing and
-format conversion. That means that it will lock out all other users
-of a device for the duration of active stream using those devices
+ Note: This API accesses the device drivers below the usual KMIXER
+ component which is normally used to enable multi-client mixing and
+ format conversion. That means that it will lock out all other users
+ of a device for the duration of active stream using those devices
 */
 
 #include <stdio.h>
@@ -62,9 +62,9 @@ of a device for the duration of active stream using those devices
 #define PA_LOGL_
 
 #ifdef __GNUC__
-#include <initguid.h>
-#define _WIN32_WINNT 0x0501
-#define WINVER 0x0501
+    #include <initguid.h>
+    #define _WIN32_WINNT 0x0501
+    #define WINVER 0x0501
 #endif
 
 #include <string.h> /* strlen() */
@@ -114,30 +114,30 @@ the rest of the debug tracing */
 #endif
 
 #ifdef __GNUC__
-#undef PA_LOGE_
-#define PA_LOGE_ PA_DEBUG(("%s {\n",__FUNCTION__))
-#undef PA_LOGL_
-#define PA_LOGL_ PA_DEBUG(("} %s\n",__FUNCTION__))
-/* These defines are set in order to allow the WIndows DirectX
-* headers to compile with a GCC compiler such as MinGW
-* NOTE: The headers may generate a few warning in GCC, but
-* they should compile */
-#define _INC_MMSYSTEM
-#define _INC_MMREG
-#define _NTRTL_ /* Turn off default definition of DEFINE_GUIDEX */
-#define DEFINE_GUID_THUNK(name,guid) DEFINE_GUID(name,guid)
-#define DEFINE_GUIDEX(n) DEFINE_GUID_THUNK( n, STATIC_##n )
-#if !defined( DEFINE_WAVEFORMATEX_GUID )
-#define DEFINE_WAVEFORMATEX_GUID(x) (USHORT)(x), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71
-#endif
-#define  WAVE_FORMAT_ADPCM      0x0002
-#define  WAVE_FORMAT_IEEE_FLOAT 0x0003
-#define  WAVE_FORMAT_ALAW       0x0006
-#define  WAVE_FORMAT_MULAW      0x0007
-#define  WAVE_FORMAT_MPEG       0x0050
-#define  WAVE_FORMAT_DRM        0x0009
-#define DYNAMIC_GUID_THUNK(l,w1,w2,b1,b2,b3,b4,b5,b6,b7,b8) {l,w1,w2,{b1,b2,b3,b4,b5,b6,b7,b8}}
-#define DYNAMIC_GUID(data) DYNAMIC_GUID_THUNK(data)
+    #undef PA_LOGE_
+    #define PA_LOGE_ PA_DEBUG(("%s {\n",__FUNCTION__))
+    #undef PA_LOGL_
+    #define PA_LOGL_ PA_DEBUG(("} %s\n",__FUNCTION__))
+    /* These defines are set in order to allow the WIndows DirectX
+     * headers to compile with a GCC compiler such as MinGW
+     * NOTE: The headers may generate a few warning in GCC, but
+     * they should compile */
+    #define _INC_MMSYSTEM
+    #define _INC_MMREG
+    #define _NTRTL_ /* Turn off default definition of DEFINE_GUIDEX */
+    #define DEFINE_GUID_THUNK(name,guid) DEFINE_GUID(name,guid)
+    #define DEFINE_GUIDEX(n) DEFINE_GUID_THUNK( n, STATIC_##n )
+    #if !defined( DEFINE_WAVEFORMATEX_GUID )
+        #define DEFINE_WAVEFORMATEX_GUID(x) (USHORT)(x), 0x0000, 0x0010, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71
+    #endif
+    #define  WAVE_FORMAT_ADPCM      0x0002
+    #define  WAVE_FORMAT_IEEE_FLOAT 0x0003
+    #define  WAVE_FORMAT_ALAW       0x0006
+    #define  WAVE_FORMAT_MULAW      0x0007
+    #define  WAVE_FORMAT_MPEG       0x0050
+    #define  WAVE_FORMAT_DRM        0x0009
+    #define DYNAMIC_GUID_THUNK(l,w1,w2,b1,b2,b3,b4,b5,b6,b7,b8) {l,w1,w2,{b1,b2,b3,b4,b5,b6,b7,b8}}
+    #define DYNAMIC_GUID(data) DYNAMIC_GUID_THUNK(data)
 #endif
 
 /* use CreateThread for CYGWIN/Windows Mobile, _beginthreadex for all others */
@@ -150,13 +150,13 @@ the rest of the debug tracing */
 #endif
 
 #ifdef _MSC_VER
-#define NOMMIDS
-#define DYNAMIC_GUID(data) {data}
-#define _NTRTL_ /* Turn off default definition of DEFINE_GUIDEX */
-#undef DEFINE_GUID
-#define DEFINE_GUID(n,data) EXTERN_C const GUID n = {data}
-#define DEFINE_GUID_THUNK(n,data) DEFINE_GUID(n,data)
-#define DEFINE_GUIDEX(n) DEFINE_GUID_THUNK(n, STATIC_##n)
+    #define NOMMIDS
+    #define DYNAMIC_GUID(data) {data}
+    #define _NTRTL_ /* Turn off default definition of DEFINE_GUIDEX */
+    #undef DEFINE_GUID
+    #define DEFINE_GUID(n,data) EXTERN_C const GUID n = {data}
+    #define DEFINE_GUID_THUNK(n,data) DEFINE_GUID(n,data)
+    #define DEFINE_GUIDEX(n) DEFINE_GUID_THUNK(n, STATIC_##n)
 #endif
 
 #include <setupapi.h>
@@ -231,7 +231,7 @@ typedef struct __PaWinWdmMuxedInput
 } PaWinWdmMuxedInput;
 
 /* The Pin structure
-* A pin is an input or output node, e.g. for audio flow */
+ * A pin is an input or output node, e.g. for audio flow */
 struct __PaWinWdmPin
 {
     HANDLE                      handle;
@@ -263,7 +263,7 @@ struct __PaWinWdmPin
 };
 
 /* The Filter structure
-* A filter has a number of pins and a "friendly name" */
+ * A filter has a number of pins and a "friendly name" */
 struct __PaWinWdmFilter
 {
     HANDLE         handle;
@@ -364,7 +364,7 @@ typedef struct __PaWinWdmStream
     char*                       ringBufferData;
 
     /* These values handle the case where the user wants to use fewer
-    * channels than the device has */
+     * channels than the device has */
     int                         userInputChannels;
     int                         deviceInputChannels;
     int                         userOutputChannels;
@@ -392,8 +392,8 @@ struct __PaProcessThreadInfo
 
 static const unsigned cPacketsArrayMask = 3;
 
-HMODULE         DllKsUser = NULL;
-KSCREATEPIN*    FunctionKsCreatePin = NULL;
+HMODULE      DllKsUser = NULL;
+KSCREATEPIN* FunctionKsCreatePin = NULL;
 
 HMODULE         DllAvRt = NULL;
 AVSETMMTHREADCHARACTERISTICS* FunctionAvSetMmThreadCharacteristics = NULL;
@@ -407,7 +407,7 @@ extern "C"
 {
 #endif /* __cplusplus */
 
-    PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 #ifdef __cplusplus
 }
@@ -415,39 +415,39 @@ extern "C"
 
 /* Low level I/O functions */
 static PaError WdmSyncIoctl(HANDLE handle,
-                            unsigned long ioctlNumber,
-                            void* inBuffer,
-                            unsigned long inBufferCount,
-                            void* outBuffer,
-                            unsigned long outBufferCount,
-                            unsigned long* bytesReturned);
+    unsigned long ioctlNumber,
+    void* inBuffer,
+    unsigned long inBufferCount,
+    void* outBuffer,
+    unsigned long outBufferCount,
+    unsigned long* bytesReturned);
 static PaError WdmGetPropertySimple(HANDLE handle,
-                                    const GUID* const guidPropertySet,
-                                    unsigned long property,
-                                    void* value,
-                                    unsigned long valueCount,
-                                    void* instance,
-                                    unsigned long instanceCount);
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
+    unsigned long valueCount,
+    void* instance,
+    unsigned long instanceCount);
 static PaError WdmSetPropertySimple(HANDLE handle,
-                                    const GUID* const guidPropertySet,
-                                    unsigned long property,
-                                    void* value,
-                                    unsigned long valueCount,
-                                    void* instance,
-                                    unsigned long instanceCount);
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
+    unsigned long valueCount,
+    void* instance,
+    unsigned long instanceCount);
 
 static PaError WdmGetPinPropertySimple(HANDLE  handle,
-                                       unsigned long pinId,
-                                       const GUID* const guidPropertySet,
-                                       unsigned long property,
-                                       void* value,
+    unsigned long pinId,
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
                                        unsigned long valueCount,
                                        unsigned long* byteCount);
 static PaError WdmGetPinPropertyMulti(HANDLE  handle,
-                                      unsigned long pinId,
-                                      const GUID* const guidPropertySet,
-                                      unsigned long property,
-                                      KSMULTIPLE_ITEM** ksMultipleItem);
+    unsigned long pinId,
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    KSMULTIPLE_ITEM** ksMultipleItem);
 static PaError WdmGetPropertyMulti(HANDLE handle,
                                    const GUID* const guidPropertySet,
                                    unsigned long property,
@@ -492,9 +492,9 @@ static PaWinWdmPin* FilterCreateCapturePin(
     const WAVEFORMATEX* wfex,
     PaError* error);
 static PaError FilterUse(
-                         PaWinWdmFilter* filter);
+    PaWinWdmFilter* filter);
 static void FilterRelease(
-                          PaWinWdmFilter* filter);
+    PaWinWdmFilter* filter);
 
 /* Hot plug functions */
 static BOOL IsDeviceTheSame(const PaWinWdmDeviceInfo* pDev1,
@@ -503,12 +503,12 @@ static BOOL IsDeviceTheSame(const PaWinWdmDeviceInfo* pDev1,
 /* Interface functions */
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError IsFormatSupported(
-struct PaUtilHostApiRepresentation *hostApi,
+    struct PaUtilHostApiRepresentation *hostApi,
     const PaStreamParameters *inputParameters,
     const PaStreamParameters *outputParameters,
     double sampleRate );
 static PaError OpenStream(
-struct PaUtilHostApiRepresentation *hostApi,
+    struct PaUtilHostApiRepresentation *hostApi,
     PaStream** s,
     const PaStreamParameters *inputParameters,
     const PaStreamParameters *outputParameters,
@@ -526,13 +526,13 @@ static PaError IsStreamActive( PaStream *stream );
 static PaTime GetStreamTime( PaStream *stream );
 static double GetStreamCpuLoad( PaStream* stream );
 static PaError ReadStream(
-                          PaStream* stream,
-                          void *buffer,
-                          unsigned long frames );
+    PaStream* stream,
+    void *buffer,
+    unsigned long frames );
 static PaError WriteStream(
-                           PaStream* stream,
-                           const void *buffer,
-                           unsigned long frames );
+    PaStream* stream,
+    const void *buffer,
+    unsigned long frames );
 static signed long GetStreamReadAvailable( PaStream* stream );
 static signed long GetStreamWriteAvailable( PaStream* stream );
 
@@ -654,13 +654,13 @@ static void PaWinWDM_SetLastErrorInfo(long errCode, const char* fmt, ...)
 Low level pin/filter access functions
 */
 static PaError WdmSyncIoctl(
-                            HANDLE handle,
-                            unsigned long ioctlNumber,
-                            void* inBuffer,
-                            unsigned long inBufferCount,
-                            void* outBuffer,
-                            unsigned long outBufferCount,
-                            unsigned long* bytesReturned)
+    HANDLE handle,
+    unsigned long ioctlNumber,
+    void* inBuffer,
+    unsigned long inBufferCount,
+    void* outBuffer,
+    unsigned long outBufferCount,
+    unsigned long* bytesReturned)
 {
     PaError result = paNoError;
     unsigned long dummyBytesReturned = 0;
@@ -677,22 +677,22 @@ static PaError WdmSyncIoctl(
     {
         unsigned long error = GetLastError();
         if ( !(((error == ERROR_INSUFFICIENT_BUFFER ) || ( error == ERROR_MORE_DATA )) && 
-             ( ioctlNumber == IOCTL_KS_PROPERTY ) &&
+                  ( ioctlNumber == IOCTL_KS_PROPERTY ) &&
              ( outBufferCount == 0 ) ) ) 
-    {
+        {
             result = paUnanticipatedHostError;
-    }
+        }
     }
     return result;
 }
 
 static PaError WdmGetPropertySimple(HANDLE handle,
-                                    const GUID* const guidPropertySet,
-                                    unsigned long property,
-                                    void* value,
-                                    unsigned long valueCount,
-                                    void* instance,
-                                    unsigned long instanceCount)
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
+    unsigned long valueCount,
+    void* instance,
+    unsigned long instanceCount)
 {
     PaError result;
     KSPROPERTY* ksProperty;
@@ -716,25 +716,25 @@ static PaError WdmGetPropertySimple(HANDLE handle,
     }
 
     result = WdmSyncIoctl(
-        handle,
-        IOCTL_KS_PROPERTY,
-        ksProperty,
-        propertyCount,
-        value,
-        valueCount,
-        NULL);
+                handle,
+                IOCTL_KS_PROPERTY,
+                ksProperty,
+                propertyCount,
+                value,
+                valueCount,
+                NULL);
 
     return result;
 }
 
 static PaError WdmSetPropertySimple(
-                                    HANDLE handle,
-                                    const GUID* const guidPropertySet,
-                                    unsigned long property,
-                                    void* value,
-                                    unsigned long valueCount,
-                                    void* instance,
-                                    unsigned long instanceCount)
+    HANDLE handle,
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
+    unsigned long valueCount,
+    void* instance,
+    unsigned long instanceCount)
 {
     PaError result;
     KSPROPERTY* ksProperty;
@@ -757,23 +757,23 @@ static PaError WdmSetPropertySimple(
     }
 
     result = WdmSyncIoctl(
-        handle,
-        IOCTL_KS_PROPERTY,
-        ksProperty,
-        propertyCount,
-        value,
-        valueCount,
-        NULL);
+                handle,
+                IOCTL_KS_PROPERTY,
+                ksProperty,
+                propertyCount,
+                value,
+                valueCount,
+                NULL);
 
     return result;
 }
 
 static PaError WdmGetPinPropertySimple(
-                                       HANDLE  handle,
-                                       unsigned long pinId,
-                                       const GUID* const guidPropertySet,
-                                       unsigned long property,
-                                       void* value,
+    HANDLE  handle,
+    unsigned long pinId,
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    void* value,
                                        unsigned long valueCount,
                                        unsigned long *byteCount)
 {
@@ -787,23 +787,23 @@ static PaError WdmGetPinPropertySimple(
     ksPProp.Reserved = 0;
 
     result = WdmSyncIoctl(
-        handle,
-        IOCTL_KS_PROPERTY,
-        &ksPProp,
-        sizeof(KSP_PIN),
-        value,
-        valueCount,
+                handle,
+                IOCTL_KS_PROPERTY,
+                &ksPProp,
+                sizeof(KSP_PIN),
+                value,
+                valueCount,
         byteCount);
 
     return result;
 }
 
 static PaError WdmGetPinPropertyMulti(
-                                      HANDLE handle,
-                                      unsigned long pinId,
-                                      const GUID* const guidPropertySet,
-                                      unsigned long property,
-                                      KSMULTIPLE_ITEM** ksMultipleItem)
+    HANDLE handle,
+    unsigned long pinId,
+    const GUID* const guidPropertySet,
+    unsigned long property,
+    KSMULTIPLE_ITEM** ksMultipleItem)
 {
     PaError result;
     unsigned long multipleItemSize = 0;
@@ -816,13 +816,13 @@ static PaError WdmGetPinPropertyMulti(
     ksPProp.Reserved = 0;
 
     result = WdmSyncIoctl(
-        handle,
-        IOCTL_KS_PROPERTY,
-        &ksPProp.Property,
-        sizeof(KSP_PIN),
-        NULL,
-        0,
-        &multipleItemSize);
+                handle,
+                IOCTL_KS_PROPERTY,
+                &ksPProp.Property,
+                sizeof(KSP_PIN),
+                NULL,
+                0,
+                &multipleItemSize);
     if( result != paNoError )
     {
         return result;
@@ -835,13 +835,13 @@ static PaError WdmGetPinPropertyMulti(
     }
 
     result = WdmSyncIoctl(
-        handle,
-        IOCTL_KS_PROPERTY,
-        &ksPProp,
-        sizeof(KSP_PIN),
-        (void*)*ksMultipleItem,
-        multipleItemSize,
-        NULL);
+                handle,
+                IOCTL_KS_PROPERTY,
+                &ksPProp,
+                sizeof(KSP_PIN),
+                (void*)*ksMultipleItem,
+                multipleItemSize,
+                NULL);
 
     if( result != paNoError )
     {
@@ -1179,8 +1179,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
         goto error;
 
     if( /*(pin->communication != KSPIN_COMMUNICATION_SOURCE) &&*/
-        (pin->communication != KSPIN_COMMUNICATION_SINK) &&
-        (pin->communication != KSPIN_COMMUNICATION_BOTH) )
+         (pin->communication != KSPIN_COMMUNICATION_SINK) &&
+         (pin->communication != KSPIN_COMMUNICATION_BOTH) )
     {
         PA_DEBUG(("Not source/sink\n"));
         result = paInvalidDevice;
@@ -1437,6 +1437,11 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
             else
             {
                 KSPIN_PHYSICALCONNECTION* pc = (KSPIN_PHYSICALCONNECTION*)PaUtil_AllocateMemory(cbBytes + 2);
+                if (pc == NULL)
+                {
+                    result = paInsufficientMemory;
+                    goto error;
+                }
                 result = WdmGetPinPropertySimple(parentFilter->handle,
                     topoPinId,
                     &KSPROPSETID_Pin,
@@ -1449,7 +1454,6 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                 {
                     TCHAR mbsSymbLinkName[MAX_PATH];
                     copywidestring(mbsSymbLinkName, pc->SymbolicLinkName, MAX_PATH);
-                    mbsSymbLinkName[1] = TEXT('\\');      /* Make sure link name starts with "\\?\" */
                     if (pin->parentFilter->topologyFilter == NULL)
                     {
                         pin->parentFilter->topologyFilter = FilterNew(Type_kNotUsed, 0, mbsSymbLinkName, TEXT(""), &result);
@@ -1578,7 +1582,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                             {
                                             result = GetNameFromCategory(&category, TRUE, pin->friendlyName, MAX_PATH);
 
-                                                if (result != paNoError)
+    if( result != paNoError )
                                                 {
                                                     copywidestring(pin->friendlyName, L"Input", MAX_PATH);
                                                 }
@@ -1624,7 +1628,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                         {
                                             FilterRelease(pin->parentFilter->topologyFilter);
                                             result = paInsufficientMemory;
-                                            goto error;
+        goto error;
                                         }
                                     }
 
@@ -1838,41 +1842,41 @@ static PaError PinInstantiate(PaWinWdmPin* pin)
             return paDeviceUnavailable;
         default:
             /* All other cases */
-            return paInvalidDevice;
-        }
+        return paInvalidDevice;
+    }
     }
 
     if (pin->parentFilter->waveType == Type_kWaveCyclic)
     {
         /* Framing size query only valid for WaveCyclic devices */
+    result = WdmGetPropertySimple(
+        pin->handle,
+        &KSPROPSETID_Connection,
+        KSPROPERTY_CONNECTION_ALLOCATORFRAMING,
+        &ksaf,
+        sizeof(ksaf),
+        NULL,
+        0);
+
+    if( result != paNoError )
+    {
         result = WdmGetPropertySimple(
             pin->handle,
             &KSPROPSETID_Connection,
-            KSPROPERTY_CONNECTION_ALLOCATORFRAMING,
-            &ksaf,
-            sizeof(ksaf),
+            KSPROPERTY_CONNECTION_ALLOCATORFRAMING_EX,
+            &ksafex,
+            sizeof(ksafex),
             NULL,
             0);
-
-        if( result != paNoError )
+        if( result == paNoError )
         {
-            result = WdmGetPropertySimple(
-                pin->handle,
-                &KSPROPSETID_Connection,
-                KSPROPERTY_CONNECTION_ALLOCATORFRAMING_EX,
-                &ksafex,
-                sizeof(ksafex),
-                NULL,
-                0);
-            if( result == paNoError )
-            {
-                pin->frameSize = ksafex.FramingItem[0].FramingRange.Range.MinFrameSize;
-            }
+            pin->frameSize = ksafex.FramingItem[0].FramingRange.Range.MinFrameSize;
         }
-        else
-        {
-            pin->frameSize = ksaf.FrameSize;
-        }
+    }
+    else
+    {
+        pin->frameSize = ksaf.FrameSize;
+    }
     }
 
     PA_LOGL_;
@@ -2233,7 +2237,7 @@ static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition)
 * Create a new filter object. If initPins is TRUE, the pins will be instantiated aswell. Why would you not want this, you
 * may ask ? Well, in a hot plug/unplug situation, you might want to init a filter object without pins, since the latter will
 * fail if the device is in use, but you don't want that as an indication that the filter creation failed.
-*/
+ */
 static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filterName, TCHAR* friendlyName, PaError* error )
 {
     PaWinWdmFilter* filter = 0;
@@ -2314,10 +2318,10 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
         /* Initialize the pins */
         result = FilterInitializePins(filter);
 
-        if( result != paNoError )
-        {
-            goto error;
-        }
+    if( result != paNoError)
+    {
+        goto error;
+    }
     }
 
     /* Close the filter handle for now
@@ -2390,12 +2394,12 @@ error:
         for (pinId = 0; pinId < filter->pinCount; ++pinId)
         {
             if (filter->pins[pinId])
-            {
+    {
                 PaUtil_FreeMemory(filter->pins[pinId]);
                 filter->pins[pinId] = 0;
             }
         }
-        PaUtil_FreeMemory(filter->pins);
+        PaUtil_FreeMemory( filter->pins );
         filter->pins = 0;
     }
 
@@ -2404,8 +2408,8 @@ error:
 
 
 /**
-* Free a previously created filter
-*/
+ * Free a previously created filter
+ */
 static void FilterFree(PaWinWdmFilter* filter)
 {
     int pinId;
@@ -2442,8 +2446,8 @@ static void FilterFree(PaWinWdmFilter* filter)
 }
 
 /**
-* Reopen the filter handle if necessary so it can be used
-**/
+ * Reopen the filter handle if necessary so it can be used
+ **/
 static PaError FilterUse(PaWinWdmFilter* filter)
 {
     assert( filter );
@@ -2472,8 +2476,8 @@ static PaError FilterUse(PaWinWdmFilter* filter)
 }
 
 /**
-* Release the filter handle if nobody is using it
-**/
+ * Release the filter handle if nobody is using it
+ **/
 static void FilterRelease(PaWinWdmFilter* filter)
 {
     assert( filter );
@@ -2493,23 +2497,23 @@ static void FilterRelease(PaWinWdmFilter* filter)
 }
 
 /**
-* Create a render (playback) Pin using the supplied format
-**/
+ * Create a render (playback) Pin using the supplied format
+ **/
 static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
                                           int pinId,
-                                          const WAVEFORMATEX* wfex,
-                                          PaError* error)
+    const WAVEFORMATEX* wfex,
+    PaError* error)
 {
     PaError result = paNoError;
     PaWinWdmPin* pin = NULL;
     assert( filter );
     pin = filter->pins[pinId];
     assert( pin );
-        result = PinSetFormat(pin,wfex);
+    result = PinSetFormat(pin,wfex);
     if( result == paNoError )
-        {
-        result = PinInstantiate(pin);
-}
+    {
+    result = PinInstantiate(pin);
+    }
     *error = result;
     return pin;
 }
@@ -2517,22 +2521,22 @@ static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
 
 /**
 * Create a capture (record) Pin using the supplied format
-**/
+ **/
 static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
                                            int pinId,
-                                           const WAVEFORMATEX* wfex,
-                                           PaError* error)
+    const WAVEFORMATEX* wfex,
+    PaError* error)
 {
     PaError result = paNoError;
     PaWinWdmPin* pin = NULL;
     assert( filter );
-    pin = filter->pins[pinId];
+        pin = filter->pins[pinId];
     assert( pin );
         result = PinSetFormat(pin,wfex);
-    if( result == paNoError )
-        {
+                if( result == paNoError )
+                {
         result = PinInstantiate(pin);
-    }        
+    }
     *error = result;
     return pin;
 }
@@ -2542,17 +2546,17 @@ static ULONG GetHash(const TCHAR* str)
     const ULONG fnv_prime = 0x811C9DC5;
     ULONG hash      = 0;
     for(; *str != 0; str++)
-        {
+{
         hash *= fnv_prime;
         hash ^= (*str);
-                }
+}
     assert(hash != 0);
     return hash;
-        }
+    }
 
 
 static BOOL IsUSBDevice(const TCHAR* devicePath)
-{
+    {
 #ifdef UNICODE
     return (_wcsnicmp(devicePath, L"\\\\?\\USB", 5) == 0);
 #else
@@ -2569,7 +2573,7 @@ static BOOL IsNameUSBAudioDevice(const TCHAR* friendlyName)
 
     return (_strnicmp(friendlyName, "USB Audio Device", 16) == 0);
 #endif
-}
+        }
 
 typedef enum _tag_EAlias
 {
@@ -2579,15 +2583,15 @@ typedef enum _tag_EAlias
 } EAlias;
 
 /**
-* Build the list of available filters
-* Use the SetupDi API to enumerate all devices in the KSCATEGORY_AUDIO which 
-* have a KSCATEGORY_RENDER or KSCATEGORY_CAPTURE alias. For each of these 
-* devices initialise a PaWinWdmFilter structure by calling our NewFilter() 
-* function. We enumerate devices twice, once to count how many there are, 
-* and once to initialize the PaWinWdmFilter structures.
+ * Build the list of available filters
+ * Use the SetupDi API to enumerate all devices in the KSCATEGORY_AUDIO which 
+ * have a KSCATEGORY_RENDER or KSCATEGORY_CAPTURE alias. For each of these 
+ * devices initialise a PaWinWdmFilter structure by calling our NewFilter() 
+ * function. We enumerate devices twice, once to count how many there are, 
+ * and once to initialize the PaWinWdmFilter structures.
 *
 * Vista and later: Also check KSCATEGORY_REALTIME for WaveRT devices.
-*/
+ */
 //PaError BuildFilterList( PaWinWdmHostApiRepresentation* wdmHostApi, int* noOfPaDevices )
 PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaError* pResult )
 {
@@ -2789,24 +2793,24 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
 
             if (friendlyName[0] == 0 || IsNameUSBAudioDevice(friendlyName))
             {
-                /* Fix contributed by Ben Allison
-                * Removed KEY_SET_VALUE from flags on following call
-                * as its causes failure when running without admin rights
-                * and it was not required */
-                hkey=SetupDiOpenDeviceInterfaceRegKey(handle,&interfaceData,0,KEY_QUERY_VALUE);
-                if(hkey!=INVALID_HANDLE_VALUE)
+            /* Fix contributed by Ben Allison
+             * Removed KEY_SET_VALUE from flags on following call
+             * as its causes failure when running without admin rights
+             * and it was not required */
+            hkey=SetupDiOpenDeviceInterfaceRegKey(handle,&interfaceData,0,KEY_QUERY_VALUE);
+            if(hkey!=INVALID_HANDLE_VALUE)
+            {
+                noError = RegQueryValueEx(hkey,TEXT("FriendlyName"),0,&type,(BYTE*)friendlyName,&sizeFriendlyName);
+                if( noError == ERROR_SUCCESS )
                 {
-                    noError = RegQueryValueEx(hkey,TEXT("FriendlyName"),0,&type,(BYTE*)friendlyName,&sizeFriendlyName);
-                    if( noError == ERROR_SUCCESS )
-                    {
-                        PA_DEBUG(("Interface %d, Name: %s\n",device,friendlyName));
-                        RegCloseKey(hkey);
-                    }
-                    else
-                    {
-                        friendlyName[0] = 0;
-                    }
+                    PA_DEBUG(("Interface %d, Name: %s\n",device,friendlyName));
+                    RegCloseKey(hkey);
                 }
+                else
+                {
+                    friendlyName[0] = 0;
+                }
+            }
             }
             
             newFilter = FilterNew(streamingType, 
@@ -2844,7 +2848,7 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
             {
                 PA_DEBUG(("Filter NOT created\n"));
                 /* As there are now less filters than we initially thought
-                * we must reduce the count by one */
+                 * we must reduce the count by one */
                 filterCount--;
             }
         }
@@ -2972,10 +2976,10 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     wdmDeviceInfo = &deviceInfoArray[idxDevice];
                     deviceInfo = &wdmDeviceInfo->inheritedDeviceInfo;
 
-                    wdmDeviceInfo->filter = pFilter;
+            wdmDeviceInfo->filter = pFilter;
 
-                    deviceInfo->structVersion = 2;
-                    deviceInfo->hostApi = hostApiIndex;
+            deviceInfo->structVersion = 2;
+            deviceInfo->hostApi = hostApiIndex;
                     deviceInfo->name = wdmDeviceInfo->compositeName;
 
                     wdmDeviceInfo->pin = pin->pinId;
@@ -3000,7 +3004,7 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                             for (; j < pin->inputCount; ++j)
                             {
                                 if (cmpstring(pin->inputs[j]->friendlyName, input->friendlyName) == 0)
-                                {
+            {
                                     nameIndex = 1;
                                     nameIndexHash = GetHash(input->friendlyName);
                                     break;
@@ -3009,22 +3013,22 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         }
                         n = _snprintf(wdmDeviceInfo->compositeName, MAX_PATH, "%s", input->friendlyName);
                         if (nameIndex > 0 && (nameIndexHash == GetHash(input->friendlyName)))
-                        {
+                {
                             n += _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " %u", nameIndex);
                             ++nameIndex;
-                        }
+                }
                         _snprintf(wdmDeviceInfo->compositeName+n, MAX_PATH-n, " (%s)", pFilter->friendlyName);
                         wdmDeviceInfo->muxPosition = (int)m;
                         wdmDeviceInfo->endpointPinId = input->endpointPinId;
-                    }
+            }
 
                     if (pin->dataFlow == KSPIN_DATAFLOW_IN)
-                    {
+            {
                         /* OUTPUT ! */
                         deviceInfo->maxInputChannels  = 0;
                         deviceInfo->maxOutputChannels = pin->maxChannels;
-                        if ((*hostApi)->info.defaultOutputDevice == paNoDevice)
-                        {
+                if((*hostApi)->info.defaultOutputDevice == paNoDevice)
+                {
                             (*hostApi)->info.defaultOutputDevice = idxDevice;
                         }
 
@@ -3037,16 +3041,16 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                         if ((*hostApi)->info.defaultInputDevice == paNoDevice)
                         {
                             (*hostApi)->info.defaultInputDevice = idxDevice;
-                        }
-                    }
+                }
+            }
 
-                    /* These low values are not very useful because
-                    * a) The lowest latency we end up with can depend on many factors such
-                    *    as the device buffer sizes/granularities, sample rate, channels and format
-                    * b) We cannot know the device buffer sizes until we try to open/use it at
-                    *    a particular setting
-                    * So: we give 512x48000Hz frames as the default low input latency
-                    **/
+            /* These low values are not very useful because
+             * a) The lowest latency we end up with can depend on many factors such
+             *    as the device buffer sizes/granularities, sample rate, channels and format
+             * b) We cannot know the device buffer sizes until we try to open/use it at
+             *    a particular setting
+             * So: we give 512x48000Hz frames as the default low input latency
+             **/
                     switch (pFilter->waveType)
                     {
                     case Type_kWaveCyclic:
@@ -3067,8 +3071,8 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                             deviceInfo->defaultLowInputLatency = 0.01;
                             deviceInfo->defaultLowOutputLatency = 0.01;
                         }
-                        deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
-                        deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
+            deviceInfo->defaultHighInputLatency = (4096.0/48000.0);
+            deviceInfo->defaultHighOutputLatency = (4096.0/48000.0);
                         deviceInfo->defaultSampleRate = (double)(pin->bestSampleRate);
                         break;
                     case Type_kWaveRT:
@@ -3099,15 +3103,15 @@ PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     (*hostApi)->IsFormatSupported = IsFormatSupported;
 
     PaUtil_InitializeStreamInterface( &wdmHostApi->callbackStreamInterface, CloseStream, StartStream,
-        StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-        GetStreamTime, GetStreamCpuLoad,
-        PaUtil_DummyRead, PaUtil_DummyWrite,
-        PaUtil_DummyGetReadAvailable, PaUtil_DummyGetWriteAvailable);
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamTime, GetStreamCpuLoad,
+                                      PaUtil_DummyRead, PaUtil_DummyWrite,
+                                      PaUtil_DummyGetReadAvailable, PaUtil_DummyGetWriteAvailable );
 
     PaUtil_InitializeStreamInterface( &wdmHostApi->blockingStreamInterface, CloseStream, StartStream,
-        StopStream, AbortStream, IsStreamStopped, IsStreamActive,
-        GetStreamTime, PaUtil_DummyGetCpuLoad,
-        ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable);
+                                      StopStream, AbortStream, IsStreamStopped, IsStreamActive,
+                                      GetStreamTime, PaUtil_DummyGetCpuLoad,
+                                      ReadStream, WriteStream, GetStreamReadAvailable, GetStreamWriteAvailable );
 
     PA_LOGL_;
     return result;
@@ -3140,32 +3144,32 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
 
     if( wdmHostApi)
     {
-        if (wdmHostApi->filters)
+    if( wdmHostApi->filters )
+    {
+        for( i=0; i<wdmHostApi->filterCount; i++)
         {
-            for( i=0; i<wdmHostApi->filterCount; i++)
+            if( wdmHostApi->filters[i] != NULL )
             {
-                if( wdmHostApi->filters[i] != NULL )
-                {
-                    FilterFree( wdmHostApi->filters[i] );
-                    wdmHostApi->filters[i] = NULL;
-                }
+                FilterFree( wdmHostApi->filters[i] );
+                wdmHostApi->filters[i] = NULL;
             }
+        }
             PaUtil_FreeMemory( wdmHostApi->filters );
-        }
-        if( wdmHostApi->allocations )
-        {
-            PaUtil_FreeAllAllocations( wdmHostApi->allocations );
-            PaUtil_DestroyAllocationGroup( wdmHostApi->allocations );
-        }
-        PaUtil_FreeMemory( wdmHostApi );
+    }
+    if( wdmHostApi->allocations )
+    {
+        PaUtil_FreeAllAllocations( wdmHostApi->allocations );
+        PaUtil_DestroyAllocationGroup( wdmHostApi->allocations );
+    }
+    PaUtil_FreeMemory( wdmHostApi );
     }
     PA_LOGL_;
 }
 
 static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
-                                 const PaStreamParameters *inputParameters,
-                                 const PaStreamParameters *outputParameters,
-                                 double sampleRate )
+                                  const PaStreamParameters *inputParameters,
+                                  const PaStreamParameters *outputParameters,
+                                  double sampleRate )
 {
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
@@ -3186,7 +3190,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* all standard sample formats are supported by the buffer adapter,
-        this implementation doesn't support any custom sample formats */
+            this implementation doesn't support any custom sample formats */
         if( inputSampleFormat & paCustomFormat )
         {
             PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "Custom input format not supported");
@@ -3194,7 +3198,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         /* unless alternate device specification is supported, reject the use of
-        paUseHostApiSpecificDeviceSpecification */
+            paUseHostApiSpecificDeviceSpecification */
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
@@ -3244,9 +3248,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             if( result != paNoError )
             {
                 PaWinWDM_SetLastErrorInfo(result, "FilterCanCreateCapturePin failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
-                return result;
-            }
+                 return result;
         }
+    }
     }
     else
     {
@@ -3262,7 +3266,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         outputSampleFormat = outputParameters->sampleFormat;
 
         /* all standard sample formats are supported by the buffer adapter,
-        this implementation doesn't support any custom sample formats */
+            this implementation doesn't support any custom sample formats */
         if( outputSampleFormat & paCustomFormat )
         {
             PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "Custom output format not supported");
@@ -3270,7 +3274,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         }
 
         /* unless alternate device specification is supported, reject the use of
-        paUseHostApiSpecificDeviceSpecification */
+            paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
@@ -3320,8 +3324,8 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             if( result != paNoError )
             {
                 PaWinWDM_SetLastErrorInfo(result, "FilterCanCreateRenderPin failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
-                return result;
-            }
+                 return result;
+        }
         }
 
     }
@@ -3331,29 +3335,29 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     /*
-    IMPLEMENT ME:
+        IMPLEMENT ME:
 
-    - if a full duplex stream is requested, check that the combination
-    of input and output parameters is supported if necessary
+            - if a full duplex stream is requested, check that the combination
+                of input and output parameters is supported if necessary
 
-    - check that the device supports sampleRate
+            - check that the device supports sampleRate
 
-    Because the buffer adapter handles conversion between all standard
-    sample formats, the following checks are only required if paCustomFormat
-    is implemented, or under some other unusual conditions.
+        Because the buffer adapter handles conversion between all standard
+        sample formats, the following checks are only required if paCustomFormat
+        is implemented, or under some other unusual conditions.
 
-    - check that input device can support inputSampleFormat, or that
-    we have the capability to convert from inputSampleFormat to
-    a native format
+            - check that input device can support inputSampleFormat, or that
+                we have the capability to convert from inputSampleFormat to
+                a native format
 
-    - check that output device can support outputSampleFormat, or that
-    we have the capability to convert from outputSampleFormat to
-    a native format
+            - check that output device can support outputSampleFormat, or that
+                we have the capability to convert from outputSampleFormat to
+                a native format
     */
     if((inputChannelCount == 0)&&(outputChannelCount == 0))
     {
         PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "No input or output channels defined");
-        result = paSampleFormatNotSupported; /* Not right error */
+            result = paSampleFormatNotSupported; /* Not right error */
     }
 
     PA_LOGL_;
@@ -3474,14 +3478,14 @@ static unsigned NextPowerOf2(unsigned val)
 /* see pa_hostapi.h for a list of validity guarantees made about OpenStream parameters */
 
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
-                          PaStream** s,
-                          const PaStreamParameters *inputParameters,
-                          const PaStreamParameters *outputParameters,
-                          double sampleRate,
+                           PaStream** s,
+                           const PaStreamParameters *inputParameters,
+                           const PaStreamParameters *outputParameters,
+                           double sampleRate,
                           unsigned long framesPerUserBuffer,
-                          PaStreamFlags streamFlags,
-                          PaStreamCallback *streamCallback,
-                          void *userData )
+                           PaStreamFlags streamFlags,
+                           PaStreamCallback *streamCallback,
+                           void *userData )
 {
     PaError result = paNoError;
     PaWinWdmHostApiRepresentation *wdmHostApi = (PaWinWdmHostApiRepresentation*)hostApi;
@@ -3502,7 +3506,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         inputSampleFormat = inputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
-        paUseHostApiSpecificDeviceSpecification */
+            paUseHostApiSpecificDeviceSpecification */
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
@@ -3536,7 +3540,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         outputSampleFormat = outputParameters->sampleFormat;
 
         /* unless alternate device specification is supported, reject the use of
-        paUseHostApiSpecificDeviceSpecification */
+            paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
@@ -3592,7 +3596,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( streamCallback )
     {
         PaUtil_InitializeStreamRepresentation( &stream->streamRepresentation,
-            &wdmHostApi->callbackStreamInterface, streamCallback, userData );
+                                               &wdmHostApi->callbackStreamInterface, streamCallback, userData );
     }
     else
     {
@@ -3630,16 +3634,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PaWinWDM_SetLastErrorInfo(result, "PU_SCAF(%X,%X) failed (input)", pPin->formats, inputSampleFormat);
             goto error;
         }
-
+        
         while (hostInputSampleFormat <= paUInt8)
         {
             unsigned channelsToProbe = stream->userInputChannels;
             /* Some or all KS devices can only handle the exact number of channels
-            * they specify. But PortAudio clients expect to be able to
-            * at least specify mono I/O on a multi-channel device
-            * If this is the case, then we will do the channel mapping internally
+             * they specify. But PortAudio clients expect to be able to
+             * at least specify mono I/O on a multi-channel device
+             * If this is the case, then we will do the channel mapping internally
             * The following loop tests this case
-            **/
+             **/
             while (1)
             {
                 PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
@@ -3669,46 +3673,46 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 {
                     /* We're done */
                     break;
-                }
+            }
 
                 if (channelsToProbe < (unsigned)pPin->maxChannels)
                 {
                     /* Go to next multiple of 2 */
                     channelsToProbe = min((((channelsToProbe>>1)+1)<<1), (unsigned)pPin->maxChannels);
                     continue;
-                }
+        }
 
                 break;
-            }
+        }
 
             if (result == paNoError)
-            {
+        {
                 /* We're done */
                 break;
-            }
+        }
 
             /* Go to next format in line with lower resolution */
             hostInputSampleFormat <<= 1;
-        }
+    }
 
         if(stream->capture.pPin == NULL)
-        {
+    {
             PaWinWDM_SetLastErrorInfo(result, "Failed to create capture pin: sr=%u,ch=%u,bits=%u,align=%u",
                 wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample, wfx.Format.nBlockAlign);
             goto error;
-        }
+    }
 
         /* Select correct mux input on MUX node of topology filter */
         if (pDeviceInfo->muxPosition >= 0)
-        {
+    {
             assert(pPin->parentFilter->topologyFilter != NULL);
 
             result = FilterUse(pPin->parentFilter->topologyFilter);
             if (result != paNoError)
-            {
+        {
                 PaWinWDM_SetLastErrorInfo(result, "Failed to open topology filter");
                 goto error;
-            }
+        }
 
             result = WdmSetMuxNodeProperty(pPin->parentFilter->topologyFilter->handle,
                 pPin->inputs[pDeviceInfo->muxPosition]->muxNodeId,
@@ -3716,8 +3720,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
             FilterRelease(pPin->parentFilter->topologyFilter);
 
-            if (result != paNoError)
-            {
+        if(result != paNoError)
+        {
                 PaWinWDM_SetLastErrorInfo(result, "Failed to set topology mux node");
                 goto error;
             }
@@ -3726,16 +3730,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->capture.bytesPerSample = stream->capture.bytesPerFrame / stream->deviceInputChannels;
         stream->capture.pPin->frameSize /= stream->capture.bytesPerFrame;
         PA_DEBUG(("Capture pin frames: %d\n",stream->capture.pPin->frameSize));
-    }
+            }
     else
     {
         stream->capture.pPin = NULL;
         stream->capture.bytesPerFrame = 0;
-    }
+        }
 
     /* Instantiate the output pin if necessary */
     if(userOutputChannels > 0)
-    {
+        {
         PaWinWdmFilter* pFilter;
         PaWinWdmDeviceInfo* pDeviceInfo;
         PaWinWdmPin* pPin;
@@ -3747,7 +3751,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         pPin = pFilter->pins[pDeviceInfo->pin];
 
         stream->userOutputChannels = userOutputChannels;
-
+       
         hostOutputSampleFormat = PaUtil_SelectClosestAvailableFormat( pPin->formats, outputSampleFormat );
         if (hostOutputSampleFormat == paSampleFormatNotSupported)
         {
@@ -3755,16 +3759,16 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PaWinWDM_SetLastErrorInfo(result, "PU_SCAF(%X,%X) failed (output)", pPin->formats, hostOutputSampleFormat);
             goto error;
         }
-
+            
         while (hostOutputSampleFormat <= paUInt8)
         {
             unsigned channelsToProbe = stream->userOutputChannels;
             /* Some or all KS devices can only handle the exact number of channels
-            * they specify. But PortAudio clients expect to be able to
-            * at least specify mono I/O on a multi-channel device
-            * If this is the case, then we will do the channel mapping internally
+             * they specify. But PortAudio clients expect to be able to
+             * at least specify mono I/O on a multi-channel device
+             * If this is the case, then we will do the channel mapping internally
             * The following loop tests this case
-            **/
+             **/
             while (1)
             {
                 PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
@@ -3793,20 +3797,20 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 {
                     /* We're done */
                     break;
-                }
+            }
 
                 if (channelsToProbe < (unsigned)pPin->maxChannels)
                 {
                     /* Go to next multiple of 2 */
                     channelsToProbe = min((((channelsToProbe>>1)+1)<<1), (unsigned)pPin->maxChannels);
                     continue;
-                }
-                
+        }
+
                 break;
             };
 
             if (result == paNoError)
-            {
+        {
                 /* We're done */
                 break;
             }
@@ -3866,12 +3870,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     /* Host buffer size is bound to the largest of the input and output frame sizes */
     result =  PaUtil_InitializeBufferProcessor( &stream->bufferProcessor,
-        stream->userInputChannels, inputSampleFormat, hostInputSampleFormat,
-        stream->userOutputChannels, outputSampleFormat, hostOutputSampleFormat,
+              stream->userInputChannels, inputSampleFormat, hostInputSampleFormat,
+              stream->userOutputChannels, outputSampleFormat, hostOutputSampleFormat,
         sampleRate, streamFlags, framesPerUserBuffer,
         max(stream->capture.framesPerBuffer, stream->render.framesPerBuffer), 
-        paUtilBoundedHostBufferSize,
-        streamCallback, userData );
+              paUtilBoundedHostBufferSize,
+              streamCallback, userData );
     if( result != paNoError )
     {
         PaWinWDM_SetLastErrorInfo(result, "PaUtil_InitializeBufferProcessor failed: ich=%u, isf=%u, hisf=%u, och=%u, osf=%u, hosf=%u, sr=%lf, flags=0x%X, fpub=%u, fphb=%u",
@@ -4041,7 +4045,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     PA_DEBUG(("Failed to get output buffer (with notification)\n"));
                     PaWinWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to get output buffer (with notification)");
                     result = paUnanticipatedHostError;
-                    goto error;
+        goto error;
                 }
 
                 /* Get latency */
@@ -4111,7 +4115,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 /* WaveCyclic case */
                 unsigned i;
                 for (i = 0; i < 2; ++i) {
-                    /* Set up the packets */
+    /* Set up the packets */
                     DATAPACKET *p = stream->capture.packets + i;
 
                     /* Record event */
@@ -4128,7 +4132,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             }
             break;
         case Type_kWaveRT:
-            {
+    {
                 /* Set up the "packets" */
                 DATAPACKET *p = stream->capture.packets + 0;
 
@@ -4137,18 +4141,18 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
                 p->Header.Data = stream->capture.hostBuffer;
                 p->Header.FrameExtent = bufferSizeInBytes;
-                p->Header.DataUsed = 0;
-                p->Header.Size = sizeof(p->Header);
-                p->Header.PresentationTime.Numerator = 1;
-                p->Header.PresentationTime.Denominator = 1;
+        p->Header.DataUsed = 0;
+        p->Header.Size = sizeof(p->Header);
+        p->Header.PresentationTime.Numerator = 1;
+        p->Header.PresentationTime.Denominator = 1;
 
                 ++p;
                 p->Header.Data = stream->capture.hostBuffer + bufferSizeInBytes;
                 p->Header.FrameExtent = bufferSizeInBytes;
-                p->Header.DataUsed = 0;
-                p->Header.Size = sizeof(p->Header);
-                p->Header.PresentationTime.Numerator = 1;
-                p->Header.PresentationTime.Denominator = 1;
+        p->Header.DataUsed = 0;
+        p->Header.Size = sizeof(p->Header);
+        p->Header.PresentationTime.Numerator = 1;
+        p->Header.PresentationTime.Denominator = 1;
 
                 if (stream->capture.pPin->parentFilter->waveSubType == SubType_kNotification)
                 {
@@ -4160,7 +4164,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         PaWinWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register capture notification handle");
                         result = paUnanticipatedHostError;
                         goto error;
-                    }
+    }
                 }
 
                 result = PinRegisterPositionRegister(stream->capture.pPin);
@@ -4235,17 +4239,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 p->Header.Data = stream->render.hostBuffer;
                 p->Header.FrameExtent = stream->render.framesPerBuffer*stream->render.bytesPerFrame;
                 p->Header.DataUsed = stream->render.framesPerBuffer*stream->render.bytesPerFrame;
-                p->Header.Size = sizeof(p->Header);
-                p->Header.PresentationTime.Numerator = 1;
-                p->Header.PresentationTime.Denominator = 1;
-                
+        p->Header.Size = sizeof(p->Header);
+        p->Header.PresentationTime.Numerator = 1;
+        p->Header.PresentationTime.Denominator = 1;
+    
                 ++p;
                 p->Header.Data = stream->render.hostBuffer + stream->render.framesPerBuffer*stream->render.bytesPerFrame;
                 p->Header.FrameExtent = stream->render.framesPerBuffer*stream->render.bytesPerFrame;
                 p->Header.DataUsed = stream->render.framesPerBuffer*stream->render.bytesPerFrame;
-                p->Header.Size = sizeof(p->Header);
-                p->Header.PresentationTime.Numerator = 1;
-                p->Header.PresentationTime.Denominator = 1;
+        p->Header.Size = sizeof(p->Header);
+        p->Header.PresentationTime.Numerator = 1;
+        p->Header.PresentationTime.Denominator = 1;
 
                 if (stream->render.pPin->parentFilter->waveSubType == SubType_kNotification)
                 {
@@ -4257,7 +4261,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         PaWinWDM_SetLastErrorInfo(paUnanticipatedHostError, "Failed to register rendering notification handle");
                         result = paUnanticipatedHostError;
                         goto error;
-                    }
+    }
                 }
 
                 result = PinRegisterPositionRegister(stream->render.pPin);
@@ -4352,15 +4356,15 @@ error:
     if(stream->capture.pPin)
         PinClose(stream->capture.pPin);
 
-    PaUtil_FreeMemory( stream );
+        PaUtil_FreeMemory( stream );
 
     PA_LOGL_;
     return result;
 }
 
 /*
-When CloseStream() is called, the multi-api layer ensures that
-the stream has already been stopped or aborted.
+    When CloseStream() is called, the multi-api layer ensures that
+    the stream has already been stopped or aborted.
 */
 static PaError CloseStream( PaStream* s )
 {
@@ -4537,7 +4541,7 @@ static HANDLE BumpThreadPriority()
             return hAVRT;
         }
         else
-        {
+{
             PA_DEBUG(("Set mm thread characteristic to 'Pro Audio' failed, reverting to SetThreadPriority\n"));
         }
     }
@@ -4558,7 +4562,7 @@ static HANDLE BumpThreadPriority()
 Decrease the priority of the calling thread to normal
 */
 static void DropThreadPriority(HANDLE hAVRT)
-{
+    {
     HANDLE hThread = GetCurrentThread();
 
     if (hAVRT != NULL) 
@@ -4572,7 +4576,7 @@ static void DropThreadPriority(HANDLE hAVRT)
         timeEndPeriod(1);
     }
 
-}
+    }
 
 static PaError PreparePinForStart(PaWinWdmPin* pin)
 {
@@ -4604,21 +4608,21 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
         {
             goto error;
         }
-    }
+        }
     if(pInfo->stream->render.pPin)
     {
         if ((result = PreparePinForStart(pInfo->stream->render.pPin)) != paNoError)
         {
             goto error;
         }
-    }
+        }
     /* Submit buffers */
     if(pInfo->stream->capture.pPin)
     {
         if (pInfo->stream->capture.pPin->parentFilter->waveType == Type_kWaveCyclic)
         {
             if ((result = PinRead(pInfo->stream->capture.pPin->handle, pInfo->stream->capture.packets + 0)) != paNoError)
-            {
+        {
                 goto error;
             }
             if ((result = PinRead(pInfo->stream->capture.pPin->handle, pInfo->stream->capture.packets + 1)) != paNoError)
@@ -4628,14 +4632,14 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
             /* FIXME - do error checking */
         }
         pInfo->pending += 2;
-    }
+            }
     if(pInfo->stream->render.pPin)
     {
         pInfo->priming += 2;
         ++pInfo->pending;
         SetEvent(pInfo->stream->render.events[0]);
         if (pInfo->stream->render.pPin->parentFilter->waveType == Type_kWaveCyclic) 
-        {
+            {
             SetEvent(pInfo->stream->render.events[1]);
             ++pInfo->pending;
         }
@@ -4643,51 +4647,51 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
 error:
     PA_DEBUG(("PreparePinsForStart = %d\n", result));
     return result;
-}
+            }
 
 static PaError StartPin(PaWinWdmPin* pin)
 {
     return PinSetState(pin, KSSTATE_RUN);
-}
+        }
 
 static PaError StartPins(PaProcessThreadInfo* pInfo)
 {
     PaError result = paNoError;
     /* Start the pins as synced as possible */
     if (pInfo->stream->capture.pPin)
-    {
+        {
         result = StartPin(pInfo->stream->capture.pPin);
-    }
+        }
     if(pInfo->stream->render.pPin)
-    {
+        {
         result = StartPin(pInfo->stream->render.pPin);
     }
     PA_DEBUG(("StartPins = %d\n", result));
     return result;
-}
+        }
 
 
 static PaError StopPin(PaWinWdmPin* pin)
-{
+        {
     PinSetState(pin, KSSTATE_PAUSE);
     PinSetState(pin, KSSTATE_STOP);
     return paNoError;
-}
+        }
 
 
 static PaError StopPins(PaProcessThreadInfo* pInfo)
-{
+            {
     PaError result = paNoError;
     if(pInfo->stream->render.pPin)
-    {
+                {
         StopPin(pInfo->stream->render.pPin);
-    }
+                }
     if(pInfo->stream->capture.pPin)
     {
         StopPin(pInfo->stream->capture.pPin);
-    }
+            }
     return result;
-}
+        }
 
 typedef void (*TSetInputFrameCount)(PaUtilBufferProcessor*, unsigned long);
 typedef void (*TSetInputChannel)(PaUtilBufferProcessor*, unsigned int, void *, unsigned int);
@@ -4731,11 +4735,11 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                     i,
                     ((unsigned char*)(packet->Header.Data))+(i*pInfo->stream->render.bytesPerSample),
                     pInfo->stream->deviceOutputChannels);
-            }
+                }
 
             /* We will do a copy to the other channels after the data has been written */
             doChannelCopy = ( pInfo->stream->userOutputChannels == 1 );
-        }
+            }
 
         if (inputFramesAvailable && (!pInfo->stream->userOutputChannels || inputFramesAvailable >= (int)pInfo->stream->render.framesPerBuffer))
         {
@@ -4745,9 +4749,9 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
 
             /* If full-duplex, we just extract output buffer number of frames */
             if (pInfo->stream->userOutputChannels)
-            {
+        {
                 inputFramesAvailable = min(inputFramesAvailable, (int)pInfo->stream->render.framesPerBuffer);
-            }
+        }
 
             inputFramesAvailable = PaUtil_GetRingBufferReadRegions(&pInfo->stream->ringBuffer,
                 inputFramesAvailable,
@@ -4757,86 +4761,86 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
                 &size[1]);
 
             for (wrapCntr = 0; wrapCntr < 2; ++wrapCntr)
-            {
+        {
                 if (size[wrapCntr] == 0)
                     break;
 
                 fnSetInputFrameCount[wrapCntr](&pInfo->stream->bufferProcessor, size[wrapCntr]);
                 for(i=0;i<pInfo->stream->userInputChannels;i++)
-                {
+            {
                     /* Only read as many channels as the user wants */
                     fnSetInputChannel[wrapCntr](&pInfo->stream->bufferProcessor,
                         i,
                         ((unsigned char*)(data[wrapCntr]))+(i*pInfo->stream->capture.bytesPerSample),
                         pInfo->stream->deviceInputChannels);
                 }
-            }
+                }
 #if 0
             if (pInfo->stream->userOutputChannels && pInfo->stream->capture.framesPerBuffer <= pInfo->stream->render.framesPerBuffer)
-            {
+                {
                 ring_buffer_size_t n = PaUtil_GetRingBufferReadAvailable(&pInfo->stream->ringBuffer);
                 if (n - inputFramesAvailable > 0)
-                {
+                    {
                     PA_HP_TRACE((pInfo->stream->hLog, "Synchronizing input buffer (read advance = %d) ", n - inputFramesAvailable));
                     PaUtil_AdvanceRingBufferReadIndex(&pInfo->stream->ringBuffer, n - inputFramesAvailable);
+                    }
                 }
-            }
 #endif
-        }
+            }
         else
-        {
+            {
             /* We haven't consumed anything from the ring buffer... */
             inputFramesAvailable = 0;
             /* If we have full-duplex, this is at startup, so mark no-input! */
             if (pInfo->stream->userOutputChannels>0 && pInfo->stream->userInputChannels>0)
-            {
+                {
                 PA_HP_TRACE((pInfo->stream->hLog, "Input startup, marking no input."));
                 PaUtil_SetNoInput(&pInfo->stream->bufferProcessor);
+                }
             }
-        }
-
+            
         if (processFullDuplex) /* full duplex */
-        {
-            /* Only call the EndBufferProcessing function when the total input frames == total output frames */
+            {
+                /* Only call the EndBufferProcessing function when the total input frames == total output frames */
             const unsigned long totalInputFrameCount = pInfo->stream->bufferProcessor.hostInputFrameCount[0] + pInfo->stream->bufferProcessor.hostInputFrameCount[1];
             const unsigned long totalOutputFrameCount = pInfo->stream->bufferProcessor.hostOutputFrameCount[0] + pInfo->stream->bufferProcessor.hostOutputFrameCount[1];
 
             if(totalInputFrameCount == totalOutputFrameCount && totalOutputFrameCount != 0)
-            {
+                {
                 framesProcessed = PaUtil_EndBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->cbResult);
+                }
+                else
+                {
+                    framesProcessed = 0;
+                }
             }
-            else
+            else 
             {
-                framesProcessed = 0;
-            }
-        }
-        else 
-        {
             framesProcessed = PaUtil_EndBufferProcessing(&pInfo->stream->bufferProcessor, &pInfo->cbResult);
-        }
-        
+            }
+
         PA_HP_TRACE((pInfo->stream->hLog, "Frames processed: %u %s", framesProcessed, (pInfo->priming ? "(priming)":"")));
 
-        if( doChannelCopy )
-        {
-            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet;
-            /* Copy the first output channel to the other channels */
-            switch (pInfo->stream->render.bytesPerSample)
+            if( doChannelCopy )
             {
-            case 2:
+            DATAPACKET* packet = pInfo->renderPackets[pInfo->renderTail & cPacketsArrayMask].packet;
+                /* Copy the first output channel to the other channels */
+            switch (pInfo->stream->render.bytesPerSample)
+                {
+                    case 2:
                 DuplicateFirstChannelInt16(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->render.framesPerBuffer);
-                break;
-            case 3:
+                        break;
+                    case 3:
                 DuplicateFirstChannelInt24(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->render.framesPerBuffer);
-                break;
-            case 4:
+                        break;
+                    case 4:
                 DuplicateFirstChannelInt32(packet->Header.Data, pInfo->stream->deviceOutputChannels, pInfo->stream->render.framesPerBuffer);
-                break;
-            default:
-                assert(0); /* Unsupported format! */
-                break;
+                        break;
+                    default:
+                        assert(0); /* Unsupported format! */
+                        break;
+                }
             }
-        }
         PaUtil_EndCpuLoadMeasurement( &pInfo->stream->cpuLoadMeasurer, framesProcessed );
 
         if (inputFramesAvailable)
@@ -5032,7 +5036,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             wait = WaitForMultipleObjects(noOfHandles, handles, FALSE, info.timeout);
             eventSignalled = wait - WAIT_OBJECT_0;
         }
-        else 
+        else
         {
             if (eventSignalled < captureEvents)
             {
@@ -5059,7 +5063,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
             break;
         }
-
+            
         if (eventSignalled < captureEvents)
         {
             info.stream->capture.pPin->fnEventHandler(&info, eventSignalled);
@@ -5171,7 +5175,7 @@ static PaError StartStream( PaStream *s )
     PaError result = paNoError;
     PaWinWdmStream *stream = (PaWinWdmStream*)s;
     DWORD dwID;
- 
+
     PA_LOGE_;
 
     stream->streamStop = 0;
@@ -5183,10 +5187,10 @@ static PaError StartStream( PaStream *s )
 
     stream->oldProcessPriority = GetPriorityClass(GetCurrentProcess());
     /* Uncomment the following line to enable dynamic boosting of the process
-    * priority to real time for best low latency support
-    * Disabled by default because RT processes can easily block the OS */
+     * priority to real time for best low latency support
+     * Disabled by default because RT processes can easily block the OS */
     /*ret = SetPriorityClass(GetCurrentProcess(),REALTIME_PRIORITY_CLASS);
-    PA_DEBUG(("Class ret = %d;",ret));*/
+      PA_DEBUG(("Class ret = %d;",ret));*/
 
     stream->streamThread = CREATE_THREAD_FUNCTION (NULL, 0, ProcessingThread, stream, CREATE_SUSPENDED, &dwID);
     if(stream->streamThread == NULL)
@@ -5202,7 +5206,7 @@ static PaError StartStream( PaStream *s )
         PA_DEBUG(("Processing thread started!\n"));
         result = paNoError;
         stream->streamStarted = 1;
-        stream->streamActive = 1;
+    stream->streamActive = 1;
         break;
     case WAIT_OBJECT_0 + StreamStart_kFailed:
         PA_DEBUG(("Processing thread start failed! (result=%d)\n", stream->threadResult));
@@ -5251,7 +5255,7 @@ static PaError StopStream( PaStream *s )
         /* This means it should be safe for the called function */
         /* to invoke e.g. StartStream */
         if( stream->streamRepresentation.streamFinishedCallback != 0 )
-            stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
+             stream->streamRepresentation.streamFinishedCallback( stream->streamRepresentation.userData );
     }
 
     PA_LOGL_;
@@ -5280,7 +5284,7 @@ static PaError AbortStream( PaStream *s )
         assert(!stream->streamActive);
     }
     CloseHandle(stream->streamThread);
-    stream->streamThread = NULL;
+        stream->streamThread = NULL;
     stream->streamStarted = 0;
 
     if(doCb)
@@ -5351,14 +5355,14 @@ static double GetStreamCpuLoad( PaStream* s )
 
 
 /*
-As separate stream interfaces are used for blocking and callback
-streams, the following functions can be guaranteed to only be called
-for blocking streams.
+    As separate stream interfaces are used for blocking and callback
+    streams, the following functions can be guaranteed to only be called
+    for blocking streams.
 */
 
 static PaError ReadStream( PaStream* s,
-                          void *buffer,
-                          unsigned long frames )
+                           void *buffer,
+                           unsigned long frames )
 {
     PaWinWdmStream *stream = (PaWinWdmStream*)s;
 
@@ -5376,8 +5380,8 @@ static PaError ReadStream( PaStream* s,
 
 
 static PaError WriteStream( PaStream* s,
-                           const void *buffer,
-                           unsigned long frames )
+                            const void *buffer,
+                            unsigned long frames )
 {
     PaWinWdmStream *stream = (PaWinWdmStream*)s;
 
