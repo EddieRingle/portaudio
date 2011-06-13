@@ -5456,6 +5456,8 @@ static PaError PaPinCaptureSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, 
     PA_HP_TRACE((pInfo->stream->hLog, "Capture submit: %u", eventIndex));
     packet->Header.DataUsed = 0; /* Reset for reuse */
     result = PinRead(pInfo->stream->capture.pPin->handle, packet);
+    /* Reset event, as some drivers might not do so (or even set the event!!), resulting in a 100% CPU capture loop */
+    ResetEvent(packet->Signal.hEvent);
     ++pInfo->pending;
     return result;
 }
@@ -5480,6 +5482,8 @@ static PaError PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, u
 
     PA_HP_TRACE((pInfo->stream->hLog, "Render submit : %u idx=%u", pInfo->renderTail, (unsigned)(packet - pInfo->stream->render.packets)));
     result = PinWrite(pInfo->stream->render.pPin->handle, packet);
+    /* Reset event, just in case we have an analogous situation to capture (see PaPinCaptureSubmitHandler_WaveCyclic) */
+    ResetEvent(packet->Signal.hEvent);
     ++pInfo->pending;
     if (pInfo->priming)
     {
