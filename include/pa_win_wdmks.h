@@ -60,6 +60,10 @@ extern "C"
            by the WaveCyclic device. Use at own risk! */
         paWinWDMKSOverrideFramesize         = (1 << 0),
 
+        /* Makes WDMKS not apply a timeout in processing thread. Normally if a USB unit is unplugged, it will stop seding
+           packets, which will be detected by a timeout. Setting this flag prohibits that */
+        paWinWDMKSDisableTimeoutInProcessingThread = (1 << 1),
+
     } PaWinWDMKSFlags;
 
     typedef struct PaWinWDMKSInfo{
