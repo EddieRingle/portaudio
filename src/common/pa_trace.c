@@ -110,18 +110,13 @@ typedef struct __PaHighPerformanceLog
     int         writePtr;
     int         readPtr;
     int         size;
-    PaUint64    refTime;
+    double      refTime;
     char*       data;
 } PaHighPerformanceLog;
 
 static const unsigned kMagik = 0xcafebabe;
 
 #define USEC_PER_SEC    (1000000ULL)
-
-static PaUint64 GetMicroSecondsSince(PaUint64 refTime)
-{
-    return (PaUint64)(PaUtil_GetTime()*USEC_PER_SEC) - refTime;
-}
 
 int PaUtil_InitializeHighSpeedLog( LogHandle* phLog, unsigned maxSizeInBytes )
 {
@@ -141,7 +136,7 @@ int PaUtil_InitializeHighSpeedLog( LogHandle* phLog, unsigned maxSizeInBytes )
     }
     pLog->magik = kMagik;
     pLog->size = maxSizeInBytes;
-    pLog->refTime = GetMicroSecondsSince(0);
+    pLog->refTime = PaUtil_GetTime();
     return paNoError;
 }
 
@@ -149,13 +144,13 @@ void PaUtil_ResetHighSpeedLogTimeRef( LogHandle hLog )
 {
     PaHighPerformanceLog* pLog = (PaHighPerformanceLog*)hLog;
     assert(pLog->magik == kMagik);
-    pLog->refTime = GetMicroSecondsSince(0);
+    pLog->refTime = PaUtil_GetTime();
 }
 
 typedef struct __PaLogEntryHeader
 {
     int    size;
-    PaUint64 timeStamp;
+    double timeStamp;
 } PaLogEntryHeader;
 
 #ifdef __APPLE__
@@ -179,7 +174,7 @@ int PaUtil_AddHighSpeedLogMessage( LogHandle hLog, const char* fmt, ... )
         p = (char*)( pHeader + 1 );
         maxN = pLog->size - pLog->writePtr - 2 * sizeof(PaLogEntryHeader);
 
-        pHeader->timeStamp = GetMicroSecondsSince(pLog->refTime);
+        pHeader->timeStamp = PaUtil_GetTime() - pLog->refTime;
         if (maxN > 0)
         {
             if (maxN > 32)
@@ -213,8 +208,9 @@ void PaUtil_DumpHighSpeedLog( LogHandle hLog, const char* fileName )
     {
         const PaLogEntryHeader* pHeader = (const PaLogEntryHeader*)( pLog->data + pLog->readPtr );
         const char* p = (const char*)( pHeader + 1 );
+        const PaUint64 ts = (const PaUint64)( pHeader->timeStamp * USEC_PER_SEC );
         assert(pHeader->size < (1024+sizeof(unsigned)+sizeof(PaLogEntryHeader)));
-        fprintf(f, "%05u.%03u: %s\n", (unsigned)(pHeader->timeStamp/1000), (unsigned)(pHeader->timeStamp%1000), p);
+        fprintf(f, "%05u.%03u: %s\n", (unsigned)(ts/1000), (unsigned)(ts%1000), p);
         pLog->readPtr += pHeader->size;
     }
     if (f != stdout)

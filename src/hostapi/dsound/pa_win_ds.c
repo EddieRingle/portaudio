@@ -1224,7 +1224,7 @@ error:
     TerminateDSDeviceNameAndGUIDVector( &deviceNamesAndGUIDs.inputNamesAndGUIDs );
     TerminateDSDeviceNameAndGUIDVector( &deviceNamesAndGUIDs.outputNamesAndGUIDs );
 
-    Terminate( winDsHostApi );
+    Terminate( (PaUtilHostApiRepresentation*) winDsHostApi );
 
     return result;
 }
@@ -2545,8 +2545,6 @@ static void CALLBACK WaitableTimerAPCProc(
 PA_THREAD_FUNC ProcessingThreadProc( void *pArg )
 {
     PaWinDsStream *stream = (PaWinDsStream *)pArg;
-    MMRESULT mmResult;
-    HANDLE hWaitableTimer;
     LARGE_INTEGER dueTime;
     int framesPerWakeup, msecPerWakeup;
 
@@ -2583,6 +2581,7 @@ PA_THREAD_FUNC ProcessingThreadProc( void *pArg )
     {
         TimerCallback( 0, 0, (DWORD_PTR)pArg, 0, 0 );
     }
+
 #endif /* PA_WIN_DS_USE_WAITABLE_TIMER_OBJECT */
 
     SetEvent( stream->processingThreadCompleted );

@@ -71,6 +71,9 @@ extern "C"
         PaHostApiTypeId hostApiType;    /**< paWDMKS */
         unsigned long version;          /**< 1 */
         unsigned long flags;
+
+        /* The number of packets to use for WaveCyclic devices, range is [2, 8]. Set to zero for default value of 2. */
+        unsigned noOfPackets;
     } PaWinWDMKSInfo;
 
     typedef enum PaWDMKSType
