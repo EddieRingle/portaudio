@@ -3370,12 +3370,19 @@ static void ResetStreamEvents(PaWinWdmStream* stream)
 {
     unsigned i;
     ResetEvent(stream->eventAbort);
-    for (i=0; i<2; ++i)
+    ResetEvent(stream->eventStreamStart[StreamStart_kOk]);
+    ResetEvent(stream->eventStreamStart[StreamStart_kFailed]);
+
+    for (i=0; i<stream->capture.noOfPackets; ++i)
     {
         if (stream->capture.events[i])
         {
             ResetEvent(stream->capture.events[i]);
         }
+    }
+
+    for (i=0; i<stream->render.noOfPackets; ++i)
+    {
         if (stream->render.events[i])
         {
             ResetEvent(stream->render.events[i]);
@@ -3391,13 +3398,13 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
         CloseHandle(stream->eventAbort);
         stream->eventAbort = 0;
     }
-    if (stream->eventStreamStart[0])
+    if (stream->eventStreamStart[StreamStart_kOk])
     {
-        CloseHandle(stream->eventStreamStart[0]);
+        CloseHandle(stream->eventStreamStart[StreamStart_kOk]);
     }
-    if (stream->eventStreamStart[1])
+    if (stream->eventStreamStart[StreamStart_kFailed])
     {
-        CloseHandle(stream->eventStreamStart[1]);
+        CloseHandle(stream->eventStreamStart[StreamStart_kFailed]);
     }
 
     /* Unregister notification handles for WaveRT */
@@ -3466,7 +3473,7 @@ static PaError ValidateSpecificStreamParameters(
         {
             PA_DEBUG(("Stream parameters: noOfPackets out of range"));
             return paIncompatibleHostApiSpecificStreamInfo;
-        }
+    }
 
     }
 
@@ -3868,8 +3875,6 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 stream->capture.noOfPackets = pInfo->noOfPackets;
             }
         }
-
-
     }
 
     if(outputParameters)
@@ -4622,8 +4627,8 @@ static HANDLE BumpThreadPriority()
             }
             else
             {
-                return hAVRT;
-            }
+            return hAVRT;
+        }
         }
         else
         {
@@ -4657,9 +4662,9 @@ static void DropThreadPriority(HANDLE hAVRT)
         return;
     }
 
-    SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
-    timeEndPeriod(1);
-}
+        SetThreadPriority(hThread, THREAD_PRIORITY_NORMAL);
+        timeEndPeriod(1);
+    }
 
 static PaError PreparePinForStart(PaWinWdmPin* pin)
 {
@@ -4685,7 +4690,7 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
 {
     PaError result = paNoError;
     /* Submit buffers */
-    if(pInfo->stream->capture.pPin)
+    if (pInfo->stream->capture.pPin)
     {
         if ((result = PreparePinForStart(pInfo->stream->capture.pPin)) != paNoError)
         {
@@ -4696,21 +4701,21 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
         {
             unsigned i;
             for(i=0; i < pInfo->stream->capture.noOfPackets; ++i)
-            {
+    {
                 if ((result = PinRead(pInfo->stream->capture.pPin->handle, pInfo->stream->capture.packets + i)) != paNoError)
-                {
-                    goto error;
-                }
+        {
+            goto error;
+        }
                 /* Reset the events as some devices SET the event on PinRead */
                 ResetEvent(pInfo->stream->capture.packets[i].Signal.hEvent);
                 ++pInfo->pending;
+    }
+            }
+        else
+            {
+            pInfo->pending = 2;
             }
         }
-        else
-        {
-            pInfo->pending = 2;
-        }
-    }
 
     if(pInfo->stream->render.pPin)
     {
@@ -4728,9 +4733,9 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
             for(i=1; i < pInfo->stream->render.noOfPackets; ++i)
             {
                 SetEvent(pInfo->stream->render.events[i]);
-                ++pInfo->pending;
-            }
+            ++pInfo->pending;
         }
+    }
     }
 
 error:
@@ -5189,11 +5194,11 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             }
             else
             {
-                PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u)", info.timeout));
-                result = paUnanticipatedHostError;
-                PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
-                break;
-            }
+            PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u)", info.timeout));
+            result = paUnanticipatedHostError;
+            PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
+            break;
+        }
         }
         else
         {
@@ -5236,9 +5241,9 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             result = PaDoProcessing(&info);
             if (result != paNoError)
             {
-                PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
-                break;
-            }
+            PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
+            break;
+        }
         }
 
         if(info.stream->streamStop && info.cbResult != paComplete)
@@ -5379,14 +5384,18 @@ static PaError StopStream( PaStream *s )
 
     if(stream->streamActive)
     {
+        DWORD dwExitCode;
         doCb = 1;
         stream->streamStop = 1;
+        if (GetExitCodeThread(stream->streamThread, &dwExitCode) && dwExitCode == STILL_ACTIVE)
+        {
         if (WaitForSingleObject(stream->streamThread, INFINITE) != WAIT_OBJECT_0)
         {
             PA_DEBUG(("StopStream: stream thread terminated\n"));
             TerminateThread(stream->streamThread, -1);
             result = paTimedOut;
         }
+    }
     }
 
     CloseHandle(stream->streamThread);
