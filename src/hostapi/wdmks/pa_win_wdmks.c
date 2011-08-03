@@ -3375,7 +3375,7 @@ static void ResetStreamEvents(PaWinWdmStream* stream)
 
     for (i=0; i<stream->capture.noOfPackets; ++i)
     {
-        if (stream->capture.events[i])
+        if (stream->capture.events && stream->capture.events[i])
         {
             ResetEvent(stream->capture.events[i]);
         }
@@ -3383,7 +3383,7 @@ static void ResetStreamEvents(PaWinWdmStream* stream)
 
     for (i=0; i<stream->render.noOfPackets; ++i)
     {
-        if (stream->render.events[i])
+        if (stream->render.events && stream->render.events[i])
         {
             ResetEvent(stream->render.events[i]);
         }
@@ -3421,7 +3421,7 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
 
     for (i=0; i<stream->capture.noOfPackets; ++i)
     {
-        if (stream->capture.events[i])
+        if (stream->capture.events && stream->capture.events[i])
         {
             CloseHandle(stream->capture.events[i]);
             stream->capture.events[i] = 0;
@@ -3430,7 +3430,7 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
 
     for (i=0; i<stream->render.noOfPackets; ++i)
     {
-        if (stream->render.events[i])
+        if (stream->render.events && stream->render.events[i])
         {
             CloseHandle(stream->render.events[i]);
             stream->render.events[i];
