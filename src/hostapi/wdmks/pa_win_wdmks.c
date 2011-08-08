@@ -5061,7 +5061,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         if (info.stream->render.pPin->parentFilter->waveType == Type_kWaveCyclic)
         {
             unsigned i;
-            for(i=1; i < info.stream->capture.noOfPackets; ++i)
+            for(i=1; i < info.stream->render.noOfPackets; ++i)
             {
                 handleArray[noOfHandles++] = info.stream->render.events[i];
             }
