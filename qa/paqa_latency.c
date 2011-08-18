@@ -62,6 +62,10 @@ typedef struct
     char message[20];
     int minFramesPerBuffer;
     int maxFramesPerBuffer;
+    int callbackCount;
+    PaTime minDeltaDacTime;
+    PaTime maxDeltaDacTime;
+    PaStreamCallbackTimeInfo previousTimeInfo;
 }
 paTestData;
 
@@ -87,11 +91,25 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
     {
         data->minFramesPerBuffer = framesPerBuffer;
     }
-    
     if( data->maxFramesPerBuffer < framesPerBuffer )
     {
         data->maxFramesPerBuffer = framesPerBuffer;
     }
+    
+    // Measure min and max output time stamp delta.
+    if( data->callbackCount > 0 )
+    {
+        PaTime delta = timeInfo->outputBufferDacTime - data->previousTimeInfo.outputBufferDacTime;
+        if( data->minDeltaDacTime > delta )
+        {
+            data->minDeltaDacTime = delta;
+        }
+        if( data->maxDeltaDacTime < delta )
+        {
+            data->maxDeltaDacTime = delta;
+        }
+    }
+    data->previousTimeInfo = *timeInfo;
     
     for( i=0; i<framesPerBuffer; i++ )
     {
@@ -103,6 +121,7 @@ static int patestCallback( const void *inputBuffer, void *outputBuffer,
         if( data->right_phase >= TABLE_SIZE ) data->right_phase -= TABLE_SIZE;
     }
     
+    data->callbackCount += 1;
     return paContinue;
 }
 
@@ -111,10 +130,21 @@ PaError paqaCheckLatency( PaStreamParameters *outputParamsPtr,
 {
     PaError err;
     PaStream *stream;
+    const PaStreamInfo* streamInfo;
+
     dataPtr->minFramesPerBuffer = 9999999;
     dataPtr->maxFramesPerBuffer = 0;
+    dataPtr->minDeltaDacTime = 9999999.0;
+    dataPtr->maxDeltaDacTime = 0.0;
+    dataPtr->callbackCount = 0;
+    
     printf("-------------------------------------\n");
-    printf("Stream suggestedOutputLatency = %g\n", outputParamsPtr->suggestedLatency );
+    printf("Stream parameter: suggestedOutputLatency = %g\n", outputParamsPtr->suggestedLatency );
+    if( framesPerBuffer == paFramesPerBufferUnspecified ){
+        printf("Stream parameter: user framesPerBuffer = paFramesPerBufferUnspecified\n" );
+    }else{
+        printf("Stream parameter: user framesPerBuffer = %lu\n", framesPerBuffer );
+    }
     err = Pa_OpenStream(
                         &stream,
                         NULL, /* no input */
@@ -126,18 +156,20 @@ PaError paqaCheckLatency( PaStreamParameters *outputParamsPtr,
                         dataPtr );
     if( err != paNoError ) goto error1;
     
+    streamInfo = Pa_GetStreamInfo( stream );
+    printf("Stream info: inputLatency  = %g\n", streamInfo->inputLatency );
+    printf("Stream info: outputLatency = %g\n", streamInfo->outputLatency );
+
     err = Pa_StartStream( stream );
     if( err != paNoError ) goto error2;
 
     printf("Play for %d seconds.\n", NUM_SECONDS );
     Pa_Sleep( NUM_SECONDS * 1000 );
     
-    const PaStreamInfo* streamInfo = Pa_GetStreamInfo( stream );
-    printf("Stream inputLatency  = %g\n", streamInfo->inputLatency );
-    printf("Stream outputLatency = %g\n", streamInfo->outputLatency );
     printf("  minFramesPerBuffer = %4d\n", dataPtr->minFramesPerBuffer );
     printf("  maxFramesPerBuffer = %4d\n", dataPtr->maxFramesPerBuffer );
-
+    printf("  minDeltaDacTime = %f\n", dataPtr->minDeltaDacTime );
+    printf("  maxDeltaDacTime = %f\n", dataPtr->maxDeltaDacTime );
 
     err = Pa_StopStream( stream );
     if( err != paNoError ) goto error2;
@@ -184,17 +216,24 @@ int main(void)
       fprintf(stderr,"Error: No default output device.\n");
       goto error;
     }
+
     outputParameters.channelCount = 2;       /* stereo output */
     outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
     deviceInfo = Pa_GetDeviceInfo( outputParameters.device );
-    printf("defaultLowOutputLatency  = %f seconds\n", deviceInfo->defaultLowOutputLatency);
-    printf("defaultHighOutputLatency = %f seconds\n", deviceInfo->defaultHighOutputLatency);
+    printf("Using device #%d: '%s' (%s)\n", outputParameters.device, deviceInfo->name, Pa_GetHostApiInfo(deviceInfo->hostApi)->name);
+    printf("Device info: defaultLowOutputLatency  = %f seconds\n", deviceInfo->defaultLowOutputLatency);
+    printf("Device info: defaultHighOutputLatency = %f seconds\n", deviceInfo->defaultHighOutputLatency);
     outputParameters.hostApiSpecificStreamInfo = NULL;
     
     // Try to use a small buffer that is smaller than we think the device can handle.
     // Try to force combining multiple user buffers into a host buffer.
-    framesPerBuffer = 8;
+    framesPerBuffer = 9;
     outputParameters.suggestedLatency = deviceInfo->defaultLowOutputLatency;
+    err = paqaCheckLatency( &outputParameters, &data, sampleRate, framesPerBuffer );
+    if( err != paNoError ) goto error;
+    
+    framesPerBuffer = 64;
+    outputParameters.suggestedLatency = deviceInfo->defaultLowOutputLatency * 1.1;
     err = paqaCheckLatency( &outputParameters, &data, sampleRate, framesPerBuffer );
     if( err != paNoError ) goto error;
 
