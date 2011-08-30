@@ -3393,6 +3393,8 @@ static void ResetStreamEvents(PaWinWdmStream* stream)
 static void CloseStreamEvents(PaWinWdmStream* stream) 
 {
     unsigned i;
+    PaWinWdmIOInfo* ios[2] = { &stream->capture, &stream->render };
+
     if (stream->eventAbort)
     {
         CloseHandle(stream->eventAbort);
@@ -3407,33 +3409,24 @@ static void CloseStreamEvents(PaWinWdmStream* stream)
         CloseHandle(stream->eventStreamStart[StreamStart_kFailed]);
     }
 
-    /* Unregister notification handles for WaveRT */
-    if (stream->capture.pPin && stream->capture.pPin->parentFilter->waveType == Type_kWaveRT &&
-        stream->capture.pPin->parentFilter->waveSubType == SubType_kNotification)
+    for (i = 0; i < 2; ++i)
     {
-        PinUnregisterNotificationHandle(stream->capture.pPin, stream->capture.events[0]);
-    }
-    if (stream->render.pPin && stream->render.pPin->parentFilter->waveType == Type_kWaveRT && 
-        stream->render.pPin->parentFilter->waveSubType == SubType_kNotification)
-    {
-        PinUnregisterNotificationHandle(stream->render.pPin, stream->render.events[0]);
-    }
-
-    for (i=0; i<stream->capture.noOfPackets; ++i)
-    {
-        if (stream->capture.events && stream->capture.events[i])
+        unsigned j;
+        /* Unregister notification handles for WaveRT */
+        if (ios[i]->pPin && ios[i]->pPin->parentFilter->waveType == Type_kWaveRT &&
+            ios[i]->pPin->parentFilter->waveSubType == SubType_kNotification &&
+            ios[i]->events != 0)
         {
-            CloseHandle(stream->capture.events[i]);
-            stream->capture.events[i] = 0;
+            PinUnregisterNotificationHandle(ios[i]->pPin, ios[i]->events[0]);
         }
-    }
 
-    for (i=0; i<stream->render.noOfPackets; ++i)
-    {
-        if (stream->render.events && stream->render.events[i])
+        for (j=0; j < ios[i]->noOfPackets; ++j)
         {
-            CloseHandle(stream->render.events[i]);
-            stream->render.events[i];
+            if (ios[i]->events && ios[i]->events[j])
+            {
+                CloseHandle(ios[i]->events[j]);
+                ios[i]->events[j] = 0;
+            }
         }
     }
 }
