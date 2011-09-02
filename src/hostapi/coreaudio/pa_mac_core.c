@@ -2027,17 +2027,28 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         Boolean isInput = FALSE;
         SetupDevicePropertyListeners( stream, stream->outputDevice, isInput );
+        
+        /* Set stream specific info */
+        stream->streamSpecificInfo.output.deviceId = stream->outputDevice;
+        stream->streamSpecificInfo.output.channels = stream->userOutChan;
 	}
 	if( stream->inputUnit )
     {
         Boolean isInput = TRUE;
         SetupDevicePropertyListeners( stream, stream->inputDevice, isInput );
+
+        /* Set stream specific info */
+        stream->streamSpecificInfo.input.deviceId = stream->inputDevice;
+        stream->streamSpecificInfo.input.channels = stream->userInChan;
 	}
     UpdateTimeStampOffsets( stream );
     // Setup copies to be used by audio callback.
     stream->timestampOffsetCombined_ioProcCopy = stream->timestampOffsetCombined;
     stream->timestampOffsetInputDevice_ioProcCopy = stream->timestampOffsetInputDevice;
     stream->timestampOffsetOutputDevice_ioProcCopy = stream->timestampOffsetOutputDevice;
+    
+    stream->streamRepresentation.streamInfo.hostApiTypeId = paCoreAudio;
+    stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->streamSpecificInfo;
 	
     stream->state = STOPPED;
     stream->xrunFlags = 0;
