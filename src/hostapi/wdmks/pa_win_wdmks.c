@@ -923,31 +923,41 @@ static PaError WdmSetMuxNodeProperty(HANDLE handle,
 static const KSTOPOLOGY_CONNECTION* GetConnectionTo(const KSTOPOLOGY_CONNECTION* pFrom, PaWinWdmFilter* filter, int muxIdx)
 {
     unsigned i;
+    const KSTOPOLOGY_CONNECTION* retval = NULL;
     const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
     (void)muxIdx;
+    PA_DEBUG(("GetConnectionTo: Checking %u connections... (pFrom = %p)", filter->connections->Count, pFrom));
     for (i = 0; i < filter->connections->Count; ++i)
     {
         const KSTOPOLOGY_CONNECTION* pConn = connections + i;
-        if (pConn->FromNode == pFrom->ToNode &&
-            (pFrom->ToNode != KSFILTER_NODE || pConn->FromNodePin == pFrom->ToNodePin))
+        if (pConn == pFrom)
+            continue;
+
+        if (pConn->FromNode == pFrom->ToNode)
         {
-            return pConn;
+            retval = pConn;
+            break;
         }
     }
-    return NULL;
+    PA_DEBUG(("GetConnectionTo: Returning %p\n", retval));
+    return retval;
 }
 
 /* Used when traversing topology for inputs */
 static const KSTOPOLOGY_CONNECTION* GetConnectionFrom(const KSTOPOLOGY_CONNECTION* pTo, PaWinWdmFilter* filter, int muxIdx)
 {
     unsigned i;
+    const KSTOPOLOGY_CONNECTION* retval = NULL;
     const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
     int muxCntr = 0;
+    PA_DEBUG(("GetConnectionFrom: Checking %u connections... (pTo = %p)\n", filter->connections->Count, pTo));
     for (i = 0; i < filter->connections->Count; ++i)
     {
         const KSTOPOLOGY_CONNECTION* pConn = connections + i;
-        if (pConn->ToNode == pTo->FromNode &&
-            (pTo->FromNode != KSFILTER_NODE || pConn->ToNodePin == pTo->FromNodePin))
+        if (pConn == pTo)
+            continue;
+
+        if (pConn->ToNode == pTo->FromNode)
         {
             if (muxIdx >= 0)
             {
@@ -957,10 +967,12 @@ static const KSTOPOLOGY_CONNECTION* GetConnectionFrom(const KSTOPOLOGY_CONNECTIO
                     continue;
                 }
             }
-            return pConn;
+            retval = pConn;
+            break;
         }
     }
-    return NULL;
+    PA_DEBUG(("GetConnectionFrom: Returning %p\n", retval));
+    return retval;
 }
 
 static ULONG GetNumberOfConnectionsTo(const KSTOPOLOGY_CONNECTION* pTo, PaWinWdmFilter* filter)
@@ -968,6 +980,7 @@ static ULONG GetNumberOfConnectionsTo(const KSTOPOLOGY_CONNECTION* pTo, PaWinWdm
     ULONG retval = 0;
     unsigned i;
     const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
+    PA_DEBUG(("GetNumberOfConnectionsTo: Checking %u connections...", filter->connections->Count));
     for (i = 0; i < filter->connections->Count; ++i)
     {
         const KSTOPOLOGY_CONNECTION* pConn = connections + i;
@@ -982,20 +995,70 @@ static ULONG GetNumberOfConnectionsTo(const KSTOPOLOGY_CONNECTION* pTo, PaWinWdm
 
 typedef const KSTOPOLOGY_CONNECTION *(*TFnGetConnection)(const KSTOPOLOGY_CONNECTION*, PaWinWdmFilter*, int);
 
+static const KSTOPOLOGY_CONNECTION* FindStartConnectionFrom(ULONG startPin, PaWinWdmFilter* filter)
+{
+    unsigned i;
+    const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
+    PA_DEBUG(("FindStartConnectionFrom: Checking %u connections...", filter->connections->Count));
+    for (i = 0; i < filter->connections->Count; ++i)
+    {
+        const KSTOPOLOGY_CONNECTION* pConn = connections + i;
+        if (pConn->ToNode == KSFILTER_NODE && pConn->ToNodePin == startPin)
+        {
+            return pConn;
+        }
+    }
+    
+    assert(FALSE);
+    return 0;
+}
+
+static const KSTOPOLOGY_CONNECTION* FindStartConnectionTo(ULONG startPin, PaWinWdmFilter* filter)
+{
+    unsigned i;
+    const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
+    PA_DEBUG(("FindStartConnectionTo: Checking %u connections...", filter->connections->Count));
+    for (i = 0; i < filter->connections->Count; ++i)
+    {
+        const KSTOPOLOGY_CONNECTION* pConn = connections + i;
+        if (pConn->FromNode == KSFILTER_NODE && pConn->FromNodePin == startPin)
+        {
+            return pConn;
+        }
+    }
+
+    assert(FALSE);
+    return 0;
+}
+
 static ULONG GetConnectedPin(ULONG startPin, BOOL forward, PaWinWdmFilter* filter, int muxPosition, ULONG *muxInputPinId, ULONG *muxNodeId)
 {
-    KSTOPOLOGY_CONNECTION startConnection = { KSFILTER_NODE, startPin,  KSFILTER_NODE, startPin };
-    const KSTOPOLOGY_CONNECTION *pFrom = &startConnection;
+    const KSTOPOLOGY_CONNECTION *conn = NULL; 
     TFnGetConnection fnGetConnection = forward ? GetConnectionTo : GetConnectionFrom ;
     while (1)
     {
-        const KSTOPOLOGY_CONNECTION * conn = fnGetConnection(pFrom, filter, -1);
+        if (conn == NULL)
+        {
+            conn = forward ? FindStartConnectionTo(startPin, filter) : FindStartConnectionFrom(startPin, filter);
+        }
+        else
+        {
+            conn = fnGetConnection(conn, filter, -1);
+        }
+
+        /* Handling case of erroneous connection list */
+        if (conn == NULL)
+        {
+            break;
+        }
+
         if (forward ? conn->ToNode == KSFILTER_NODE : conn->FromNode == KSFILTER_NODE)
         {
             return forward ? conn->ToNodePin : conn->FromNodePin;
         }
         else
         {
+            PA_DEBUG(("GetConnectedPin: count=%d, forward=%d, muxPosition=%d\n", filter->nodes->Count, forward, muxPosition));
             if (filter->nodes->Count > 0 && !forward && muxPosition >= 0)
             {
                 const GUID* nodes = (const GUID*)(filter->nodes + 1);
@@ -1018,9 +1081,41 @@ static ULONG GetConnectedPin(ULONG startPin, BOOL forward, PaWinWdmFilter* filte
                 }
             }
         }
-        pFrom = conn;
     }
     return KSFILTER_NODE;
+}
+
+static void DumpConnectionsAndNodes(PaWinWdmFilter* filter)
+{
+    unsigned i;
+    const KSTOPOLOGY_CONNECTION* connections = (const KSTOPOLOGY_CONNECTION*)(filter->connections + 1);
+    const GUID* nodes = (const GUID*)(filter->nodes + 1);
+
+    PA_DEBUG(("DumpConnectionsAndNodes: connections=%d, nodes=%d\n", filter->connections->Count, filter->nodes->Count));
+
+    for (i=0; i < filter->connections->Count; ++i)
+    {
+        const KSTOPOLOGY_CONNECTION* pConn = connections + i;
+        PA_DEBUG(("  Connection: %u - FromNode=%u,FromPin=%u -> ToNode=%u,ToPin=%u\n", 
+            i,
+            pConn->FromNode, pConn->FromNodePin,
+            pConn->ToNode, pConn->ToNodePin
+            ));
+    }
+
+    for (i=0; i < filter->nodes->Count; ++i)
+    {
+        const GUID* pConn = nodes + i;
+        PA_DEBUG(("  Node: %d - {%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}\n",
+            i,
+            pConn->Data1, pConn->Data2, pConn->Data3,
+            pConn->Data4[0], pConn->Data4[1],
+            pConn->Data4[2], pConn->Data4[3],
+            pConn->Data4[4], pConn->Data4[5],
+            pConn->Data4[6], pConn->Data4[7]
+            ));
+    }
+
 }
 
 typedef struct __PaUsbTerminalGUIDToName 
@@ -1091,6 +1186,8 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, TCHAR* name, u
             );
         if (ptr != 0)
         {
+            PA_DEBUG(("GetNameFromCategory: USB GUID %04X -> '%s'\n", usbTerminalGUID, ptr->name));
+
             if (name != NULL && length > 0)
             {
                 int n = formatstring(name, length, TEXT("%s"), ptr->name);
@@ -1122,7 +1219,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     const ULONG streamingId = (parentFilter->waveType == Type_kWaveRT) ? KSINTERFACE_STANDARD_LOOPED_STREAMING : KSINTERFACE_STANDARD_STREAMING;
 
     PA_LOGE_;
-    PA_DEBUG(("Creating pin %d:\n",pinId));
+    PA_DEBUG(("PinNew: Creating pin %d:\n",pinId));
 
     /* Allocate the new PIN object */
     pin = (PaWinWdmPin*)PaUtil_AllocateMemory( sizeof(PaWinWdmPin) );
@@ -1184,7 +1281,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
         (pin->communication != KSPIN_COMMUNICATION_SINK) &&
         (pin->communication != KSPIN_COMMUNICATION_BOTH) )
     {
-        PA_DEBUG(("Not source/sink\n"));
+        PA_DEBUG(("PinNew: Not source/sink\n"));
         result = paInvalidDevice;
         goto error;
     }
@@ -1228,7 +1325,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
     if( result != paNoError )
     {
-        PA_DEBUG(("No %s streaming\n", streamingId==KSINTERFACE_STANDARD_LOOPED_STREAMING?"looped":"standard"));
+        PA_DEBUG(("PinNew: No %s streaming\n", streamingId==KSINTERFACE_STANDARD_LOOPED_STREAMING?"looped":"standard"));
         goto error;
     }
 
@@ -1288,9 +1385,10 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     pin->maxChannels = 0;
     pin->bestSampleRate = 0;
     pin->formats = 0;
-    for( i = 0; i <pin->dataRangesItem->Count; i++)
+    PA_DEBUG(("PinNew: Checking %u no of dataranges...\n", pin->dataRangesItem->Count));
+    for( i = 0; i < pin->dataRangesItem->Count; i++)
     {
-        PA_DEBUG(("DR major format %x\n",*(unsigned long*)(&(dataRange->MajorFormat))));
+        PA_DEBUG(("PinNew: DR major format %x\n",*(unsigned long*)(&(dataRange->MajorFormat))));
         /* Check that subformat is WAVEFORMATEX, PCM or WILDCARD */
         if( IS_VALID_WAVEFORMATEX_GUID(&dataRange->SubFormat) ||
             IsEqualGUID(&dataRange->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) ||
@@ -1308,26 +1406,26 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
             {
                 pin->maxChannels = (int) ((KSDATARANGE_AUDIO*)dataRange)->MaximumChannels;
             }
-            PA_DEBUG(("MaxChannel: %d\n",pin->maxChannels));
+            PA_DEBUG(("PinNew: MaxChannel: %d\n",pin->maxChannels));
 
             /* Record the formats (bit depths) that are supported */
             if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 8 &&
                 ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 8)
             {
                 pin->formats |= paInt8;
-                PA_DEBUG(("Format PCM 8 bit supported\n"));
+                PA_DEBUG(("PinNew: Format PCM 8 bit supported\n"));
             }
             if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 16 &&
                 ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 16)
             {
                 pin->formats |= paInt16;
-                PA_DEBUG(("Format PCM 16 bit supported\n"));
+                PA_DEBUG(("PinNew: Format PCM 16 bit supported\n"));
             }
             if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 24 &&
                 ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 24 )
             {
                 pin->formats |= paInt24;
-                PA_DEBUG(("Format PCM 24 bit supported\n"));
+                PA_DEBUG(("PinNew: Format PCM 24 bit supported\n"));
             }
             if( ((KSDATARANGE_AUDIO*)dataRange)->MinimumBitsPerSample <= 32 &&
                 ((KSDATARANGE_AUDIO*)dataRange)->MaximumBitsPerSample >= 32 )
@@ -1335,12 +1433,12 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                 if (IsEqualGUID(&dataRange->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT))
                 {
                     pin->formats |= paFloat32;
-                    PA_DEBUG(("Format IEEE float 32 bit supported\n"));
+                    PA_DEBUG(("PinNew: Format IEEE float 32 bit supported\n"));
                 }
                 else
                 {
                     pin->formats |= paInt32;
-                    PA_DEBUG(("Format PCM 32 bit supported\n"));
+                    PA_DEBUG(("PinNew: Format PCM 32 bit supported\n"));
                 }
             }
             if( ( pin->bestSampleRate != 48000) &&
@@ -1348,14 +1446,14 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                 (((KSDATARANGE_AUDIO*)dataRange)->MinimumSampleFrequency <= 48000) )
             {
                 pin->bestSampleRate = 48000;
-                PA_DEBUG(("48kHz supported\n"));
+                PA_DEBUG(("PinNew: 48kHz supported\n"));
             }
             else if(( pin->bestSampleRate != 48000) && ( pin->bestSampleRate != 44100 ) &&
                 (((KSDATARANGE_AUDIO*)dataRange)->MaximumSampleFrequency >= 44100) &&
                 (((KSDATARANGE_AUDIO*)dataRange)->MinimumSampleFrequency <= 44100) )
             {
                 pin->bestSampleRate = 44100;
-                PA_DEBUG(("44.1kHz supported\n"));
+                PA_DEBUG(("PinNew: 44.1kHz supported\n"));
             }
             else
             {
@@ -1383,6 +1481,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
     /* Query pin name (which means we need to traverse to non IRP pin, via physical connection to topology filter pin, through
     its nodes to the endpoint pin, and get that ones name... phew...) */
+    PA_DEBUG(("PinNew: Finding topology pin...\n"));
+
     {
         ULONG topoPinId = GetConnectedPin(pinId, (pin->dataFlow == KSPIN_DATAFLOW_IN), parentFilter, -1, NULL, NULL);
 
@@ -1390,6 +1490,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
         {
             /* Get physical connection for topo pin */
             unsigned long cbBytes = 0;
+            PA_DEBUG(("PinNew: Getting physical connection...\n"));
             result = WdmGetPinPropertySimple(parentFilter->handle,
                 topoPinId,
                 &KSPROPSETID_Pin,
@@ -1403,6 +1504,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
             {
                 /* No physical connection -> there is no topology filter! So we get the name of the pin! */
                 wchar_t buffer[MAX_PATH] = {0};
+                PA_DEBUG(("PinNew: No physical connection! Getting the pin name\n"));
                 result = WdmGetPinPropertySimple(parentFilter->handle,
                     topoPinId,
                     &KSPROPSETID_Pin,
@@ -1439,6 +1541,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
             else
             {
                 KSPIN_PHYSICALCONNECTION* pc = (KSPIN_PHYSICALCONNECTION*)PaUtil_AllocateMemory(cbBytes + 2);
+                PA_DEBUG(("PinNew: Physical connection found!\n"));
                 if (pc == NULL)
                 {
                     result = paInsufficientMemory;
@@ -1456,11 +1559,19 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                 {
                     TCHAR mbsSymbLinkName[MAX_PATH];
                     copywidestring(mbsSymbLinkName, pc->SymbolicLinkName, MAX_PATH);
+                    if (mbsSymbLinkName[1] == TEXT('?'))
+                    {
+                        mbsSymbLinkName[1] = TEXT('\\');
+                    }
+
                     if (pin->parentFilter->topologyFilter == NULL)
                     {
+                        PA_DEBUG(("PinNew: Creating topology filter '%s'\n", mbsSymbLinkName));
+
                         pin->parentFilter->topologyFilter = FilterNew(Type_kNotUsed, 0, mbsSymbLinkName, TEXT(""), &result);
                         if (pin->parentFilter->topologyFilter == NULL)
                         {
+                            PA_DEBUG(("PinNew: Failed creating topology filter\n"));
                             result = paUnanticipatedHostError;
                             PaWinWDM_SetLastErrorInfo(result, "Failed to create topology filter '%s'", mbsSymbLinkName);
                             goto error;
@@ -1472,6 +1583,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                         assert(cmpstring(mbsSymbLinkName, pin->parentFilter->topologyFilter->filterName) == 0);
                     }
 
+                    PA_DEBUG(("PinNew: Opening topology filter..."));
+
                     result = FilterUse(pin->parentFilter->topologyFilter);
                     if (result == paNoError)
                     {
@@ -1482,6 +1595,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                             /* The "endpointPinId" is what WASAPI looks at for pin names */
                             GUID category = {0};
 
+                            PA_DEBUG(("PinNew: Checking for output endpoint pin id...\n"));
+
                             endpointPinId = GetConnectedPin(pc->Pin, TRUE, pin->parentFilter->topologyFilter, -1, NULL, NULL);
 
                             if (endpointPinId == KSFILTER_NODE)
@@ -1490,6 +1605,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                 PaWinWDM_SetLastErrorInfo(result, "Failed to get endpoint pin ID on topology filter!");
                                 goto error;
                             }
+
+                            PA_DEBUG(("PinNew: Found endpoint pin id %u\n", endpointPinId));
 
                             /* Get pin category information */
                             result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
@@ -1503,6 +1620,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                             if (result == paNoError)
                             {
                                 wchar_t pinName[MAX_PATH];
+
+                                PA_DEBUG(("PinNew: Getting pin name property..."));
 
                                 /* Ok, try pin name also, and favor that if available */
                                 result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
@@ -1526,6 +1645,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                         copywidestring(pin->friendlyName, L"Output", MAX_PATH);
                                     }
                                 }
+
+                                PA_DEBUG(("PinNew: Pin name '%s'\n", pin->friendlyName));
                             }
 
                             /* Set endpoint pin ID */
@@ -1539,6 +1660,8 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                             for (i = 0; i < 64; ++i)
                             {
                                 ULONG muxNodeIdTest = (unsigned)-1;
+                                PA_DEBUG(("PinNew: Checking for input endpoint pin id (%d)...\n", i));
+
                                 endpointPinId = GetConnectedPin(pc->Pin,
                                     FALSE,
                                     pin->parentFilter->topologyFilter,
@@ -1546,10 +1669,19 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                     NULL,
                                     &muxNodeIdTest);
 
-                                if (endpointPinId != KSFILTER_NODE)
+
+                                if (endpointPinId == KSFILTER_NODE)
+                                {
+                                    /* We're done */
+                                    PA_DEBUG(("PinNew: Done with inputs.\n", endpointPinId));
+                                    break;
+                                }
+                                else
                                 {
                                     /* The "endpointPinId" is what WASAPI looks at for pin names */
                                     GUID category = {0};
+
+                                    PA_DEBUG(("PinNew: Found endpoint pin id %u\n", endpointPinId));
 
                                     /* Get pin category information */
                                     result = WdmGetPinPropertySimple(pin->parentFilter->topologyFilter->handle,
@@ -1602,15 +1734,12 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                         }
                                     }
                                 }
-                                else
-                                {
-                                    /* We're done */
-                                    break;
-                                }
                             }
 
                             if (muxCount > 0)
                             {
+                                PA_DEBUG(("PinNew: Setting up %u inputs\n", muxCount));
+
                                 /* Now we redo the operation once known how many multiplexer positions there are */
                                 pin->inputs = (PaWinWdmMuxedInput**)PaUtil_AllocateMemory(muxCount * sizeof(PaWinWdmMuxedInput*));
                                 if (pin->inputs == NULL)
@@ -1691,13 +1820,31 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                 }
                             }
                         }
-
-                        FilterRelease(pin->parentFilter->topologyFilter);
                     }
                 }
                 PaUtil_FreeMemory(pc);
             }
         }
+        else
+        {
+            PA_DEBUG(("PinNew: No topology pin id found. Bad...\n"));
+            /* No TOPO pin id ??? This is bad. Ok, so we just say it is an input or output... */
+            if (pin->dataFlow == KSPIN_DATAFLOW_IN)
+            {
+                copywidestring(pin->friendlyName, L"Line Out", MAX_PATH);
+            }
+            else
+            {
+                copywidestring(pin->friendlyName, L"Line In", MAX_PATH);
+            }
+        }
+    }
+
+    /* Release topology filter if it has been used */
+    if (pin->parentFilter->topologyFilter && pin->parentFilter->topologyFilter->handle != NULL)
+    {
+        PA_DEBUG(("PinNew: Releasing topology filter...\n"));
+        FilterRelease(pin->parentFilter->topologyFilter);
     }
 
     /* Success */
@@ -1707,6 +1854,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     return pin;
 
 error:
+    PA_DEBUG(("PinNew: Error %d\n", result));
     /*
     Error cleanup
     */
@@ -2253,6 +2401,8 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
         goto error;
     }
 
+    PA_DEBUG(("FilterNew: Creating filter '%s'\n", friendlyName));
+
     /* Set type flag */
     filter->waveType = type;
 
@@ -2267,6 +2417,8 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
 
     /* Copy the friendly name */
     _tcsncpy(filter->friendlyName, friendlyName, MAX_PATH);
+
+    PA_DEBUG(("FilterNew: Opening filter...\n", friendlyName));
 
     /* Open the filter handle */
     result = FilterUse(filter);
@@ -2314,6 +2466,9 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
         goto error;
     }
 
+    /* For debugging purposes */
+    DumpConnectionsAndNodes(filter);
+
     /* This section is not executed for topology filters */
     if (type != Type_kNotUsed)
     {
@@ -2334,6 +2489,7 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, TCHAR* filter
     return filter;
 
 error:
+    PA_DEBUG(("FilterNew: Error %d\n", result));
     /*
     Error cleanup
     */
