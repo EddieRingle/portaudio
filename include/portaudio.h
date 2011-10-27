@@ -463,6 +463,9 @@ typedef struct PaDeviceInfo
     PaTime defaultHighOutputLatency;
 
     double defaultSampleRate;
+
+    /** Host API specific device information */
+    const void* hostApiSpecificDeviceInfo;
 } PaDeviceInfo;
 
 

@@ -86,7 +86,7 @@ extern "C"
 
     typedef enum PaWDMKSSubType
     {
-        SubType_kNone,
+        SubType_kUnknown,
         SubType_kNotification,
         SubType_kPolled,
         SubType_kCnt,
@@ -96,17 +96,21 @@ extern "C"
         wchar_t filterName[MAX_PATH];     /**< KS filter path in Unicode! */
         wchar_t topologyName[MAX_PATH];   /**< Topology filter path in Unicode! */
         PaWDMKSType streamingType;
-        PaWDMKSSubType streamingSubType;
-        int endpointPinId;                /**< Endpoint pin ID (on topology filter 
-                                               if topologyName is not empty) */
-        int muxNodeId;                    /**< Mux node on topology filter (or -1 if 
-                                               not used) */
-        unsigned channels;                /**< No of channels the device is opened with */
+        GUID deviceProductGuid;           /**< The product GUID of the device (if supported) */
     } PaWinWDMKSDeviceInfo;
 
     typedef struct PaWDMKSSpecificStreamInfo {
-        PaWinWDMKSDeviceInfo input;
-        PaWinWDMKSDeviceInfo output;
+        PaDeviceIndex inputDevice;
+        unsigned inputChannels;                /**< No of channels the device is opened with */
+        unsigned framesPerHostInputBuffer;     /**< No of frames of the device buffer */
+        int endpointPinIdInput;                /**< Endpoint pin ID (on topology filter if topologyName is not empty) */
+        int muxNodeId;                         /**< Mux node on topology filter (or -1 if not used) */
+        PaWDMKSSubType streamingSubType;  /**< Not known until device is opened for streaming */
+
+        PaDeviceIndex outputDevice;
+        unsigned outputChannels;               /**< No of channels the device is opened with */
+        unsigned framesPerHostOutputBuffer;    /**< No of frames of the device buffer */
+        int endpointPinIdOutput;                /**< Endpoint pin ID (on topology filter if topologyName is not empty) */
     } PaWDMKSSpecificStreamInfo;
 
 #ifdef __cplusplus
