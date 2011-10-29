@@ -113,6 +113,14 @@ the rest of the debug tracing */
 #define cmpstringnocase   _stricmp
 #endif
 
+/* A define that selects whether the resulting pin names are chosen from pin category
+   instead of the available pin names, who sometimes can be quite cheesy, like "Volume control".
+   Default is to use the pin category.
+*/
+#ifndef PA_WDMKS_USE_CATEGORY_FOR_PIN_NAMES
+#define PA_WDMKS_USE_CATEGORY_FOR_PIN_NAMES  1
+#endif
+
 #ifdef __GNUC__
 #undef PA_LOGE_
 #define PA_LOGE_ PA_DEBUG(("%s {\n",__FUNCTION__))
@@ -1647,6 +1655,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
 
                             if (result == paNoError)
                             {
+#if !PA_WDMKS_USE_CATEGORY_FOR_PIN_NAMES
                                 wchar_t pinName[MAX_PATH];
 
                                 PA_DEBUG(("PinNew: Getting pin name property..."));
@@ -1665,6 +1674,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                     copywidestring(pin->friendlyName, pinName, MAX_PATH);
                                 }
                                 else
+#endif
                                 {
                                     result = GetNameFromCategory(&category, (pin->dataFlow == KSPIN_DATAFLOW_OUT), pin->friendlyName, MAX_PATH);
 
@@ -2270,64 +2280,48 @@ static unsigned long PaWinWDMGCD( unsigned long a, unsigned long b )
 }
 
 
-/* This function will handle getting the cyclic buffer from a WaveRT driver */
+/* This function will handle getting the cyclic buffer from a WaveRT driver. Certain WaveRT drivers needs to have
+   requested buffer size on multiples of 128 bytes:
+   
+*/
 static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequestedBufSize, BOOL* pbCallMemBarrier)
 {
     PaError result = paNoError;
 
     while (1)
     {
-        if (pPin->pinKsSubType == SubType_kPolled)
-        {
-            /* In case KSPROPERTY_RTAUDIO_QUERY_NOTIFICATION_SUPPORT says "polled", we try nothing else */
-            result = PinGetBufferWithoutNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
-        }
-        else
+        if (pPin->pinKsSubType != SubType_kPolled)
         {
             /* In case of unknown (or notification), we try both modes */
             result = PinGetBufferWithNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
-            if (result != paNoError)
-            {
-                result = PinGetBufferWithoutNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
-                if (result == paNoError)
-                {
-                    pPin->pinKsSubType = SubType_kPolled;
-                }
-            }
-            else
+            if (result == paNoError)
             {
                 pPin->pinKsSubType = SubType_kNotification;
+                break;
             }
         }
 
+        result = PinGetBufferWithoutNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
         if (result == paNoError)
         {
+            pPin->pinKsSubType = SubType_kPolled;
+            break;
+        }
+
+        /* Check if requested size is on a 128 byte boundary */
+        if (((*pRequestedBufSize) % 128UL) == 0)
+        {
+            /* Ok, can't do much more */
             break;
         }
         else
         {
-            /* Check if requested size is on a 128 byte boundary */
-            DWORD dwModulo = (*pRequestedBufSize) & 127UL;
-            if (dwModulo == 0)
-            {
-                /* Ok, can't do much more */
-                break;
-            }
-            else
-            {
-                unsigned gcd = PaWinWDMGCD(128, pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign);
-                if (gcd < pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign)
-                {
-                    /* We cannot do the alignment dance... */
-                    break;
-                }
-                else
-                {
-                    /* Align size to (next larger) 128 byte boundary */
-                    DWORD dwAligned = (*pRequestedBufSize + 127UL) & ~127UL;
-                    *pRequestedBufSize = dwAligned;
-                }
-            }
+            /* Compute LCM so we know which sizes are on a 128 byte boundary */
+            const unsigned gcd = PaWinWDMGCD(128UL, pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign);
+            const unsigned lcm = (128UL * pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign) / gcd;
+
+            /* Align size to (next larger) LCM byte boundary, and then we try again */
+            *pRequestedBufSize = ((*pRequestedBufSize + lcm - 1) / lcm) * lcm;
         }
     }
 
@@ -3386,8 +3380,6 @@ error:
 static PaError CommitDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaHostApiIndex index, void *scanResults, int deviceCount )
 {
     PaWinWdmHostApiRepresentation *wdmHostApi = (PaWinWdmHostApiRepresentation*)hostApi;
-    PaError result = paNoError;
-    int i = 0;
 
     hostApi->info.deviceCount = 0;
     hostApi->info.defaultInputDevice = paNoDevice;
@@ -3399,6 +3391,7 @@ static PaError CommitDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, P
         PaWinWDMScanDeviceInfosResults* localScanResults = (PaWinWDMScanDeviceInfosResults*)PaUtil_GroupAllocateMemory(
             wdmHostApi->allocations, sizeof(PaWinWDMScanDeviceInfosResults));
         localScanResults->deviceInfos = hostApi->deviceInfos;
+        
         DisposeDeviceInfos(hostApi, &localScanResults, hostApi->info.deviceCount);
 
         hostApi->deviceInfos = NULL;
@@ -3422,7 +3415,7 @@ static PaError CommitDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, P
         PaUtil_GroupFreeMemory( wdmHostApi->allocations, scanDeviceInfosResults );
     }
 
-    return result;
+    return paNoError;
 
 }
 
