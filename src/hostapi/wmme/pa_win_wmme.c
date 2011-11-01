@@ -154,21 +154,21 @@
 #define PA_MME_USE_HIGH_DEFAULT_LATENCY_    (0)  /* For debugging glitches. */
 
 #if PA_MME_USE_HIGH_DEFAULT_LATENCY_
- #define PA_MME_WIN_9X_DEFAULT_LATENCY_                     (0.4)
- #define PA_MME_MIN_HOST_OUTPUT_BUFFER_COUNT_               (4)
- #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_	(4)
- #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_HALF_DUPLEX_	(4)
+ #define PA_MME_WIN_9X_DEFAULT_LATENCY_                             (0.4)
+ #define PA_MME_MIN_HOST_OUTPUT_BUFFER_COUNT_                       (4)
+ #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_	        (4)
+ #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_HALF_DUPLEX_	        (4)
  #define PA_MME_HOST_BUFFER_GRANULARITY_FRAMES_WHEN_UNSPECIFIED_	(16)
- #define PA_MME_MAX_HOST_BUFFER_SECS_				        (0.3)       /* Do not exceed unless user buffer exceeds */
- #define PA_MME_MAX_HOST_BUFFER_BYTES_				        (32 * 1024) /* Has precedence over PA_MME_MAX_HOST_BUFFER_SECS_, some drivers are known to crash with buffer sizes > 32k */
+ #define PA_MME_MAX_HOST_BUFFER_SECS_				                (0.3)       /* Do not exceed unless user buffer exceeds */
+ #define PA_MME_MAX_HOST_BUFFER_BYTES_				                (32 * 1024) /* Has precedence over PA_MME_MAX_HOST_BUFFER_SECS_, some drivers are known to crash with buffer sizes > 32k */
 #else
- #define PA_MME_WIN_9X_DEFAULT_LATENCY_                     (0.2)
- #define PA_MME_MIN_HOST_OUTPUT_BUFFER_COUNT_               (2)
+ #define PA_MME_WIN_9X_DEFAULT_LATENCY_                             (0.2)
+ #define PA_MME_MIN_HOST_OUTPUT_BUFFER_COUNT_                       (2)
  #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_FULL_DUPLEX_	        (3)         /* always use at least 3 input buffers for full duplex */
- #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_HALF_DUPLEX_	(2)
+ #define PA_MME_MIN_HOST_INPUT_BUFFER_COUNT_HALF_DUPLEX_	        (2)
  #define PA_MME_HOST_BUFFER_GRANULARITY_FRAMES_WHEN_UNSPECIFIED_	(16)
- #define PA_MME_MAX_HOST_BUFFER_SECS_				        (0.1)       /* Do not exceed unless user buffer exceeds */
- #define PA_MME_MAX_HOST_BUFFER_BYTES_				        (32 * 1024) /* Has precedence over PA_MME_MAX_HOST_BUFFER_SECS_, some drivers are known to crash with buffer sizes > 32k */
+ #define PA_MME_MAX_HOST_BUFFER_SECS_				                (0.1)       /* Do not exceed unless user buffer exceeds */
+ #define PA_MME_MAX_HOST_BUFFER_BYTES_				                (32 * 1024) /* Has precedence over PA_MME_MAX_HOST_BUFFER_SECS_, some drivers are known to crash with buffer sizes > 32k */
 #endif
 
 /* Use higher latency for NT because it is even worse at real-time
@@ -180,7 +180,7 @@
    survey of workable latency settings using patest_wmme_find_best_latency_params.c.
    See pdf attached to ticket 185 for a graph of the survey results:
    http://www.portaudio.com/trac/ticket/185
-
+   
    Workable latencies varied between 40ms and ~80ms on different systems (different
    combinations of hardware, 32 and 64 bit, WinXP, Vista and Win7. We didn't
    get enough Vista results to know if Vista has systemically worse latency.
@@ -1351,7 +1351,7 @@ static unsigned long ComputeHostBufferCountForFixedBufferSizeFrames(
 {
     /* Calculate the number of buffers of length hostFramesPerBuffer 
        that fit in suggestedLatencyFrames, rounding up to the next integer.
-    
+
        The value (hostBufferSizeFrames - 1) below is to ensure the buffer count is rounded up.
     */
     unsigned long resultBufferCount = ((suggestedLatencyFrames + (hostBufferSizeFrames - 1)) / hostBufferSizeFrames);
@@ -1368,6 +1368,48 @@ static unsigned long ComputeHostBufferCountForFixedBufferSizeFrames(
 }
 
 
+static unsigned long ComputeHostBufferSizeGivenHardUpperLimit( 
+        unsigned long userFramesPerBuffer,
+        unsigned long absoluteMaximumBufferSizeFrames )
+{
+    static unsigned long primes_[] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 
+            29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 0 }; /* zero terminated */
+
+    unsigned long result = userFramesPerBuffer;
+    int i;
+
+    assert( absoluteMaximumBufferSizeFrames > 67 ); /* assume maximum is large and we're only factoring by small primes */
+
+    /* search for the largest integer factor of userFramesPerBuffer less 
+       than or equal to absoluteMaximumBufferSizeFrames */
+
+    /* repeatedly divide by smallest prime factors until a buffer size 
+       smaller than absoluteMaximumBufferSizeFrames is found */
+    while( result > absoluteMaximumBufferSizeFrames ){
+
+        /* search for the smallest prime factor of result */
+        for( i=0; primes_[i] != 0; ++i ) 
+        {
+            unsigned long p = primes_[i];
+            unsigned long divided = result / p;
+            if( divided*p == result )
+            {
+                result = divided;
+                break; /* continue with outer while loop */
+            }
+        }
+        if( primes_[i] == 0 )
+        { /* loop failed to find a prime factor, return an approximate result */
+            unsigned long d = (userFramesPerBuffer + (absoluteMaximumBufferSizeFrames-1))
+                    / absoluteMaximumBufferSizeFrames;
+            return userFramesPerBuffer / d;
+        }
+    }
+
+    return result;
+}
+
+
 static PaError SelectHostBufferSizeFramesAndHostBufferCount(
         unsigned long suggestedLatencyFrames,
         unsigned long userFramesPerBuffer,
@@ -1376,7 +1418,7 @@ static PaError SelectHostBufferSizeFramesAndHostBufferCount(
         unsigned long absoluteMaximumBufferSizeFrames,  /* never exceed this, a hard limit */
         unsigned long *hostBufferSizeFrames,
         unsigned long *hostBufferCount )
-        {
+{
     unsigned long effectiveUserFramesPerBuffer;
     unsigned long numberOfUserBuffersPerHostBuffer;
 
@@ -1387,19 +1429,29 @@ static PaError SelectHostBufferSizeFramesAndHostBufferCount(
 
     }else{
 
-        effectiveUserFramesPerBuffer = userFramesPerBuffer;
+        if( userFramesPerBuffer > absoluteMaximumBufferSizeFrames ){
 
-        if( effectiveUserFramesPerBuffer > absoluteMaximumBufferSizeFrames ){
-            /* user has requested a user buffer that's larger than absoluteMaximumBufferSizeFrames */
+            /* user has requested a user buffer that's larger than absoluteMaximumBufferSizeFrames.
+               try to choose a buffer size that is equal or smaller than absoluteMaximumBufferSizeFrames
+               but is also an integer factor of userFramesPerBuffer, so as to distribute computation evenly.
+               the buffer processor will handle the block adaption between host and user buffer sizes.
+               see http://www.portaudio.com/trac/ticket/189 for discussion.
+            */
 
-            /* @todo FIXME/REVIEW right now we allow the user to request an oversize host buffer,
-                even though elsewhere in the code there are suggestions that oversize buffers
-                can cause crashes with some drivers. see http://www.portaudio.com/trac/ticket/189
-                */
-            /* return paBufferTooBig; */
+            effectiveUserFramesPerBuffer = ComputeHostBufferSizeGivenHardUpperLimit( userFramesPerBuffer, absoluteMaximumBufferSizeFrames );
+            assert( effectiveUserFramesPerBuffer <= absoluteMaximumBufferSizeFrames );
+
+            /* try to ensure that duration of host buffering is at least as 
+                large as duration of user buffer. */
+            if( suggestedLatencyFrames < userFramesPerBuffer )
+                suggestedLatencyFrames = userFramesPerBuffer; 
+
+        }else{
+            
+            effectiveUserFramesPerBuffer = userFramesPerBuffer;
         }
-            }
-
+    }
+                        
     /* compute a host buffer count based on suggestedLatencyFrames and our granularity */
 
     *hostBufferSizeFrames = effectiveUserFramesPerBuffer;
@@ -1407,6 +1459,8 @@ static PaError SelectHostBufferSizeFramesAndHostBufferCount(
     *hostBufferCount = ComputeHostBufferCountForFixedBufferSizeFrames(
             suggestedLatencyFrames, *hostBufferSizeFrames, minimumBufferCount );
 
+    if( *hostBufferSizeFrames >= userFramesPerBuffer )
+    {
     /*
         If there are too many host buffers we would like to coalesce 
         them by packing an integer number of user buffers into each host buffer.
@@ -1423,9 +1477,9 @@ static PaError SelectHostBufferSizeFramesAndHostBufferCount(
         The + (PA_MME_TARGET_HOST_BUFFER_COUNT_-2) term below is intended to round up.
     */
     numberOfUserBuffersPerHostBuffer = ((*hostBufferCount - 1) + (PA_MME_TARGET_HOST_BUFFER_COUNT_-2)) / (PA_MME_TARGET_HOST_BUFFER_COUNT_ - 1);
-
+    
     if( numberOfUserBuffersPerHostBuffer > 1 )
-{
+    {
         unsigned long maxCoalescedBufferSizeFrames = (absoluteMaximumBufferSizeFrames < preferredMaximumBufferSizeFrames) /* minimum of our limits */
                         ? absoluteMaximumBufferSizeFrames
                         : preferredMaximumBufferSizeFrames;
@@ -1441,9 +1495,10 @@ static PaError SelectHostBufferSizeFramesAndHostBufferCount(
         *hostBufferCount = ComputeHostBufferCountForFixedBufferSizeFrames(
                 suggestedLatencyFrames, *hostBufferSizeFrames, minimumBufferCount );
     }
+    }
 
     return paNoError;
-        }
+}
 
 
 static PaError CalculateMaxHostSampleFrameSizeBytes(
@@ -1471,7 +1526,7 @@ static PaError CalculateMaxHostSampleFrameSizeBytes(
         {
             if( streamInfo->devices[i].channelCount > maxDeviceChannelCount )
                 maxDeviceChannelCount = streamInfo->devices[i].channelCount;
-        }                                                         
+        }
     }
 
     *hostSampleFrameSizeBytes = hostSampleSizeBytes * maxDeviceChannelCount;
@@ -1635,7 +1690,7 @@ static PaError CalculateBufferSettings(
                     hostOutputBufferCount );
             if( result != paNoError )
                 goto error;
-            
+
             if( inputChannelCount > 0 ) /* full duplex */
             {
                 /* harmonize hostFramesPerInputBuffer and hostFramesPerOutputBuffer */
@@ -1651,7 +1706,7 @@ static PaError CalculateBufferSettings(
                     if( hostFramesPerInputBuffer < hostFramesPerOutputBuffer )
                     {
                         *hostFramesPerOutputBuffer = *hostFramesPerInputBuffer;
-                        
+
                         *hostOutputBufferCount = ComputeHostBufferCountForFixedBufferSizeFrames(
                                 (unsigned long)(suggestedOutputLatency * sampleRate), 
                                 *hostOutputBufferCount, 
@@ -1660,7 +1715,7 @@ static PaError CalculateBufferSettings(
                     else
                     {
                         *hostFramesPerInputBuffer = *hostFramesPerOutputBuffer;
-                        
+
                         *hostInputBufferCount = ComputeHostBufferCountForFixedBufferSizeFrames(
                                 (unsigned long)(suggestedInputLatency * sampleRate), 
                                 *hostFramesPerInputBuffer, 
@@ -2454,7 +2509,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 + framesPerHostInputBuffer) / sampleRate;
     stream->streamRepresentation.streamInfo.outputLatency =
             (double)(PaUtil_GetBufferProcessorOutputLatencyFrames(&stream->bufferProcessor)
-                +(framesPerHostOutputBuffer * (hostOutputBufferCount-1))) / sampleRate;
+                + (framesPerHostOutputBuffer * (hostOutputBufferCount-1))) / sampleRate;
     stream->streamRepresentation.streamInfo.sampleRate = sampleRate;
 
     stream->primeStreamUsingCallback = ( (streamFlags&paPrimeOutputBuffersUsingStreamCallback) && streamCallback ) ? 1 : 0;

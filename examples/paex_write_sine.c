@@ -1,5 +1,5 @@
-/** @file patest_write_sine.c
-	@ingroup test_src
+/** @file paex_write_sine.c
+	@ingroup examples_src
 	@brief Play a sine wave for several seconds using the blocking API (Pa_WriteStream())
 	@author Ross Bencina <rossb@audiomulch.com>
     @author Phil Burk <philburk@softsynth.com>

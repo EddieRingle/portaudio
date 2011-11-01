@@ -1009,6 +1009,10 @@ static OSStatus UpdateSampleRateFromDeviceProperty( PaMacCoreStream *stream, Aud
 static OSStatus AudioDevicePropertyActualSampleRateListenerProc( AudioDeviceID inDevice, UInt32 inChannel, Boolean isInput, AudioDevicePropertyID inPropertyID, void *inClientData )
 {
 	PaMacCoreStream *stream = (PaMacCoreStream*)inClientData;
+    
+    // Make sure the callback is operating on a stream that is still valid!
+    assert( stream->streamRepresentation.magic == PA_STREAM_MAGIC );
+
 	OSStatus osErr = UpdateSampleRateFromDeviceProperty( stream, inDevice, isInput );
     if( osErr == noErr )
     {
@@ -1034,6 +1038,10 @@ static OSStatus AudioDevicePropertyGenericListenerProc( AudioDeviceID inDevice, 
 {
     OSStatus osErr = noErr;
 	PaMacCoreStream *stream = (PaMacCoreStream*)inClientData;
+    
+    // Make sure the callback is operating on a stream that is still valid!
+    assert( stream->streamRepresentation.magic == PA_STREAM_MAGIC );
+    
     PaMacCoreDeviceProperties *deviceProperties = isInput ? &stream->inputProperties : &stream->outputProperties;
     UInt32 *valuePtr = NULL;
     switch( inPropertyID )
@@ -1571,7 +1579,7 @@ static UInt32 CalculateOptimalBufferSize( PaMacAUHAL *auhalHostApi,
                                   double sampleRate,
                                   UInt32 requestedFramesPerBuffer )
 {
-    UInt32 suggested = 0;  
+    UInt32 resultBufferSizeFrames = 0;  
     // Use maximum of suggested input and output latencies.
     if( inputParameters )
     {
@@ -1580,45 +1588,42 @@ static UInt32 CalculateOptimalBufferSize( PaMacAUHAL *auhalHostApi,
         SInt32 variableLatencyFrames = suggestedLatencyFrames - fixedInputLatency;
         // Prevent negative latency.
         variableLatencyFrames = MAX( variableLatencyFrames, 0 );       
-        suggested = MAX( suggested, (UInt32) variableLatencyFrames );
+        resultBufferSizeFrames = MAX( resultBufferSizeFrames, (UInt32) variableLatencyFrames );
     }
     if( outputParameters )
     {        
         UInt32 suggestedLatencyFrames = outputParameters->suggestedLatency * sampleRate;
         SInt32 variableLatencyFrames = suggestedLatencyFrames - fixedOutputLatency;
         variableLatencyFrames = MAX( variableLatencyFrames, 0 );
-        suggested = MAX( suggested, (UInt32) variableLatencyFrames );
+        resultBufferSizeFrames = MAX( resultBufferSizeFrames, (UInt32) variableLatencyFrames );
     }
-    
-    VDBUG( ("Block Size unspecified. Based on Latency, the user wants a Block Size near: %ld.\n",
-            suggested ) );
     
     if( requestedFramesPerBuffer != paFramesPerBufferUnspecified )
     {
-        if( suggested > (requestedFramesPerBuffer + 1) )
-        {
-            // If the user asks for higher latency than the requested buffer size would provide
-            // then put multiple user buffers in one host buffer.
-            UInt32 userBuffersPerHostBuffer = (suggested + (requestedFramesPerBuffer - 1)) / requestedFramesPerBuffer;
-            suggested = userBuffersPerHostBuffer * requestedFramesPerBuffer;
+        // make host buffer the next highest integer multiple of user frames per buffer
+        UInt32 n = (resultBufferSizeFrames + requestedFramesPerBuffer - 1) / requestedFramesPerBuffer;
+        resultBufferSizeFrames = n * requestedFramesPerBuffer;
+
+    }else{
+    	VDBUG( ("Block Size unspecified. Based on Latency, the user wants a Block Size near: %ld.\n",
+            resultBufferSizeFrames ) );
         }
-    }
     
     // Clip to the capabilities of the device.
     if( inputParameters )
     {
         ClipToDeviceBufferSize( auhalHostApi->devIds[inputParameters->device],
                                true, // In the old code isInput was false!
-                               suggested, &suggested );
+                               resultBufferSizeFrames, &resultBufferSizeFrames );
     }
     if( outputParameters )
     {
         ClipToDeviceBufferSize( auhalHostApi->devIds[outputParameters->device],
-                               false, suggested, &suggested );
+                               false, resultBufferSizeFrames, &resultBufferSizeFrames );
     }
-    VDBUG(("After querying hardware, setting block size to %ld.\n", suggested));
+    VDBUG(("After querying hardware, setting block size to %ld.\n", resultBufferSizeFrames));
 
-    return suggested;
+    return resultBufferSizeFrames;
 }
 
 /* =================================================================================================== */
