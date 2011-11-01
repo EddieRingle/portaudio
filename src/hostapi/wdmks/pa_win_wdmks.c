@@ -2311,6 +2311,7 @@ static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequested
         /* Check if requested size is on a 128 byte boundary */
         if (((*pRequestedBufSize) % 128UL) == 0)
         {
+            PA_DEBUG(("Buffer size on 128 byte boundary, still fails :(\n"));
             /* Ok, can't do much more */
             break;
         }
@@ -2319,9 +2320,12 @@ static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequested
             /* Compute LCM so we know which sizes are on a 128 byte boundary */
             const unsigned gcd = PaWinWDMGCD(128UL, pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign);
             const unsigned lcm = (128UL * pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign) / gcd;
+            DWORD dwOldSize = *pRequestedBufSize;
 
             /* Align size to (next larger) LCM byte boundary, and then we try again */
             *pRequestedBufSize = ((*pRequestedBufSize + lcm - 1) / lcm) * lcm;
+
+            PA_DEBUG(("Adjusting buffer size from %u to %u bytes (128 byte boundary, LCM=%u)\n", dwOldSize, *pRequestedBufSize, lcm));
         }
     }
 
