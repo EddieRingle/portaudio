@@ -294,7 +294,7 @@ struct __PaWinWdmFilter
 typedef struct __PaWinWdmDeviceInfo
 {
     PaDeviceInfo    inheritedDeviceInfo;
-    char             compositeName[MAX_PATH];   /* Composite name consists of pin name + device name */
+    char            compositeName[MAX_PATH];   /* Composite name consists of pin name + device name */
     PaWinWdmFilter* filter;
     unsigned long   pin;
     int             muxPosition;    /* Used only for input devices */
@@ -2828,7 +2828,7 @@ static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
         result = PinInstantiate(pin);
     }
     *error = result;
-    return pin;
+    return result == paNoError ? pin : 0;
 }
 
 
@@ -2852,7 +2852,7 @@ static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
         result = PinInstantiate(pin);
     }
     *error = result;
-    return pin;
+    return result == paNoError ? pin : 0;
 }
 
 static ULONG GetHash(const TCHAR* str)
@@ -4820,7 +4820,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         PaWinWdmDeviceInfo *pDeviceInfo = (PaWinWdmDeviceInfo*)wdmHostApi->inheritedHostApiRep.deviceInfos[inputParameters->device];
 
-        stream->hostApiStreamInfo.inputDevice = inputParameters->device;
+        stream->hostApiStreamInfo.inputDevice = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), inputParameters->device);
         stream->hostApiStreamInfo.inputChannels = stream->deviceInputChannels;
         stream->hostApiStreamInfo.muxNodeId = -1;
         if (stream->capture.pPin->inputs)
@@ -4836,7 +4836,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
     if (stream->userOutputChannels)
     {
-        stream->hostApiStreamInfo.outputDevice = outputParameters->device;
+        stream->hostApiStreamInfo.outputDevice = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), outputParameters->device);
         stream->hostApiStreamInfo.outputChannels = stream->deviceOutputChannels;
         stream->hostApiStreamInfo.framesPerHostOutputBuffer = stream->render.framesPerBuffer;
         stream->hostApiStreamInfo.endpointPinIdOutput = stream->render.pPin->endpointPinId;
