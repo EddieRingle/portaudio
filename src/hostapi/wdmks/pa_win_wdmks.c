@@ -1505,8 +1505,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
     if (parentFilter->devInfo.streamingType == Type_kWaveRT)
     {
         BOOL bSupportsNotification = FALSE;
-        PaError localResult = PinQueryNotificationSupport(pin, &bSupportsNotification);
-        if (localResult == paNoError)
+        if (PinQueryNotificationSupport(pin, &bSupportsNotification) == paNoError)
         {
             pin->pinKsSubType = bSupportsNotification ? SubType_kNotification : SubType_kPolled;
         }
@@ -2121,20 +2120,22 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
         guid = ((WAVEFORMATEXTENSIBLE*)format)->SubFormat;
     }
     dataRange = (KSDATARANGE_AUDIO*)pin->dataRanges;
-    for(count = 0; count<pin->dataRangesItem->Count; count++)
+    for(count = 0;
+        count<pin->dataRangesItem->Count;
+        count++, 
+        dataRange = (KSDATARANGE_AUDIO*)( ((char*)dataRange) + dataRange->DataRange.FormatSize))
     {
         if ( IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_AUDIO) || 
-            IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_WILDCARD) )
+             IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_WILDCARD) )
         {
             /* This is an audio or wildcard datarange... */
             if ( IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_WILDCARD) ||
-                IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_PCM) ||
-                IsEqualGUID(&(dataRange->DataRange.SubFormat), &guid) )
+                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_PCM) ||
+                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &guid) )
             {
-                if ( IsEqualGUID(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WILDCARD) ||
-                    IsEqualGUID(&(dataRange->DataRange.Specifier),&KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) )
+                if ( IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WILDCARD) ||
+                     IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) )
                 {
-
                     PA_DEBUG(("Pin:%x, DataRange:%d\n",(void*)pin,count));
                     PA_DEBUG(("\tFormatSize:%d, SampleSize:%d\n",dataRange->DataRange.FormatSize,dataRange->DataRange.SampleSize));
                     PA_DEBUG(("\tMaxChannels:%d\n",dataRange->MaximumChannels));
@@ -2168,16 +2169,14 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
                         continue;
                     }
                     /* Success! */
-                    PA_LOGL_;
-                    return paNoError;
+                    result = paNoError;
+                    break;
                 }
             }
         }
-        dataRange = (KSDATARANGE_AUDIO*)( ((char*)dataRange) + dataRange->DataRange.FormatSize);
     }
 
     PA_LOGL_;
-
     return result;
 }
 
@@ -2322,7 +2321,8 @@ static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequested
             const unsigned lcm = (128UL * pPin->ksDataFormatWfx->WaveFormatEx.nBlockAlign) / gcd;
             DWORD dwOldSize = *pRequestedBufSize;
 
-            /* Align size to (next larger) LCM byte boundary, and then we try again */
+            /* Align size to (next larger) LCM byte boundary, and then we try again. Note that LCM is not necessarily a
+               power of 2. */
             *pRequestedBufSize = ((*pRequestedBufSize + lcm - 1) / lcm) * lcm;
 
             PA_DEBUG(("Adjusting buffer size from %u to %u bytes (128 byte boundary, LCM=%u)\n", dwOldSize, *pRequestedBufSize, lcm));
@@ -2886,6 +2886,25 @@ typedef enum _tag_EAlias
     Alias_kRealtime = (1<<2),
 } EAlias;
 
+/* Trim whitespace from string */
+static void TrimString(wchar_t* str, unsigned length)
+{
+    wchar_t* s = str;
+    wchar_t* e = 0;
+
+    /* Find start of string */
+    while (iswspace(*s)) ++s;
+    e=s+min(length,wcslen(s))-1;
+    
+    /* Find end of string */
+    while(e>s && iswspace(*e)) --e;
+    ++e;
+
+    length = e - s;
+    memcpy(str, s, length);
+    str[length] = 0;
+}
+
 /**
 * Build the list of available filters
 * Use the SetupDi API to enumerate all devices in the KSCATEGORY_AUDIO which 
@@ -2916,10 +2935,10 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
     DWORD sizeFriendlyName;
     DWORD type;
     PaWinWdmFilter* newFilter;
-    GUID* category = (GUID*)&KSCATEGORY_AUDIO;
-    GUID* alias_render = (GUID*)&KSCATEGORY_RENDER;
-    GUID* alias_capture = (GUID*)&KSCATEGORY_CAPTURE;
-    GUID* category_realtime = (GUID*)&KSCATEGORY_REALTIME;
+    const GUID* category = (GUID*)&KSCATEGORY_AUDIO;
+    const GUID* alias_render = (GUID*)&KSCATEGORY_RENDER;
+    const GUID* alias_capture = (GUID*)&KSCATEGORY_CAPTURE;
+    const GUID* category_realtime = (GUID*)&KSCATEGORY_REALTIME;
     DWORD aliasFlags;
     PaWDMKSType streamingType;
     int filterCount = 0;
@@ -3116,6 +3135,8 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
                     }
                 }
             }
+
+            TrimString(friendlyName, sizeFriendlyName);
 
             newFilter = FilterNew(streamingType, 
                 devInfoData.DevInst,
