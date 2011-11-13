@@ -2123,57 +2123,70 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
     for(count = 0;
         count<pin->dataRangesItem->Count;
         count++, 
-        dataRange = (KSDATARANGE_AUDIO*)( ((char*)dataRange) + dataRange->DataRange.FormatSize))
+        dataRange = (KSDATARANGE_AUDIO*)( ((char*)dataRange) + dataRange->DataRange.FormatSize)) /* Need to update dataRange here, due to 'continue' !! */
     {
-        if ( IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_AUDIO) || 
-             IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_WILDCARD) )
+        /* Check major format*/
+        if (!(IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_AUDIO) ||
+            IsEqualGUID(&(dataRange->DataRange.MajorFormat), &KSDATAFORMAT_TYPE_WILDCARD)))
         {
-            /* This is an audio or wildcard datarange... */
-            if ( IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_WILDCARD) ||
-                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_PCM) ||
-                 IsEqualGUID(&(dataRange->DataRange.SubFormat), &guid) )
-            {
-                if ( IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WILDCARD) ||
-                     IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) )
-                {
-                    PA_DEBUG(("Pin:%x, DataRange:%d\n",(void*)pin,count));
-                    PA_DEBUG(("\tFormatSize:%d, SampleSize:%d\n",dataRange->DataRange.FormatSize,dataRange->DataRange.SampleSize));
-                    PA_DEBUG(("\tMaxChannels:%d\n",dataRange->MaximumChannels));
-                    PA_DEBUG(("\tBits:%d-%d\n",dataRange->MinimumBitsPerSample,dataRange->MaximumBitsPerSample));
-                    PA_DEBUG(("\tSampleRate:%d-%d\n",dataRange->MinimumSampleFrequency,dataRange->MaximumSampleFrequency));
-
-                    if( dataRange->MaximumChannels != (ULONG)-1 && 
-                        dataRange->MaximumChannels < format->nChannels )
-                    {
-                        result = paInvalidChannelCount;
-                        continue;
-                    }
-                    if( dataRange->MinimumBitsPerSample > format->wBitsPerSample )
-                    {
-                        result = paSampleFormatNotSupported;
-                        continue;
-                    }
-                    if( dataRange->MaximumBitsPerSample < format->wBitsPerSample )
-                    {
-                        result = paSampleFormatNotSupported;
-                        continue;
-                    }
-                    if( dataRange->MinimumSampleFrequency > format->nSamplesPerSec )
-                    {
-                        result = paInvalidSampleRate;
-                        continue;
-                    }
-                    if( dataRange->MaximumSampleFrequency < format->nSamplesPerSec )
-                    {
-                        result = paInvalidSampleRate;
-                        continue;
-                    }
-                    /* Success! */
-                    result = paNoError;
-                    break;
-                }
-            }
+            continue;
         }
+
+        /* This is an audio or wildcard datarange... */
+        if (! (IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_WILDCARD) ||
+             IsEqualGUID(&(dataRange->DataRange.SubFormat), &KSDATAFORMAT_SUBTYPE_PCM) ||
+             IsEqualGUID(&(dataRange->DataRange.SubFormat), &guid) ))
+        {
+            continue;
+        }
+
+        /* Check specifier... */
+        if (! (IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WILDCARD) ||
+            IsEqualGUID(&(dataRange->DataRange.Specifier), &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)) )
+        {
+            continue;
+        }
+
+        PA_DEBUG(("Pin:%x, DataRange:%d\n",(void*)pin,count));
+        PA_DEBUG(("\tFormatSize:%d, SampleSize:%d\n",dataRange->DataRange.FormatSize,dataRange->DataRange.SampleSize));
+        PA_DEBUG(("\tMaxChannels:%d\n",dataRange->MaximumChannels));
+        PA_DEBUG(("\tBits:%d-%d\n",dataRange->MinimumBitsPerSample,dataRange->MaximumBitsPerSample));
+        PA_DEBUG(("\tSampleRate:%d-%d\n",dataRange->MinimumSampleFrequency,dataRange->MaximumSampleFrequency));
+
+        if( dataRange->MaximumChannels != (ULONG)-1 && 
+            dataRange->MaximumChannels < format->nChannels )
+        {
+            result = paInvalidChannelCount;
+            continue;
+        }
+
+        if( dataRange->MinimumBitsPerSample > format->wBitsPerSample )
+        {
+            result = paSampleFormatNotSupported;
+            continue;
+        }
+
+        if( dataRange->MaximumBitsPerSample < format->wBitsPerSample )
+        {
+            result = paSampleFormatNotSupported;
+            continue;
+        }
+
+        if( dataRange->MinimumSampleFrequency > format->nSamplesPerSec )
+        {
+            result = paInvalidSampleRate;
+            continue;
+        }
+
+        if( dataRange->MaximumSampleFrequency < format->nSamplesPerSec )
+        {
+            result = paInvalidSampleRate;
+            continue;
+        }
+
+        /* Success! */
+        result = paNoError;
+        break;
     }
 
     PA_LOGL_;
@@ -3680,7 +3693,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         pin = pFilter->pins[pDeviceInfo->pin];
 
         result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
-        //result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
@@ -3691,10 +3703,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                 sampleRate);
 
             result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
-            //result = FilterCanCreateCapturePin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWinWDM_SetLastErrorInfo(result, "FilterCanCreateCapturePin failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWinWDM_SetLastErrorInfo(result, "PinIsFormatSupported(capture) failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -3757,7 +3768,6 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         pin = pFilter->pins[pDeviceInfo->pin];
 
         result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
-        //result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
         {
             /* Try a WAVE_FORMAT_PCM instead */
@@ -3767,10 +3777,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
                 PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
                 sampleRate);
             result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
-            //result = FilterCanCreateRenderPin(pFilter,(const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWinWDM_SetLastErrorInfo(result, "FilterCanCreateRenderPin failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWinWDM_SetLastErrorInfo(result, "PinIsFormatSupported(render) failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -5613,11 +5622,11 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         }
     }
 
-    /* Up and running... */
-    SetEvent(info.stream->eventStreamStart[StreamStart_kOk]);
-
     /* Mark stream as active */
     info.stream->streamActive = 1;
+
+    /* Up and running... */
+    SetEvent(info.stream->eventStreamStart[StreamStart_kOk]);
 
     while(!info.stream->streamAbort)
     {
@@ -5830,6 +5839,10 @@ static PaError StartStream( PaStream *s )
     case WAIT_OBJECT_0 + StreamStart_kFailed:
         PA_DEBUG(("Processing thread start failed! (result=%d)\n", stream->threadResult));
         result = stream->threadResult;
+        /* Wait for the stream to really exit */
+        WaitForSingleObject(stream->streamThread, 200);
+        CloseHandle(stream->streamThread);
+        stream->streamThread = 0;
         break;
     case WAIT_TIMEOUT:
     default:
@@ -5859,13 +5872,13 @@ static PaError StopStream( PaStream *s )
         stream->streamStop = 1;
         if (GetExitCodeThread(stream->streamThread, &dwExitCode) && dwExitCode == STILL_ACTIVE)
         {
-        if (WaitForSingleObject(stream->streamThread, INFINITE) != WAIT_OBJECT_0)
-        {
-            PA_DEBUG(("StopStream: stream thread terminated\n"));
-            TerminateThread(stream->streamThread, -1);
-            result = paTimedOut;
+            if (WaitForSingleObject(stream->streamThread, INFINITE) != WAIT_OBJECT_0)
+            {
+                PA_DEBUG(("StopStream: stream thread terminated\n"));
+                TerminateThread(stream->streamThread, -1);
+                result = paTimedOut;
+            }
         }
-    }
     }
 
     CloseHandle(stream->streamThread);
