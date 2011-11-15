@@ -1043,6 +1043,42 @@ static void PaAsioSETranslator(unsigned int n, struct _EXCEPTION_POINTERS*)
     throw SE_Exception(n);
 }
 
+typedef struct PaAsioBlacklist
+{
+    const char* name;
+    BOOL        debugOnly;
+} PaAsioBlacklist;
+
+static PaAsioBlacklist s_kDriverBlacklist[] ={
+    { "ASIO DirectX Full Duplex Driver", FALSE },
+    { "ASIO Multimedia Driver", FALSE },
+    { "Premiere", FALSE },
+    { "Adobe", FALSE },
+
+    /* ASIO Digidesign Driver uses PACE copy protection which quits out
+    if a debugger is running. So we don't load it if a debugger is running. */
+    { "ASIO Digidesign Driver", TRUE },
+};
+
+static const unsigned s_kDriverBlacklistCount = sizeof(s_kDriverBlacklist) / sizeof(s_kDriverBlacklist[0]);
+
+static BOOL IsDriverBlacklisted(const char* driverName, BOOL inDebugMode)
+{
+    for (unsigned i = 0; i < s_kDriverBlacklistCount; ++i)
+    {
+        if (strcmp(driverName, s_kDriverBlacklist[i].name) == 0)
+        {
+            if (s_kDriverBlacklist[i].debugOnly && !inDebugMode)
+            {
+                return FALSE;
+            }
+
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
     PaError result = paNoError;
@@ -1181,32 +1217,19 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             // like shells on top of REAL drivers, for instance.
             // so we get duplicate handles, locks and other problems.
             // so lets NOT try to load any such wrappers. 
-            // The ones i [davidv] know of so far are:
+            // The ones i [davidv] know of so far are: (see s_kDriverBlacklist array above)
 
-            if (   strcmp (names[i],"ASIO DirectX Full Duplex Driver") == 0
-                || strcmp (names[i],"ASIO Multimedia Driver")          == 0
-                || strncmp(names[i],"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
-                || strncmp(names[i],"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
-               )
+            if ( IsDriverBlacklisted(names[i], (IsDebuggerPresent_ && IsDebuggerPresent_())) )
             {
                 PA_DEBUG(("BLACKLISTED!!!\n"));
                 continue;
             }
 
-
-            if( IsDebuggerPresent_ && IsDebuggerPresent_() )  
-            {
-                /* ASIO Digidesign Driver uses PACE copy protection which quits out
-                if a debugger is running. So we don't load it if a debugger is running. */
-                if( strcmp(names[i], "ASIO Digidesign Driver") == 0 )  
-                {
-                    PA_DEBUG(("BLACKLISTED!!! ASIO Digidesign Driver would quit the debugger\n"));  
-                    continue;  
-                }  
-            }  
-
             try
             {
+                /* Reset structure for this pass */
+                memset(pPaAsioDriverInfo, 0, sizeof(pPaAsioDriverInfo));
+
                 /* Attempt to load the asio driver... */
                 if( LoadAsioDriver( asioHostApi, names[i], pPaAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
                 {
@@ -1303,12 +1326,10 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                         goto error_unload;
                     }
 
-                    int a;
-
-                    for( a=0; a < deviceInfo->maxInputChannels; ++a ){
-                        asioDeviceInfo->asioChannelInfos[a].channel = a;
-                        asioDeviceInfo->asioChannelInfos[a].isInput = ASIOTrue;
-                        ASIOError asioError = ASIOGetChannelInfo( &asioDeviceInfo->asioChannelInfos[a] );
+                    for(int i=0; i < deviceInfo->maxInputChannels; ++i ){
+                        asioDeviceInfo->asioChannelInfos[i].channel = i;
+                        asioDeviceInfo->asioChannelInfos[i].isInput = ASIOTrue;
+                        ASIOError asioError = ASIOGetChannelInfo( &asioDeviceInfo->asioChannelInfos[i] );
                         if( asioError != ASE_OK )
                         {
                             result = paUnanticipatedHostError;
@@ -1317,9 +1338,9 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                         }
                     }
 
-                    for( a=0; a < deviceInfo->maxOutputChannels; ++a ){
-                        int b = deviceInfo->maxInputChannels + a;
-                        asioDeviceInfo->asioChannelInfos[b].channel = a;
+                    for(int i=0; i < deviceInfo->maxOutputChannels; ++i ){
+                        int b = deviceInfo->maxInputChannels + i;
+                        asioDeviceInfo->asioChannelInfos[b].channel = i;
                         asioDeviceInfo->asioChannelInfos[b].isInput = ASIOFalse;
                         ASIOError asioError = ASIOGetChannelInfo( &asioDeviceInfo->asioChannelInfos[b] );
                         if( asioError != ASE_OK )
