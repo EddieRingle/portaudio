@@ -5624,6 +5624,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
     /* Mark stream as active */
     info.stream->streamActive = 1;
+    info.stream->threadResult = paNoError;
 
     /* Up and running... */
     SetEvent(info.stream->eventStreamStart[StreamStart_kOk]);
@@ -5720,9 +5721,9 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             result = PaDoProcessing(&info);
             if (result != paNoError)
             {
-            PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
-            break;
-        }
+                PA_HP_TRACE((info.stream->hLog, "PaDoProcessing failed!"));
+                break;
+            }
         }
 
         if(info.stream->streamStop && info.cbResult != paComplete)
@@ -5745,6 +5746,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
     PA_DEBUG(("Finished processing loop\n"));
 
+    info.stream->threadResult = result;
     goto bailout;
 
 error:
@@ -5878,6 +5880,21 @@ static PaError StopStream( PaStream *s )
                 TerminateThread(stream->streamThread, -1);
                 result = paTimedOut;
             }
+        }
+        else
+        {
+            PA_DEBUG(("StopStream: GECT says not active, but streamActive is not false ??"));
+            result = paUnanticipatedHostError;
+            PaWinWDM_SetLastErrorInfo(result, "StopStream: GECT says not active, but streamActive = %d", stream->streamActive);
+        }
+    }
+    else
+    {
+        if (stream->threadResult != paNoError)
+        {
+            PA_DEBUG(("StopStream: Stream not active (%d)\n", stream->threadResult));
+            result = stream->threadResult;
+            stream->threadResult = paNoError;
         }
     }
 
