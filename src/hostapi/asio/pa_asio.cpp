@@ -1228,7 +1228,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
             try
             {
                 /* Reset structure for this pass */
-                memset(pPaAsioDriverInfo, 0, sizeof(pPaAsioDriverInfo));
+                memset(pPaAsioDriverInfo, 0, sizeof(PaAsioDriverInfo));
 
                 /* Attempt to load the asio driver... */
                 if( LoadAsioDriver( asioHostApi, names[i], pPaAsioDriverInfo, asioHostApi->systemSpecific ) == paNoError )
