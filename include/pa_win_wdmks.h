@@ -93,24 +93,25 @@ extern "C"
     } PaWDMKSSubType;
 
     typedef struct PaWinWDMKSDeviceInfo {
-        wchar_t filterName[MAX_PATH];     /**< KS filter path in Unicode! */
-        wchar_t topologyName[MAX_PATH];   /**< Topology filter path in Unicode! */
+        wchar_t filterPath[MAX_PATH];     /**< KS filter path in Unicode! */
+        wchar_t topologyPath[MAX_PATH];   /**< Topology filter path in Unicode! */
         PaWDMKSType streamingType;
         GUID deviceProductGuid;           /**< The product GUID of the device (if supported) */
     } PaWinWDMKSDeviceInfo;
 
-    typedef struct PaWDMKSSpecificStreamInfo {
-        PaDeviceIndex inputDevice;
-        unsigned inputChannels;                /**< No of channels the device is opened with */
-        unsigned framesPerHostInputBuffer;     /**< No of frames of the device buffer */
-        int endpointPinIdInput;                /**< Endpoint pin ID (on topology filter if topologyName is not empty) */
-        int muxNodeId;                         /**< Mux node on topology filter (or -1 if not used) */
-        PaWDMKSSubType streamingSubType;  /**< Not known until device is opened for streaming */
+    typedef struct PaWDMKSDirectionSpecificStreamInfo
+    {
+        PaDeviceIndex device;
+        unsigned channels;                  /**< No of channels the device is opened with */
+        unsigned framesPerHostBuffer;       /**< No of frames of the device buffer */
+        int endpointPinId;                  /**< Endpoint pin ID (on topology filter if topologyName is not empty) */
+        int muxNodeId;                      /**< Only valid for input */
+        PaWDMKSSubType streamingSubType;       /**< Not known until device is opened for streaming */
+    } PaWDMKSDirectionSpecificStreamInfo;
 
-        PaDeviceIndex outputDevice;
-        unsigned outputChannels;               /**< No of channels the device is opened with */
-        unsigned framesPerHostOutputBuffer;    /**< No of frames of the device buffer */
-        int endpointPinIdOutput;                /**< Endpoint pin ID (on topology filter if topologyName is not empty) */
+    typedef struct PaWDMKSSpecificStreamInfo {
+        PaWDMKSDirectionSpecificStreamInfo input;
+        PaWDMKSDirectionSpecificStreamInfo output;
     } PaWDMKSSpecificStreamInfo;
 
 #ifdef __cplusplus

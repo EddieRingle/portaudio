@@ -1596,12 +1596,12 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                         }
 
                         /* Copy info so we have it in device info */
-                        wcsncpy(pin->parentFilter->devInfo.topologyName, mbsSymbLinkName, MAX_PATH);
+                        wcsncpy(pin->parentFilter->devInfo.topologyPath, mbsSymbLinkName, MAX_PATH);
                     }
                     else
                     {
                         /* Must be the same */
-                        assert(wcscmp(mbsSymbLinkName, pin->parentFilter->topologyFilter->devInfo.filterName) == 0);
+                        assert(wcscmp(mbsSymbLinkName, pin->parentFilter->topologyFilter->devInfo.filterPath) == 0);
                     }
 
                     PA_DEBUG(("PinNew: Opening topology filter..."));
@@ -2548,7 +2548,7 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, const wchar_t
     /* memset( (void*)filter, 0, sizeof(PaWinWdmFilter) ); */
 
     /* Copy the filter name */
-    wcsncpy(filter->devInfo.filterName, filterName, MAX_PATH);
+    wcsncpy(filter->devInfo.filterPath, filterName, MAX_PATH);
 
     /* Copy the friendly name */
     wcsncpy(filter->friendlyName, friendlyName, MAX_PATH);
@@ -2777,7 +2777,7 @@ static PaError FilterUse(PaWinWdmFilter* filter)
     {
         /* Open the filter */
         filter->handle = CreateFileW(
-            filter->devInfo.filterName,
+            filter->devInfo.filterPath,
             GENERIC_READ | GENERIC_WRITE,
             0,
             NULL,
@@ -4964,30 +4964,32 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         PaWinWdmDeviceInfo *pDeviceInfo = (PaWinWdmDeviceInfo*)wdmHostApi->inheritedHostApiRep.deviceInfos[inputParameters->device];
 
-        stream->hostApiStreamInfo.inputDevice = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), inputParameters->device);
-        stream->hostApiStreamInfo.inputChannels = stream->deviceInputChannels;
-        stream->hostApiStreamInfo.muxNodeId = -1;
+        stream->hostApiStreamInfo.input.device = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), inputParameters->device);
+        stream->hostApiStreamInfo.input.channels = stream->deviceInputChannels;
+        stream->hostApiStreamInfo.input.muxNodeId = -1;
         if (stream->capture.pPin->inputs)
         {
-            stream->hostApiStreamInfo.muxNodeId = stream->capture.pPin->inputs[pDeviceInfo->muxPosition]->muxNodeId;
+            stream->hostApiStreamInfo.input.muxNodeId = stream->capture.pPin->inputs[pDeviceInfo->muxPosition]->muxNodeId;
         }
-        stream->hostApiStreamInfo.endpointPinIdInput = pDeviceInfo->endpointPinId;
-        stream->hostApiStreamInfo.framesPerHostInputBuffer = stream->capture.framesPerBuffer;
+        stream->hostApiStreamInfo.input.endpointPinId = pDeviceInfo->endpointPinId;
+        stream->hostApiStreamInfo.input.framesPerHostBuffer = stream->capture.framesPerBuffer;
+        stream->hostApiStreamInfo.input.streamingSubType = stream->capture.pPin->pinKsSubType;
     }
     else
     {
-        stream->hostApiStreamInfo.inputDevice = paNoDevice;
+        stream->hostApiStreamInfo.input.device = paNoDevice;
     }
     if (stream->userOutputChannels)
     {
-        stream->hostApiStreamInfo.outputDevice = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), outputParameters->device);
-        stream->hostApiStreamInfo.outputChannels = stream->deviceOutputChannels;
-        stream->hostApiStreamInfo.framesPerHostOutputBuffer = stream->render.framesPerBuffer;
-        stream->hostApiStreamInfo.endpointPinIdOutput = stream->render.pPin->endpointPinId;
+        stream->hostApiStreamInfo.output.device = Pa_HostApiDeviceIndexToDeviceIndex(Pa_HostApiTypeIdToHostApiIndex(paWDMKS), outputParameters->device);
+        stream->hostApiStreamInfo.output.channels = stream->deviceOutputChannels;
+        stream->hostApiStreamInfo.output.framesPerHostBuffer = stream->render.framesPerBuffer;
+        stream->hostApiStreamInfo.output.endpointPinId = stream->render.pPin->endpointPinId;
+        stream->hostApiStreamInfo.output.streamingSubType = stream->render.pPin->pinKsSubType;
     }
     else
     {
-        stream->hostApiStreamInfo.outputDevice = paNoDevice;
+        stream->hostApiStreamInfo.output.device = paNoDevice;
     }
     stream->streamRepresentation.streamInfo.hostApiTypeId = paWDMKS;
     stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
@@ -6044,9 +6046,10 @@ static PaError AbortStream( PaStream *s )
         SetEvent(stream->eventAbort); /* Signal immediately */
         if (WaitForSingleObject(stream->streamThread, 10000) != WAIT_OBJECT_0)
         {
-            PA_DEBUG(("AbortStream: stream thread terminated\n"));
             TerminateThread(stream->streamThread, -1);
             result = paTimedOut;
+
+            PA_DEBUG(("AbortStream: stream thread terminated\n"));
         }
         assert(!stream->streamActive);
     }
