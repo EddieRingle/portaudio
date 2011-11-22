@@ -2096,12 +2096,13 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
     unsigned long count;
     GUID guid = DYNAMIC_GUID( DEFINE_WAVEFORMATEX_GUID(format->wFormatTag) );
     PaError result = paInvalidDevice;
+    const WAVEFORMATEXTENSIBLE* pFormatExt = (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE) ? (const WAVEFORMATEXTENSIBLE*)format : 0;
 
     PA_LOGE_;
 
-    if( format->wFormatTag == WAVE_FORMAT_EXTENSIBLE )
+    if( pFormatExt != 0 )
     {
-        guid = ((WAVEFORMATEXTENSIBLE*)format)->SubFormat;
+        guid = pFormatExt->SubFormat;
     }
     dataRange = (KSDATARANGE_AUDIO*)pin->dataRanges;
     for(count = 0;
@@ -2144,16 +2145,32 @@ static PaError PinIsFormatSupported(PaWinWdmPin* pin, const WAVEFORMATEX* format
             continue;
         }
 
-        if( dataRange->MinimumBitsPerSample > format->wBitsPerSample )
+        if (pFormatExt != 0)
         {
-            result = paSampleFormatNotSupported;
-            continue;
+            if ( dataRange->MinimumBitsPerSample > pFormatExt->Samples.wValidBitsPerSample )
+            {
+                result = paSampleFormatNotSupported;
+                continue;
+            }
+            if ( dataRange->MaximumBitsPerSample < pFormatExt->Samples.wValidBitsPerSample )
+            {
+                result = paSampleFormatNotSupported;
+                continue;
+            }
         }
-
-        if( dataRange->MaximumBitsPerSample < format->wBitsPerSample )
+        else
         {
-            result = paSampleFormatNotSupported;
-            continue;
+            if( dataRange->MinimumBitsPerSample > format->wBitsPerSample )
+            {
+                result = paSampleFormatNotSupported;
+                continue;
+            }
+
+            if( dataRange->MaximumBitsPerSample < format->wBitsPerSample )
+            {
+                result = paSampleFormatNotSupported;
+                continue;
+            }
         }
 
         if( dataRange->MinimumSampleFrequency > format->nSamplesPerSec )
@@ -3659,6 +3676,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     {
         PaWinWdmDeviceInfo* pDeviceInfo = (PaWinWdmDeviceInfo*)wdmHostApi->inheritedHostApiRep.deviceInfos[inputParameters->device];
         PaWinWdmPin* pin;
+        unsigned fmt;
+        unsigned long testFormat = 0;
+        unsigned validBits = 0;
 
         inputChannelCount = inputParameters->channelCount;
         inputSampleFormat = inputParameters->sampleFormat;
@@ -3667,7 +3687,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         this implementation doesn't support any custom sample formats */
         if( inputSampleFormat & paCustomFormat )
         {
-            PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "Custom input format not supported");
+            PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "IsFormatSupported: Custom input format not supported");
             return paSampleFormatNotSupported;
         }
 
@@ -3676,14 +3696,14 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
-            PaWinWDM_SetLastErrorInfo(paInvalidDevice, "paUseHostApiSpecificDeviceSpecification not supported");
+            PaWinWDM_SetLastErrorInfo(paInvalidDevice, "IsFormatSupported: paUseHostApiSpecificDeviceSpecification not supported");
             return paInvalidDevice;
         }
 
         /* check that input device can support inputChannelCount */
         if( inputChannelCount > hostApi->deviceInfos[ inputParameters->device ]->maxInputChannels )
         {
-            PaWinWDM_SetLastErrorInfo(paInvalidChannelCount, "Invalid input channel count");
+            PaWinWDM_SetLastErrorInfo(paInvalidChannelCount, "IsFormatSupported: Invalid input channel count");
             return paInvalidChannelCount;
         }
 
@@ -3694,17 +3714,46 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
         }
 
+        pFilter = pDeviceInfo->filter;
+        pin = pFilter->pins[pDeviceInfo->pin];
+
+        /* Find out the testing format */
+        for (fmt = paFloat32; fmt <= paUInt8; fmt <<= 1)
+        {
+            if ((fmt & pin->formats) != 0)
+            {
+                /* Found a matching format! */
+                testFormat = fmt;
+                break;
+            }
+        }
+        if (testFormat == 0)
+        {
+            PaWinWDM_SetLastErrorInfo(result, "IsFormatSupported(capture) failed: no testformat found!");
+            return paUnanticipatedHostError;
+        }
+
+        /* Due to special considerations, WaveRT devices with paInt24 should be tested with paInt32 and
+           valid bits = 24 (instead of 24 bit samples) */
+        if (pFilter->devInfo.streamingType == Type_kWaveRT && testFormat == paInt24)
+        {
+            PA_DEBUG(("IsFormatSupported (capture): WaveRT overriding testFormat paInt24 with paInt32 (24 valid bits)"));
+            testFormat = paInt32;
+            validBits = 24;
+        }
+
         /* Check that the input format is supported */
         channelMask = PaWin_DefaultChannelMask(inputChannelCount);
         PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
             inputChannelCount, 
-            paInt16,
-            PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+            testFormat,
+            PaWin_SampleFormatToLinearWaveFormatTag(testFormat),
             sampleRate,
             channelMask );
-
-        pFilter = pDeviceInfo->filter;
-        pin = pFilter->pins[pDeviceInfo->pin];
+        if (validBits != 0)
+        {
+            wfx.Samples.wValidBitsPerSample = validBits;
+        }
 
         result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
@@ -3712,14 +3761,19 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             /* Try a WAVE_FORMAT_PCM instead */
             PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx,
                 inputChannelCount, 
-                paInt16,
-                PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+                testFormat,
+                PaWin_SampleFormatToLinearWaveFormatTag(testFormat),
                 sampleRate);
+
+            if (validBits != 0)
+            {
+                wfx.Samples.wValidBitsPerSample = validBits;
+            }
 
             result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWinWDM_SetLastErrorInfo(result, "PinIsFormatSupported(capture) failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWinWDM_SetLastErrorInfo(result, "IsFormatSupported(capture) failed: sr=%u,ch=%u,bits=%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -3733,6 +3787,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     {
         PaWinWdmDeviceInfo* pDeviceInfo = (PaWinWdmDeviceInfo*)wdmHostApi->inheritedHostApiRep.deviceInfos[outputParameters->device];
         PaWinWdmPin* pin;
+        unsigned fmt;
+        unsigned long testFormat = 0;
+        unsigned validBits = 0;
 
         outputChannelCount = outputParameters->channelCount;
         outputSampleFormat = outputParameters->sampleFormat;
@@ -3741,7 +3798,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         this implementation doesn't support any custom sample formats */
         if( outputSampleFormat & paCustomFormat )
         {
-            PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "Custom output format not supported");
+            PaWinWDM_SetLastErrorInfo(paSampleFormatNotSupported, "IsFormatSupported: Custom output format not supported");
             return paSampleFormatNotSupported;
         }
 
@@ -3750,7 +3807,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
         {
-            PaWinWDM_SetLastErrorInfo(paInvalidDevice, "paUseHostApiSpecificDeviceSpecification not supported");
+            PaWinWDM_SetLastErrorInfo(paInvalidDevice, "IsFormatSupported: paUseHostApiSpecificDeviceSpecification not supported");
             return paInvalidDevice;
         }
 
@@ -3768,18 +3825,47 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             return paIncompatibleHostApiSpecificStreamInfo; /* this implementation doesn't use custom stream info */
         }
 
+        pFilter = pDeviceInfo->filter;
+        pin = pFilter->pins[pDeviceInfo->pin];
+        
+        /* Find out the testing format */
+        for (fmt = paFloat32; fmt <= paUInt8; fmt <<= 1)
+        {
+            if ((fmt & pin->formats) != 0)
+            {
+                /* Found a matching format! */
+                testFormat = fmt;
+                break;
+            }
+        }
+        if (testFormat == 0)
+        {
+            PaWinWDM_SetLastErrorInfo(result, "IsFormatSupported(render) failed: no testformat found!");
+            return paUnanticipatedHostError;
+        }
+
+        /* Due to special considerations, WaveRT devices with paInt24 should be tested with paInt32 and
+           valid bits = 24 (instead of 24 bit samples) */
+        if (pFilter->devInfo.streamingType == Type_kWaveRT && testFormat == paInt24)
+        {
+            PA_DEBUG(("IsFormatSupported (render): WaveRT overriding testFormat paInt24 with paInt32 (24 valid bits)"));
+            testFormat = paInt32;
+            validBits = 24;
+        }
+
         /* Check that the output format is supported */
         channelMask = PaWin_DefaultChannelMask(outputChannelCount);
         PaWin_InitializeWaveFormatExtensible((PaWinWaveFormat*)&wfx,
             outputChannelCount, 
-            paInt16,
-            PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+            testFormat,
+            PaWin_SampleFormatToLinearWaveFormatTag(testFormat),
             sampleRate,
             channelMask );
 
-
-        pFilter = pDeviceInfo->filter;
-        pin = pFilter->pins[pDeviceInfo->pin];
+        if (validBits != 0)
+        {
+            wfx.Samples.wValidBitsPerSample = validBits;
+        }
 
         result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
         if( result != paNoError )
@@ -3787,13 +3873,19 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
             /* Try a WAVE_FORMAT_PCM instead */
             PaWin_InitializeWaveFormatEx((PaWinWaveFormat*)&wfx,
                 outputChannelCount, 
-                paInt16,
-                PaWin_SampleFormatToLinearWaveFormatTag(paInt16),
+                testFormat,
+                PaWin_SampleFormatToLinearWaveFormatTag(testFormat),
                 sampleRate);
+
+            if (validBits != 0)
+            {
+                wfx.Samples.wValidBitsPerSample = validBits;
+            }
+
             result = PinIsFormatSupported(pin, (const WAVEFORMATEX*)&wfx);
             if( result != paNoError )
             {
-                PaWinWDM_SetLastErrorInfo(result, "PinIsFormatSupported(render) failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
+                PaWinWDM_SetLastErrorInfo(result, "IsFormatSupported(render) failed: %u,%u,%u", wfx.Format.nSamplesPerSec, wfx.Format.nChannels, wfx.Format.wBitsPerSample);
                 return result;
             }
         }
@@ -3934,7 +4026,7 @@ static PaError ValidateSpecificStreamParameters(
         {
             PA_DEBUG(("Stream parameters: noOfPackets out of range"));
             return paIncompatibleHostApiSpecificStreamInfo;
-    }
+        }
 
     }
 
@@ -4147,6 +4239,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         hostInputSampleFormat,
                         PaWin_SampleFormatToLinearWaveFormatTag(hostInputSampleFormat),
                         sampleRate);
+                    if (validBitsPerSample != 0)
+                    {
+                        wfx.Samples.wValidBitsPerSample = validBitsPerSample;
+                    }
                     stream->capture.pPin = FilterCreateCapturePin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
                 }
 
@@ -4284,6 +4380,10 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                         hostOutputSampleFormat,
                         PaWin_SampleFormatToLinearWaveFormatTag(hostOutputSampleFormat),
                         sampleRate);
+                    if (validBitsPerSample != 0)
+                    {
+                        wfx.Samples.wValidBitsPerSample = validBitsPerSample;
+                    }
                     stream->render.pPin = FilterCreateRenderPin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
                 }
 
