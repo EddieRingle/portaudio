@@ -1554,7 +1554,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                 }
 
                 /* This is then == the endpoint pin */
-                pin->endpointPinId = topoPinId;
+                pin->endpointPinId = (pin->dataFlow == KSPIN_DATAFLOW_IN) ? pinId : topoPinId;
             }
             else
             {
