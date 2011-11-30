@@ -2869,20 +2869,6 @@ static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
     return result == paNoError ? pin : 0;
 }
 
-static ULONG GetHash(const wchar_t* str)
-{
-    const ULONG fnv_prime = 0x811C9DC5;
-    ULONG hash      = 0;
-    for(; *str != 0; str++)
-    {
-        hash *= fnv_prime;
-        hash ^= (*str);
-    }
-    assert(hash != 0);
-    return hash;
-}
-
-
 static BOOL IsUSBDevice(const wchar_t* devicePath)
 {
     return (wcscmp(devicePath, L"\\\\?\\USB") == 0);
@@ -3231,6 +3217,132 @@ static int convertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
     return dst - dstStart;
 }
 
+typedef struct PaNameHashIndex
+{
+    unsigned index;
+    unsigned count;
+    ULONG    hash;
+    struct PaNameHashIndex *next;
+} PaNameHashIndex;
+
+typedef struct PaNameHashObject
+{
+    PaNameHashIndex* list;
+    PaUtilAllocationGroup* allocGroup;
+} PaNameHashObject;
+
+static ULONG GetHash(const wchar_t* str, const ULONG fnv_prime)
+{
+    ULONG hash      = 0;
+    for(; *str != 0; str++)
+    {
+        hash *= fnv_prime;
+        hash ^= (*str);
+    }
+    assert(hash != 0);
+    return hash;
+}
+
+static PaError CreateHashEntry(PaNameHashObject* obj, const wchar_t* name, BOOL input)
+{
+    /* This is to make sure a name that exists as both input & output won't get the same hash value */
+    ULONG hash = GetHash(name, (input ? 0x811C9DD7 : 0x811FEB0B)); 
+    PaNameHashIndex * pLast = NULL;
+    PaNameHashIndex * p = obj->list;
+    while (p != 0)
+    {
+        if (p->hash == hash)
+        {
+            break;
+        }
+        pLast = p;
+        p = p->next;
+    }
+    if (p == NULL)
+    {
+        p = (PaNameHashIndex*)PaUtil_GroupAllocateMemory(obj->allocGroup, sizeof(PaNameHashIndex));
+        if (p == NULL)
+        {
+            return paInsufficientMemory;
+        }
+        p->hash = hash;
+        p->count = 1;
+        if (pLast != 0)
+        {
+            assert(pLast->next == 0);
+            pLast->next = p;
+        }
+        if (obj->list == 0)
+        {
+            obj->list = p;
+        }
+    }
+    else
+    {
+        ++p->count;
+    }
+    return paNoError;
+}
+
+static PaError InitNameHashObject(PaNameHashObject* obj, PaWinWdmFilter* pFilter)
+{
+    int i;
+
+    obj->allocGroup = PaUtil_CreateAllocationGroup();
+    if (obj->allocGroup == NULL)
+    {
+        return paInsufficientMemory;
+    }
+
+    for (i = 0; i < pFilter->pinCount; ++i)
+    {
+        unsigned m;
+        PaWinWdmPin* pin = pFilter->pins[i];
+
+        if (pin == NULL)
+            continue;
+
+        for (m = 0; m < max(1, pin->inputCount); ++m)
+        {
+            const BOOL isInput = (pin->dataFlow == KSPIN_DATAFLOW_OUT);
+            const wchar_t* name = (pin->inputs == NULL) ? pin->friendlyName : pin->inputs[m]->friendlyName;
+
+            PaError result = CreateHashEntry(obj, name, isInput);
+
+            if (result != paNoError)
+            {
+                return result;
+            }
+        }
+    }
+    return paNoError;
+}
+
+static unsigned GetNameIndex(PaNameHashObject* obj, const wchar_t* name, BOOL input)
+{
+    ULONG hash = GetHash(name, (input ? 0x811C9DD7 : 0x811FEB0B)); 
+    PaNameHashIndex* p = obj->list;
+    while (p != NULL)
+    {
+        if (p->hash == hash)
+        {
+            if (p->count > 1)
+            {
+                return (++p->index);
+            }
+            else
+            {
+                return 0;
+            }
+        }
+
+        p = p->next;
+    }
+    // Should never get here!!
+    assert(FALSE);
+    return 0;
+}
+
 static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaHostApiIndex hostApiIndex, void **scanResults, int *newDeviceCount )
 {
     PaWinWdmHostApiRepresentation *wdmHostApi = (PaWinWdmHostApiRepresentation*)hostApi;
@@ -3292,13 +3404,20 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
         idxDevice = 0;
         for (idxFilter = 0; idxFilter < filterCount; ++idxFilter)
         {
+            PaNameHashObject nameHash = {0};
             PaWinWdmFilter* pFilter = ppFilters[idxFilter];
             if( pFilter == NULL )
                 continue;
 
+            if (InitNameHashObject(&nameHash, pFilter) != paNoError)
+            {
+                PaUtil_FreeAllAllocations(nameHash.allocGroup);
+                PaUtil_DestroyAllocationGroup(nameHash.allocGroup);
+                continue;
+            }
+
             for (i = 0; i < pFilter->pinCount; ++i)
             {
-                size_t n;
                 unsigned m;
                 ULONG nameIndex = 0;
                 ULONG nameIndexHash = 0;
@@ -3312,6 +3431,8 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
                     PaWinWdmDeviceInfo *wdmDeviceInfo = (PaWinWdmDeviceInfo *)outArgument->deviceInfos[idxDevice];
                     PaDeviceInfo *deviceInfo = &wdmDeviceInfo->inheritedDeviceInfo;
                     wchar_t localCompositeName[MAX_PATH];
+                    unsigned nameIndex = 0;
+                    const BOOL isInput = (pin->dataFlow == KSPIN_DATAFLOW_OUT);
 
                     wdmDeviceInfo->filter = pFilter;
 
@@ -3322,47 +3443,41 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
 
                     wdmDeviceInfo->pin = pin->pinId;
 
-                    /* Create the name of the "device" */
+                    /* Get the name of the "device" */
                     if (pin->inputs == NULL)
                     {
-                        _snwprintf(localCompositeName, MAX_PATH, L"%s (%s)", pin->friendlyName, pFilter->friendlyName);
+                        wcsncpy(localCompositeName, pin->friendlyName, MAX_PATH);
                         wdmDeviceInfo->muxPosition = -1;
                         wdmDeviceInfo->endpointPinId = pin->endpointPinId;
                     }
                     else
                     {
                         PaWinWdmMuxedInput* input = pin->inputs[m];
-                        /* Check if there are more inputs with same name (which might very well be the case), if there
-                        are, the name will be postfixed with an index. Note that current implementation only deals with
-                        recurrence of one name, not N this and M that... ;) */
-                        if (nameIndex == 0)
-                        {
-                            unsigned j = m + 1;
-                            for (; j < pin->inputCount; ++j)
-                            {
-                                if (wcscmp(pin->inputs[j]->friendlyName, input->friendlyName) == 0)
-                                {
-                                    nameIndex = 1;
-                                    nameIndexHash = GetHash(input->friendlyName);
-                                    break;
-                                }
-                            }
-                        }
-                        n = _snwprintf(localCompositeName, MAX_PATH, L"%s", input->friendlyName);
-                        if (nameIndex > 0 && (nameIndexHash == GetHash(input->friendlyName)))
-                        {
-                            n += _snwprintf(localCompositeName+n, MAX_PATH-n, L" %u", nameIndex);
-                            ++nameIndex;
-                        }
-                        _snwprintf(localCompositeName+n, MAX_PATH-n, L" (%s)", pFilter->friendlyName);
+                        wcsncpy(localCompositeName, input->friendlyName, MAX_PATH);
                         wdmDeviceInfo->muxPosition = (int)m;
                         wdmDeviceInfo->endpointPinId = input->endpointPinId;
+                    }
+
+                    {
+                        /* Get base length */
+                        size_t n = wcslen(localCompositeName);
+
+                        /* Check if there are more entries with same name (which might very well be the case), if there
+                        are, the name will be postfixed with an index. */
+                        nameIndex = GetNameIndex(&nameHash, localCompositeName, isInput);
+                        if (nameIndex > 0)
+                        {
+                            /* This name has multiple instances, so we post fix with a number */
+                            n += _snwprintf(localCompositeName + n, MAX_PATH - n, L" %u", nameIndex);
+                        }
+                        /* Postfix with filter name */
+                        _snwprintf(localCompositeName + n, MAX_PATH - n, L" (%s)", pFilter->friendlyName);
                     }
 
                     /* Convert wide char to utf-8 */
                     convertWideToUTF8(localCompositeName, wdmDeviceInfo->compositeName, MAX_PATH);
 
-                    if (pin->dataFlow == KSPIN_DATAFLOW_IN)
+                    if (!isInput)
                     {
                         /* OUTPUT ! */
                         deviceInfo->maxInputChannels  = 0;
@@ -3433,6 +3548,10 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
             {
                 FilterFree(pFilter);
             }
+
+            /* Free name hash object */
+            PaUtil_FreeAllAllocations(nameHash.allocGroup);
+            PaUtil_DestroyAllocationGroup(nameHash.allocGroup);
         }
     }
 
