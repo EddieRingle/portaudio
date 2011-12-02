@@ -3188,7 +3188,7 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
     return ppFilters;
 }
 
-static int convertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
+static int ConvertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
 {
     char* dstStart = dst;
     while (*src)
@@ -3231,9 +3231,11 @@ typedef struct PaNameHashObject
     PaUtilAllocationGroup* allocGroup;
 } PaNameHashObject;
 
-static ULONG GetHash(const wchar_t* str, const ULONG fnv_prime)
+static ULONG GetNameHash(const wchar_t* str, const BOOL input)
 {
-    ULONG hash      = 0;
+    /* This is to make sure that a name that exists as both input & output won't get the same hash value */
+    const ULONG fnv_prime = (input ? 0x811C9DD7 : 0x811FEB0B);
+    ULONG hash = 0;
     for(; *str != 0; str++)
     {
         hash *= fnv_prime;
@@ -3243,10 +3245,9 @@ static ULONG GetHash(const wchar_t* str, const ULONG fnv_prime)
     return hash;
 }
 
-static PaError CreateHashEntry(PaNameHashObject* obj, const wchar_t* name, BOOL input)
+static PaError CreateHashEntry(PaNameHashObject* obj, const wchar_t* name, const BOOL input)
 {
-    /* This is to make sure a name that exists as both input & output won't get the same hash value */
-    ULONG hash = GetHash(name, (input ? 0x811C9DD7 : 0x811FEB0B)); 
+    ULONG hash = GetNameHash(name, input); 
     PaNameHashIndex * pLast = NULL;
     PaNameHashIndex * p = obj->list;
     while (p != 0)
@@ -3318,9 +3319,17 @@ static PaError InitNameHashObject(PaNameHashObject* obj, PaWinWdmFilter* pFilter
     return paNoError;
 }
 
-static unsigned GetNameIndex(PaNameHashObject* obj, const wchar_t* name, BOOL input)
+static void DeinitNameHashObject(PaNameHashObject* obj)
 {
-    ULONG hash = GetHash(name, (input ? 0x811C9DD7 : 0x811FEB0B)); 
+    assert(obj != 0);
+    PaUtil_FreeAllAllocations(obj->allocGroup);
+    PaUtil_DestroyAllocationGroup(obj->allocGroup);
+    memset(obj, 0, sizeof(PaNameHashObject));
+}
+
+static unsigned GetNameIndex(PaNameHashObject* obj, const wchar_t* name, const BOOL input)
+{
+    ULONG hash = GetNameHash(name, input); 
     PaNameHashIndex* p = obj->list;
     while (p != NULL)
     {
@@ -3411,8 +3420,7 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
 
             if (InitNameHashObject(&nameHash, pFilter) != paNoError)
             {
-                PaUtil_FreeAllAllocations(nameHash.allocGroup);
-                PaUtil_DestroyAllocationGroup(nameHash.allocGroup);
+                DeinitNameHashObject(&nameHash);
                 continue;
             }
 
@@ -3474,8 +3482,8 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
                         _snwprintf(localCompositeName + n, MAX_PATH - n, L" (%s)", pFilter->friendlyName);
                     }
 
-                    /* Convert wide char to utf-8 */
-                    convertWideToUTF8(localCompositeName, wdmDeviceInfo->compositeName, MAX_PATH);
+                    /* Convert wide char string to utf-8 */
+                    ConvertWideToUTF8(localCompositeName, wdmDeviceInfo->compositeName, MAX_PATH);
 
                     if (!isInput)
                     {
@@ -3549,9 +3557,8 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
                 FilterFree(pFilter);
             }
 
-            /* Free name hash object */
-            PaUtil_FreeAllAllocations(nameHash.allocGroup);
-            PaUtil_DestroyAllocationGroup(nameHash.allocGroup);
+            /* Deinitialize name hash object */
+            DeinitNameHashObject(&nameHash);
         }
     }
 
