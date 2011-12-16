@@ -1199,7 +1199,7 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, wchar_t* name,
             );
         if (ptr != 0)
         {
-            PA_DEBUG(("GetNameFromCategory: USB GUID %04X -> '%s'\n", usbTerminalGUID, ptr->name));
+            PA_DEBUG(("GetNameFromCategory: USB GUID %04X -> '%S'\n", usbTerminalGUID, ptr->name));
 
             if (name != NULL && length > 0)
             {
@@ -1575,33 +1575,33 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                     );
                 if (result == paNoError)
                 {
-                    wchar_t mbsSymbLinkName[MAX_PATH];
-                    wcsncpy(mbsSymbLinkName, pc->SymbolicLinkName, MAX_PATH);
-                    if (mbsSymbLinkName[1] == TEXT('?'))
+                    wchar_t symbLinkName[MAX_PATH];
+                    wcsncpy(symbLinkName, pc->SymbolicLinkName, MAX_PATH);
+                    if (symbLinkName[1] == TEXT('?'))
                     {
-                        mbsSymbLinkName[1] = TEXT('\\');
+                        symbLinkName[1] = TEXT('\\');
                     }
 
                     if (pin->parentFilter->topologyFilter == NULL)
                     {
-                        PA_DEBUG(("PinNew: Creating topology filter '%s'\n", mbsSymbLinkName));
+                        PA_DEBUG(("PinNew: Creating topology filter '%S'\n", symbLinkName));
 
-                        pin->parentFilter->topologyFilter = FilterNew(Type_kNotUsed, 0, mbsSymbLinkName, L"", &result);
+                        pin->parentFilter->topologyFilter = FilterNew(Type_kNotUsed, 0, symbLinkName, L"", &result);
                         if (pin->parentFilter->topologyFilter == NULL)
                         {
                             PA_DEBUG(("PinNew: Failed creating topology filter\n"));
                             result = paUnanticipatedHostError;
-                            PaWinWDM_SetLastErrorInfo(result, "Failed to create topology filter '%s'", mbsSymbLinkName);
+                            PaWinWDM_SetLastErrorInfo(result, "Failed to create topology filter '%S'", symbLinkName);
                             goto error;
                         }
 
                         /* Copy info so we have it in device info */
-                        wcsncpy(pin->parentFilter->devInfo.topologyPath, mbsSymbLinkName, MAX_PATH);
+                        wcsncpy(pin->parentFilter->devInfo.topologyPath, symbLinkName, MAX_PATH);
                     }
                     else
                     {
                         /* Must be the same */
-                        assert(wcscmp(mbsSymbLinkName, pin->parentFilter->topologyFilter->devInfo.filterPath) == 0);
+                        assert(wcscmp(symbLinkName, pin->parentFilter->topologyFilter->devInfo.filterPath) == 0);
                     }
 
                     PA_DEBUG(("PinNew: Opening topology filter..."));
@@ -1669,7 +1669,7 @@ static PaWinWdmPin* PinNew(PaWinWdmFilter* parentFilter, unsigned long pinId, Pa
                                     }
                                 }
 
-                                PA_DEBUG(("PinNew: Pin name '%s'\n", pin->friendlyName));
+                                PA_DEBUG(("PinNew: Pin name '%S'\n", pin->friendlyName));
                             }
 
                             /* Set endpoint pin ID (this is the topology INPUT pin, since portmixer will always traverse the
@@ -2536,7 +2536,7 @@ static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, const wchar_t
         goto error;
     }
 
-    PA_DEBUG(("FilterNew: Creating filter '%s'\n", friendlyName));
+    PA_DEBUG(("FilterNew: Creating filter '%S'\n", friendlyName));
 
     /* Set type flag */
     filter->devInfo.streamingType = type;
@@ -5697,42 +5697,17 @@ static VOID CALLBACK TimerCallbackWaveRTPolledMode(
     if (pHandles[1]) SetEvent(pHandles[1]);
 }
 
-#pragma comment( lib, "ws2_32.lib" )
-
-
-int usleep(long usec)
-{
-    struct timeval tv;
-    fd_set dummy;
-    SOCKET s;
-    static BOOLEAN bInit = FALSE;
-    if (!bInit)
-    {
-        WORD wVersionRequested = MAKEWORD(1,0);
-        WSADATA wsaData;
-        WSAStartup(wVersionRequested, &wsaData);
-        bInit = TRUE;
-    }
-
-    s = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-    FD_ZERO(&dummy);
-    FD_SET(s, &dummy);
-    tv.tv_sec = usec/1000000L;
-    tv.tv_usec = usec%1000000L;
-    return select(0, 0, 0, &dummy, &tv);
-}
-
 PA_THREAD_FUNC ProcessingThread(void* pParam)
 {
     PaError result = paNoError;
     HANDLE hAVRT = NULL;
     HANDLE *handleArray = NULL;
-    HANDLE timerEventHandles[2];
-    HANDLE timerQueue = NULL;
-    HANDLE timerQueueTimer = NULL;
+    HANDLE timerEventHandles[2] = {0};
     unsigned noOfHandles = 0;
     unsigned captureEvents = 0;
     unsigned renderEvents = 0;
+    unsigned timerPeriod = 0;
+    unsigned timeoutCntr = 0;
 
     PaProcessThreadInfo info;
     memset(&info, 0, sizeof(PaProcessThreadInfo));
@@ -5751,7 +5726,8 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     info.timeout = (DWORD)max(
         (2000*info.stream->render.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5),
         (2000*info.stream->capture.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5));
-    info.timeout = (4 * max(info.timeout+1,1));
+    info.timeout = (8 * max(info.timeout+1,1));
+    timerPeriod = info.timeout;
     PA_DEBUG(("Timeout = %ld ms\n",info.timeout));
 
     /* Allocate handle array */
@@ -5817,50 +5793,25 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         info.pinsStarted = 1;
     }
 
-    /* Handle timer for WaveRT polled mode */
+    /* Handle WaveRT polled mode */
     {
         const unsigned fs = (unsigned)info.stream->streamRepresentation.streamInfo.sampleRate;
-        unsigned timerPeriod = (unsigned)-1;
         if (info.stream->capture.pPin != 0 && info.stream->capture.pPin->pinKsSubType == SubType_kPolled)
         {
             timerEventHandles[0] = info.stream->capture.events[0];
             timerPeriod = min(timerPeriod, (1000*info.stream->capture.framesPerBuffer)/fs);
         }
-        else
-        {
-            timerEventHandles[0] = 0;
-        }
+
         if (info.stream->render.pPin != 0 && info.stream->render.pPin->pinKsSubType == SubType_kPolled)
         {
             timerEventHandles[1] = info.stream->render.events[0];
             timerPeriod = min(timerPeriod, (1000*info.stream->render.framesPerBuffer)/fs);
         }
-        else
-        {
-            timerEventHandles[1] = 0;
-        }
+
         if (timerEventHandles[0] || timerEventHandles[1])
         {
-            timerQueue = CreateTimerQueue();
-            if (timerQueue==NULL)
-            {
-                PA_DEBUG(("CreateTimerQueue failed!\n"));
-                result = paUnanticipatedHostError;
-                PaWinWDM_SetLastErrorInfo(result, "CreateTimerQueue failed", timerPeriod);
-                goto error;
-            }
-
             timerPeriod=max(timerPeriod/5,1);
-
-            PA_HP_TRACE((info.stream->hLog, "Timer event handles=0x%04X,0x%04X period=%u ms", timerEventHandles[0], timerEventHandles[1], timerPeriod));
-
-            if (!CreateTimerQueueTimer(&timerQueueTimer, timerQueue, TimerCallbackWaveRTPolledMode, timerEventHandles, timerPeriod, timerPeriod, WT_EXECUTEINTIMERTHREAD /* WT_EXECUTEINPERSISTENTTHREAD*/))
-            {
-                PA_DEBUG(("CreateTimerQueueTimer failed!? (period=%u)\n", timerPeriod));
-                result = paUnanticipatedHostError;
-                PaWinWDM_SetLastErrorInfo(result, "CreateTimerQueueTimer failed (period=%u)", timerPeriod);
-                goto error;
-            }
+            PA_DEBUG(("Timer event handles=0x%04X,0x%04X period=%u ms", timerEventHandles[0], timerEventHandles[1], timerPeriod));
         }
     }
 
@@ -5879,13 +5830,14 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
         if (wait == WAIT_FAILED) 
         {
-            PA_HP_TRACE((info.stream->hLog, "Wait failed = %ld! \n",wait));
+            PA_DEBUG(("Wait failed = %ld! \n",wait));
             break;
         }
 
+timerloopback: /* We cannot rely on Windows timers to release the WFMO reliably */
         if (wait == WAIT_TIMEOUT)
         {
-            wait = WaitForMultipleObjects(noOfHandles, handleArray, FALSE, info.timeout);
+            wait = WaitForMultipleObjects(noOfHandles, handleArray, FALSE, timerPeriod);
             eventSignalled = wait - WAIT_OBJECT_0;
         }
         else
@@ -5898,34 +5850,48 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
                     info.underover |= paInputOverflow;
                 }
             }
-            else if (eventSignalled < renderEvents) {
+            else if (eventSignalled < renderEvents)
+            {
                 if (!info.priming && info.renderHead - info.renderTail > 1)
                 {
                     PA_HP_TRACE((info.stream->hLog, "!!!!! Output underflow !!!!!"));
                     info.underover |= paOutputUnderflow;
                 }
             }
-
         }
 
         if (wait == WAIT_TIMEOUT)
         {
+            timeoutCntr += timerPeriod;
+
+            if (timeoutCntr < info.timeout)
+            {
+                /* Here we simulate the timer */
+                if (timerEventHandles[0] || timerEventHandles[1])
+                {
+                    if (timerEventHandles[0]) SetEvent(timerEventHandles[0]);
+                    if (timerEventHandles[1]) SetEvent(timerEventHandles[1]);
+                    goto timerloopback;
+                }
+            }
+
             if (info.stream->disableTimeout)
             {
                 PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u) NO EXIT!", info.timeout));
             }
             else
             {
-            PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u)", info.timeout));
-            result = paUnanticipatedHostError;
-            PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
-            break;
-        }
+                PA_DEBUG(("WFMO(2) signalled timeout (to=%u)", info.timeout));
+                result = paUnanticipatedHostError;
+                PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
+                break;
+            }
         }
         else
         {
             if (eventSignalled < captureEvents)
             {
+                timeoutCntr = 0;
                 info.stream->capture.pPin->fnEventHandler(&info, eventSignalled);
                 /* Since we use the ring buffer, we can submit the buffers directly */
                 if (!info.stream->streamStop)
@@ -5947,6 +5913,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
             }
             else if (eventSignalled < renderEvents)
             {
+                timeoutCntr = 0;
                 eventSignalled -= captureEvents;
                 info.stream->render.pPin->fnEventHandler(&info, eventSignalled);
             }
@@ -5998,12 +5965,6 @@ error:
     SetEvent(info.stream->eventStreamStart[StreamStart_kFailed]);
 
 bailout:
-    if (timerQueue != NULL)
-    {
-        DeleteTimerQueue(timerQueue);
-        timerQueue = 0;
-    }
-
     if (info.pinsStarted)
     {
         StopPins(&info);
