@@ -5419,21 +5419,21 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
         {
             unsigned i;
             for(i=0; i < pInfo->stream->capture.noOfPackets; ++i)
-    {
+            {
                 if ((result = PinRead(pInfo->stream->capture.pPin->handle, pInfo->stream->capture.packets + i)) != paNoError)
-        {
-            goto error;
-        }
+                {
+                    goto error;
+                }
                 /* Reset the events as some devices SET the event on PinRead */
                 ResetEvent(pInfo->stream->capture.packets[i].Signal.hEvent);
                 ++pInfo->pending;
-    }
-            }
-        else
-            {
-            pInfo->pending = 2;
             }
         }
+        else
+        {
+            pInfo->pending = 2;
+        }
+    }
 
     if(pInfo->stream->render.pPin)
     {
@@ -5451,9 +5451,9 @@ static PaError PreparePinsForStart(PaProcessThreadInfo* pInfo)
             for(i=1; i < pInfo->stream->render.noOfPackets; ++i)
             {
                 SetEvent(pInfo->stream->render.events[i]);
-            ++pInfo->pending;
+                ++pInfo->pending;
+            }
         }
-    }
     }
 
 error:
@@ -5687,27 +5687,33 @@ static PaError PaDoProcessing(PaProcessThreadInfo* pInfo)
     return result;
 }
 
-static VOID CALLBACK TimerCallbackWaveRTPolledMode(
-    PVOID lpParameter,
-    BOOLEAN TimerOrWaitFired
-    )
+static VOID CALLBACK TimerAPCWaveRTPolledMode(
+    LPVOID lpArgToCompletionRoutine,
+    DWORD dwTimerLowValue,
+    DWORD dwTimerHighValue)
 {
-    HANDLE* pHandles = (HANDLE*)lpParameter;
+    HANDLE* pHandles = (HANDLE*)lpArgToCompletionRoutine;
     if (pHandles[0]) SetEvent(pHandles[0]);
     if (pHandles[1]) SetEvent(pHandles[1]);
+}
+
+static DWORD GetCurrentTimeInMillisecs()
+{
+    return timeGetTime();
 }
 
 PA_THREAD_FUNC ProcessingThread(void* pParam)
 {
     PaError result = paNoError;
     HANDLE hAVRT = NULL;
+    HANDLE hTimer = NULL;
     HANDLE *handleArray = NULL;
     HANDLE timerEventHandles[2] = {0};
     unsigned noOfHandles = 0;
     unsigned captureEvents = 0;
     unsigned renderEvents = 0;
     unsigned timerPeriod = 0;
-    unsigned timeoutCntr = 0;
+    DWORD timeStamp[2] = {0};
 
     PaProcessThreadInfo info;
     memset(&info, 0, sizeof(PaProcessThreadInfo));
@@ -5726,7 +5732,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     info.timeout = (DWORD)max(
         (2000*info.stream->render.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5),
         (2000*info.stream->capture.framesPerBuffer/info.stream->streamRepresentation.streamInfo.sampleRate + 0.5));
-    info.timeout = (8 * max(info.timeout+1,1));
+    info.timeout = max(info.timeout*8, 100);
     timerPeriod = info.timeout;
     PA_DEBUG(("Timeout = %ld ms\n",info.timeout));
 
@@ -5810,8 +5816,23 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
         if (timerEventHandles[0] || timerEventHandles[1])
         {
+            LARGE_INTEGER dueTime = {0};
+
             timerPeriod=max(timerPeriod/5,1);
             PA_DEBUG(("Timer event handles=0x%04X,0x%04X period=%u ms", timerEventHandles[0], timerEventHandles[1], timerPeriod));
+            hTimer = CreateWaitableTimer(0, FALSE, NULL);
+            if (hTimer == NULL)
+            {
+                result = paUnanticipatedHostError;
+                goto error;
+            }
+            /* invoke first timeout immediately */
+            if (!SetWaitableTimer(hTimer, &dueTime, timerPeriod, TimerAPCWaveRTPolledMode, timerEventHandles, FALSE))
+            {
+                result = paUnanticipatedHostError;
+                goto error;
+            }
+            PA_DEBUG(("Waitable timer started, period = %u ms\n", timerPeriod));
         }
     }
 
@@ -5822,22 +5843,24 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
     /* Up and running... */
     SetEvent(info.stream->eventStreamStart[StreamStart_kOk]);
 
+    /* Take timestamp here */
+    timeStamp[0] = timeStamp[1] = GetCurrentTimeInMillisecs();
+
     while(!info.stream->streamAbort)
     {
         unsigned doProcessing = 1;
         unsigned wait = WaitForMultipleObjects(noOfHandles, handleArray, FALSE, 0);
         unsigned eventSignalled = wait - WAIT_OBJECT_0;
+        DWORD dwCurrentTime = 0;
 
         if (wait == WAIT_FAILED) 
         {
             PA_DEBUG(("Wait failed = %ld! \n",wait));
             break;
         }
-
-timerloopback: /* We cannot rely on Windows timers to release the WFMO reliably */
         if (wait == WAIT_TIMEOUT)
         {
-            wait = WaitForMultipleObjects(noOfHandles, handleArray, FALSE, timerPeriod);
+            wait = WaitForMultipleObjectsEx(noOfHandles, handleArray, FALSE, 20, TRUE);
             eventSignalled = wait - WAIT_OBJECT_0;
         }
         else
@@ -5860,38 +5883,41 @@ timerloopback: /* We cannot rely on Windows timers to release the WFMO reliably 
             }
         }
 
+        /* Get event time */
+        dwCurrentTime = GetCurrentTimeInMillisecs();
+
+        /* Since we can mix capture/render devices between WaveCyclic, WaveRT polled and WaveRT notification (3x3 combinations), 
+           we can't rely on the timeout of WFMO to check for device timeouts, we need to keep tally. */
+        if (info.stream->capture.pPin && (dwCurrentTime - timeStamp[0]) >= info.timeout)
+        {
+            PA_DEBUG(("Timeout for capture device (%u ms)!", info.timeout, (dwCurrentTime - timeStamp[0])));
+            result = paTimedOut;
+            break;
+        }
+        if (info.stream->render.pPin && (dwCurrentTime - timeStamp[1]) >= info.timeout)
+        {
+            PA_DEBUG(("Timeout for render device (%u ms)!", info.timeout, (dwCurrentTime - timeStamp[1])));
+            result = paTimedOut;
+            break;
+        }
+
+        if (wait == WAIT_IO_COMPLETION)
+        {
+            /* Waitable timer has fired! */
+            PA_HP_TRACE((info.stream->hLog, "WAIT_IO_COMPLETION"));
+            continue;
+        }
+
         if (wait == WAIT_TIMEOUT)
         {
-            timeoutCntr += timerPeriod;
-
-            if (timeoutCntr < info.timeout)
-            {
-                /* Here we simulate the timer */
-                if (timerEventHandles[0] || timerEventHandles[1])
-                {
-                    if (timerEventHandles[0]) SetEvent(timerEventHandles[0]);
-                    if (timerEventHandles[1]) SetEvent(timerEventHandles[1]);
-                    goto timerloopback;
-                }
-            }
-
-            if (info.stream->disableTimeout)
-            {
-                PA_HP_TRACE((info.stream->hLog, "WFMO(2) signalled timeout (to=%u) NO EXIT!", info.timeout));
-            }
-            else
-            {
-                PA_DEBUG(("WFMO(2) signalled timeout (to=%u)", info.timeout));
-                result = paUnanticipatedHostError;
-                PaWinWDM_SetLastErrorInfo(result, "WFMO(2) signalled timeout (to=%u)", info.timeout);
-                break;
-            }
+            PA_HP_TRACE((info.stream->hLog, "WAIT_TIMEOUT"));
+            continue;
         }
         else
         {
             if (eventSignalled < captureEvents)
             {
-                timeoutCntr = 0;
+                timeStamp[0] = dwCurrentTime;
                 info.stream->capture.pPin->fnEventHandler(&info, eventSignalled);
                 /* Since we use the ring buffer, we can submit the buffers directly */
                 if (!info.stream->streamStop)
@@ -5913,11 +5939,12 @@ timerloopback: /* We cannot rely on Windows timers to release the WFMO reliably 
             }
             else if (eventSignalled < renderEvents)
             {
-                timeoutCntr = 0;
+                timeStamp[1] = dwCurrentTime;
                 eventSignalled -= captureEvents;
                 info.stream->render.pPin->fnEventHandler(&info, eventSignalled);
             }
-            else {
+            else
+            {
                 assert(info.stream->streamAbort);
                 PA_HP_TRACE((info.stream->hLog, "Stream abort!"));
                 continue;
@@ -5965,6 +5992,14 @@ error:
     SetEvent(info.stream->eventStreamStart[StreamStart_kFailed]);
 
 bailout:
+    if (hTimer)
+    {
+        PA_DEBUG(("Waitable timer stopped\n", timerPeriod));
+        CancelWaitableTimer(hTimer);
+        CloseHandle(hTimer);
+        hTimer = 0;
+    }
+
     if (info.pinsStarted)
     {
         StopPins(&info);
@@ -5981,6 +6016,7 @@ bailout:
 #if PA_TRACE_REALTIME_EVENTS
     if (info.stream->hLog)
     {
+        PA_DEBUG(("Dumping highspeed trace...\n"));
         PaUtil_DumpHighSpeedLog(info.stream->hLog, "hp_trace.log");
         PaUtil_DiscardHighSpeedLog(info.stream->hLog);
         info.stream->hLog = 0;
@@ -6104,6 +6140,7 @@ static PaError StopStream( PaStream *s )
     CloseHandle(stream->streamThread);
     stream->streamThread = 0;
     stream->streamStarted = 0;
+    stream->streamActive = 0;
 
     if(doCb)
     {
