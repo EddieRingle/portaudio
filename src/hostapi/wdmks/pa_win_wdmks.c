@@ -4886,7 +4886,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     DATAPACKET *p = stream->capture.packets + i;
 
                     /* Record event */
-                    stream->capture.events[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
+                    stream->capture.events[i] = CreateEvent(NULL, TRUE, FALSE, NULL);
 
                     p->Signal.hEvent = stream->capture.events[i];
                     p->Header.Data = stream->capture.hostBuffer + (i*bufferSizeInBytes);
@@ -4994,7 +4994,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     DATAPACKET *p = stream->render.packets + i;
 
                     /* Playback event */
-                    stream->render.events[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
+                    stream->render.events[i] = CreateEvent(NULL, TRUE, FALSE, NULL);
 
                     /* In this case, we just use the packets as ptr to the device buffer */
                     p->Signal.hEvent = stream->render.events[i];
@@ -5860,7 +5860,7 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
         }
         if (wait == WAIT_TIMEOUT)
         {
-            wait = WaitForMultipleObjectsEx(noOfHandles, handleArray, FALSE, 20, TRUE);
+            wait = WaitForMultipleObjectsEx(noOfHandles, handleArray, FALSE, 50, TRUE);
             eventSignalled = wait - WAIT_OBJECT_0;
         }
         else
@@ -5910,7 +5910,6 @@ PA_THREAD_FUNC ProcessingThread(void* pParam)
 
         if (wait == WAIT_TIMEOUT)
         {
-            PA_HP_TRACE((info.stream->hLog, "WAIT_TIMEOUT"));
             continue;
         }
         else
@@ -6375,9 +6374,9 @@ static PaError PaPinRenderSubmitHandler_WaveCyclic(PaProcessThreadInfo* pInfo, u
     assert(packet != 0);
 
     PA_HP_TRACE((pInfo->stream->hLog, "Render submit : %u idx=%u", pInfo->renderTail, (unsigned)(packet - pInfo->stream->render.packets)));
+    ResetEvent(packet->Signal.hEvent);
     result = PinWrite(pInfo->stream->render.pPin->handle, packet);
     /* Reset event, just in case we have an analogous situation to capture (see PaPinCaptureSubmitHandler_WaveCyclic) */
-    ResetEvent(packet->Signal.hEvent);
     ++pInfo->pending;
     if (pInfo->priming)
     {
