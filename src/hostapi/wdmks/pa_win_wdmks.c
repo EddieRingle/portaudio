@@ -695,6 +695,7 @@ static PaError WdmSyncIoctl(
             ( ioctlNumber == IOCTL_KS_PROPERTY ) &&
             ( outBufferCount == 0 ) ) ) 
         {
+            PaWinWDM_SetLastErrorInfo(result, "WdmSyncIoctl: DeviceIoControl GLE = 0x%08X", error);
             result = paUnanticipatedHostError;
         }
     }
@@ -1211,6 +1212,10 @@ static PaError GetNameFromCategory(const GUID* pGUID, BOOL input, wchar_t* name,
             }
             result = paNoError;
         }
+    }
+    else
+    {
+        PaWinWDM_SetLastErrorInfo(result, "GetNameFromCategory: usbTerminalGUID = %04X ", usbTerminalGUID);
     }
     return result;
 }
@@ -2309,6 +2314,7 @@ static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequested
             result = PinGetBufferWithNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
             if (result == paNoError)
             {
+                PA_DEBUG(("PinGetBuffer: SubType_kNotification\n"));
                 pPin->pinKsSubType = SubType_kNotification;
                 break;
             }
@@ -2317,6 +2323,7 @@ static PaError PinGetBuffer(PaWinWdmPin* pPin, void** pBuffer, DWORD* pRequested
         result = PinGetBufferWithoutNotification(pPin, pBuffer, pRequestedBufSize, pbCallMemBarrier);
         if (result == paNoError)
         {
+            PA_DEBUG(("PinGetBuffer: SubType_kPolled\n"));
             pPin->pinKsSubType = SubType_kPolled;
             break;
         }
@@ -2887,7 +2894,7 @@ typedef enum _tag_EAlias
 } EAlias;
 
 /* Trim whitespace from string */
-static void TrimString(wchar_t* str, unsigned length)
+static void TrimString(wchar_t* str, size_t length)
 {
     wchar_t* s = str;
     wchar_t* e = 0;
@@ -3188,7 +3195,7 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
     return ppFilters;
 }
 
-static int ConvertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
+static size_t ConvertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
 {
     char* dstStart = dst;
     while (*src)
@@ -4150,7 +4157,7 @@ static PaError ValidateSpecificStreamParameters(
         if (streamInfo->noOfPackets != 0 &&
             (streamInfo->noOfPackets < 2 || streamInfo->noOfPackets > 8))
         {
-            PA_DEBUG(("Stream parameters: noOfPackets out of range"));
+            PA_DEBUG(("Stream parameters: noOfPackets %u out of range [2,8]", streamInfo->noOfPackets));
             return paIncompatibleHostApiSpecificStreamInfo;
         }
 
@@ -4769,7 +4776,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 result = PinGetBuffer(stream->render.pPin, (void**)&stream->render.hostBuffer, &dwRequestedSize, &bCallMemoryBarrier);
                 if (!result) 
                 {
-                    PA_DEBUG(("Output buffer start = %p, size = %u\n", stream->render.hostBuffer, dwRequestedSize));
+                    PA_DEBUG(("Output buffer start = %p, size = %u, membarrier = %u\n", stream->render.hostBuffer, dwRequestedSize, bCallMemoryBarrier));
                     if (dwRequestedSize != dwTotalSize)
                     {
                         PA_DEBUG(("Buffer length changed by driver from %u to %u !\n", dwTotalSize, dwRequestedSize));
