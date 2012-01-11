@@ -3105,21 +3105,6 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
                 }
             }
 
-            /* Try to get DriverDesc, to get same names as WASAPI exposes */
-            if (friendlyName[0] == 0 || IsNameUSBAudioDevice(friendlyName))
-            {
-                if (!SetupDiGetDeviceRegistryPropertyW(handle,
-                    &devInfoData,
-                    SPDRP_DEVICEDESC,
-                    &type,
-                    (BYTE*)friendlyName,
-                    sizeof(friendlyName),
-                    NULL))
-                {
-                    friendlyName[0] = 0;
-                }
-            }
-
             if (friendlyName[0] == 0 || IsNameUSBAudioDevice(friendlyName))
             {
                 /* Fix contributed by Ben Allison
