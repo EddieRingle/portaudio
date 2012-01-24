@@ -142,6 +142,10 @@ typedef struct PaAsioStreamInfo{
     int *channelSelectors;
 }PaAsioStreamInfo;
 
+/* ASIO host API specific stream info */
+typedef struct PaAsioSpecificStreamInfo {
+    unsigned long framesPerHostCallback;
+} PaAsioSpecificStreamInfo;
 
 #ifdef __cplusplus
 }

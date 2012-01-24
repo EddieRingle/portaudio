@@ -1641,7 +1641,7 @@ typedef struct PaAsioStream
     PaUtilBufferProcessor bufferProcessor;
 
     PaAsioHostApiRepresentation *asioHostApi;
-    unsigned long framesPerHostCallback;
+    PaAsioSpecificStreamInfo hostApiStreamInfo;
 
     /* ASIO driver info  - these may not be needed for the life of the stream,
         but store them here until we work out how format conversion is going
@@ -1694,7 +1694,7 @@ static void ZeroOutputBuffers( PaAsioStream *stream, long index )
 
         int bytesPerSample = BytesPerAsioSample( stream->asioChannelInfos[ i + stream->inputChannelCount ].type );
 
-        memset( buffer, 0, stream->framesPerHostCallback * bytesPerSample );
+        memset( buffer, 0, stream->hostApiStreamInfo.framesPerHostCallback * bytesPerSample );
     }
 }
 
@@ -2622,14 +2622,17 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     stream->asioHostApi = asioHostApi;
-    stream->framesPerHostCallback = framesPerHostBuffer;
+    stream->hostApiStreamInfo.framesPerHostCallback = framesPerHostBuffer;
 
     stream->inputChannelCount = inputChannelCount;
     stream->outputChannelCount = outputChannelCount;
     stream->postOutput = driverInfo->postOutput;
     stream->isStopped = 1;
     stream->isActive = 0;
-    
+
+    stream->streamRepresentation.streamInfo.hostApiTypeId = paASIO;
+    stream->streamRepresentation.streamInfo.hostApiSpecificStreamInfo = &stream->hostApiStreamInfo;
+
     asioHostApi->openAsioDeviceIndex = asioDeviceIndex;
 
     theAsioStream = stream;
@@ -2989,7 +2992,7 @@ previousTime = paTimeInfo.currentTime;
                     for( i=0; i<theAsioStream->inputChannelCount; i++ )
                     {
                         theAsioStream->inputBufferConverter( theAsioStream->inputBufferPtrs[index][i],
-                                theAsioStream->inputShift, theAsioStream->framesPerHostCallback );
+                                theAsioStream->inputShift, theAsioStream->hostApiStreamInfo.framesPerHostCallback );
                     }
                 }
 
@@ -3018,7 +3021,7 @@ previousTime = paTimeInfo.currentTime;
                     for( i=0; i<theAsioStream->outputChannelCount; i++ )
                     {
                         theAsioStream->outputBufferConverter( theAsioStream->outputBufferPtrs[index][i],
-                                theAsioStream->outputShift, theAsioStream->framesPerHostCallback );
+                                theAsioStream->outputShift, theAsioStream->hostApiStreamInfo.framesPerHostCallback );
                     }
                 }
 

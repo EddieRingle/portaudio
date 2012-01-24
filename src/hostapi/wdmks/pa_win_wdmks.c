@@ -491,20 +491,13 @@ static PaWinWdmFilter* FilterNew(PaWDMKSType type, DWORD devNode, const wchar_t*
 static PaError FilterInitializePins(PaWinWdmFilter* filter);
 static void FilterFree(PaWinWdmFilter* filter);
 static void FilterAddRef(PaWinWdmFilter* filter);
-static PaWinWdmPin* FilterCreateRenderPin(
+static PaWinWdmPin* FilterCreatePin(
     PaWinWdmFilter* filter,
     int pinId,
     const WAVEFORMATEX* wfex,
     PaError* error);
-static PaWinWdmPin* FilterCreateCapturePin(
-    PaWinWdmFilter* filter,
-    int pinId,
-    const WAVEFORMATEX* wfex,
-    PaError* error);
-static PaError FilterUse(
-                         PaWinWdmFilter* filter);
-static void FilterRelease(
-                          PaWinWdmFilter* filter);
+static PaError FilterUse(PaWinWdmFilter* filter);
+static void FilterRelease(PaWinWdmFilter* filter);
 
 /* Hot plug functions */
 static BOOL IsDeviceTheSame(const PaWinWdmDeviceInfo* pDev1,
@@ -2526,9 +2519,7 @@ static PaError PinGetAudioPositionViaIOCTL(PaWinWdmPin* pPin, ULONG* pPosition)
 /***********************************************************************************************/
 
 /**
-* Create a new filter object. If initPins is TRUE, the pins will be instantiated aswell. Why would you not want this, you
-* may ask ? Well, in a hot plug/unplug situation, you might want to init a filter object without pins, since the latter will
-* fail if the device is in use, but you don't want that as an indication that the filter creation failed.
+* Create a new filter object. 
 */
 static PaWinWdmFilter* FilterNew( PaWDMKSType type, DWORD devNode, const wchar_t* filterName, const wchar_t* friendlyName, PaError* error )
 {
@@ -2830,36 +2821,12 @@ static void FilterRelease(PaWinWdmFilter* filter)
 }
 
 /**
-* Create a render (playback) Pin using the supplied format
+* Create a render or playback pin using the supplied format
 **/
-static PaWinWdmPin* FilterCreateRenderPin(PaWinWdmFilter* filter,
-                                          int pinId,
-                                          const WAVEFORMATEX* wfex,
-                                          PaError* error)
-{
-    PaError result = paNoError;
-    PaWinWdmPin* pin = NULL;
-    assert( filter );
-    assert( pinId < filter->pinCount );
-    pin = filter->pins[pinId];
-    assert( pin );
-    result = PinSetFormat(pin,wfex);
-    if( result == paNoError )
-    {
-        result = PinInstantiate(pin);
-    }
-    *error = result;
-    return result == paNoError ? pin : 0;
-}
-
-
-/**
-* Create a capture (record) Pin using the supplied format
-**/
-static PaWinWdmPin* FilterCreateCapturePin(PaWinWdmFilter* filter,
-                                           int pinId,
-                                           const WAVEFORMATEX* wfex,
-                                           PaError* error)
+static PaWinWdmPin* FilterCreatePin(PaWinWdmFilter* filter,
+                                    int pinId,
+                                    const WAVEFORMATEX* wfex,
+                                    PaError* error)
 {
     PaError result = paNoError;
     PaWinWdmPin* pin = NULL;
@@ -3180,35 +3147,6 @@ PaWinWdmFilter** BuildFilterList( int* pFilterCount, int* pNoOfPaDevices, PaErro
     return ppFilters;
 }
 
-static size_t ConvertWideToUTF8(const wchar_t* src, char* dst, int maxLength)
-{
-    char* dstStart = dst;
-    while (*src)
-    {
-        wchar_t c = *src++;
-
-        if (c < 0x80)
-        {
-            if (dst - dstStart >= maxLength) break;
-            *dst++ = (char)c;
-        }
-        else if (c < 0x800)
-        {
-            if (dst - dstStart >= maxLength-1) break;
-            *dst++ = 0xc0 | (c>>6);
-            *dst++ = 0x80 | c & 0x3f;
-        }
-        else {
-            if (dst - dstStart >= maxLength-2) break;
-            *dst++ = 0xe0 | (c>>12);
-            *dst++ = 0x80 | ((c>>6) & 0x3f);
-            *dst++ = 0x80 | (c & 0x3f);
-        }
-    }
-    *dst = 0;
-    return dst - dstStart;
-}
-
 typedef struct PaNameHashIndex
 {
     unsigned index;
@@ -3475,19 +3413,20 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
                     }
 
                     /* Convert wide char string to utf-8 */
-                    ConvertWideToUTF8(localCompositeName, wdmDeviceInfo->compositeName, MAX_PATH);
+                    WideCharToMultiByte(CP_UTF8, 0, localCompositeName, -1, wdmDeviceInfo->compositeName, MAX_PATH, NULL, NULL);
 
-                    if (!isInput)
-                    {
-                        /* OUTPUT ! */
-                        deviceInfo->maxInputChannels  = 0;
-                        deviceInfo->maxOutputChannels = pin->maxChannels;
-                    }
-                    else
+                    /* NB! WDM/KS has no concept of a full-duplex device, each pin is either an input or and output */
+                    if (isInput)
                     {
                         /* INPUT ! */
                         deviceInfo->maxInputChannels  = pin->maxChannels;
                         deviceInfo->maxOutputChannels = 0;
+                    }
+                    else
+                    {
+                        /* OUTPUT ! */
+                        deviceInfo->maxInputChannels  = 0;
+                        deviceInfo->maxOutputChannels = pin->maxChannels;
                     }
 
                     /* These low values are not very useful because
@@ -3524,10 +3463,10 @@ static PaError ScanDeviceInfos( struct PaUtilHostApiRepresentation *hostApi, PaH
                     case Type_kWaveRT:
                         /* This is also a conservative estimate, based on WaveRT polled mode. In polled mode, the latency will be dictated
                         by the buffer size given by the driver. */
-                        deviceInfo->defaultLowInputLatency = 0.005;
-                        deviceInfo->defaultLowOutputLatency = 0.005;
-                        deviceInfo->defaultHighInputLatency = (512/48000.0);
-                        deviceInfo->defaultHighOutputLatency = (512/48000.0);
+                        deviceInfo->defaultLowInputLatency = 0.01;
+                        deviceInfo->defaultLowOutputLatency = 0.01;
+                        deviceInfo->defaultHighInputLatency = 0.04;
+                        deviceInfo->defaultHighOutputLatency = 0.04;
                         deviceInfo->defaultSampleRate = (double)(pin->bestSampleRate);
                         break;
                     default:
@@ -4346,7 +4285,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 {
                     wfx.Samples.wValidBitsPerSample = validBitsPerSample;
                 }
-                stream->capture.pPin = FilterCreateCapturePin(pFilter, pPin->pinId, (WAVEFORMATEX*)&wfx, &result);
+                stream->capture.pPin = FilterCreatePin(pFilter, pPin->pinId, (WAVEFORMATEX*)&wfx, &result);
                 stream->deviceInputChannels = channelsToProbe;
 
                 if( result != paNoError && result != paDeviceUnavailable )
@@ -4361,7 +4300,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     {
                         wfx.Samples.wValidBitsPerSample = validBitsPerSample;
                     }
-                    stream->capture.pPin = FilterCreateCapturePin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
+                    stream->capture.pPin = FilterCreatePin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
                 }
 
                 if (result == paDeviceUnavailable) goto occupied;
@@ -4488,7 +4427,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                 {
                     wfx.Samples.wValidBitsPerSample = validBitsPerSample;
                 }
-                stream->render.pPin = FilterCreateRenderPin(pFilter, pPin->pinId, (WAVEFORMATEX*)&wfx, &result);
+                stream->render.pPin = FilterCreatePin(pFilter, pPin->pinId, (WAVEFORMATEX*)&wfx, &result);
                 stream->deviceOutputChannels = channelsToProbe;
 
                 if( result != paNoError && result != paDeviceUnavailable )
@@ -4502,7 +4441,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                     {
                         wfx.Samples.wValidBitsPerSample = validBitsPerSample;
                     }
-                    stream->render.pPin = FilterCreateRenderPin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
+                    stream->render.pPin = FilterCreatePin(pFilter, pPin->pinId, (const WAVEFORMATEX*)&wfx, &result);
                 }
 
                 if (result == paDeviceUnavailable) goto occupied;
