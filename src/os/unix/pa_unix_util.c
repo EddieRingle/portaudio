@@ -105,7 +105,7 @@ int PaUtil_CountCurrentlyAllocatedBlocks( void )
 }
 
 
-void Pa_Sleep( long msec )
+void Pa_Sleep( unsigned int msec )
 {
 #ifdef HAVE_NANOSLEEP
     struct timespec req = {0}, rem = {0};

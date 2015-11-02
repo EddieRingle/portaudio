@@ -1164,7 +1164,7 @@ PaError Pa_GetSampleSize( PaSampleFormat format );
  The function may sleep longer than requested so don't rely on this for accurate
  musical timing.
 */
-void Pa_Sleep( long msec );
+void Pa_Sleep( unsigned int msec );
 
 
 
